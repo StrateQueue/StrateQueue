@@ -38,11 +38,11 @@ class MyStrategy(Strategy):
 ### 2. Run Live System
 ```bash
 # Demo mode (synthetic data)
-python main.py --strategy my_strategy.py --symbols AAPL,MSFT --data-source demo --duration 5
+python main.py --strategy examples/strategies/sma.py --symbols AAPL,MSFT --data-source demo --duration 5
 
 # Live mode (requires Polygon.io API key)
 export POLYGON_API_KEY="your_key_here"
-python main.py --strategy my_strategy.py --symbols AAPL --data-source polygon --duration 60
+python main.py --strategy examples/strategies/sma.py --symbols AAPL --data-source polygon --duration 60
 ```
 
 ### 3. Monitor Signals
@@ -72,11 +72,13 @@ Indicators:
 ## 📁 Key Files
 
 - **`main.py`**: Main orchestrator and CLI interface
-- **`data_ingestion.py`**: Data sources (Polygon.io + synthetic)
-- **`signal_extractor.py`**: Strategy-to-signal conversion
-- **`config.py`**: Environment configuration
-- **`random_strategy.py`**: Example random strategy
-- **`sma.py`**: Example SMA crossover strategy
+- **`src/trading_system/`**: Core trading system modules
+  - **`data_ingestion.py`**: Data sources (Polygon.io + synthetic)
+  - **`signal_extractor.py`**: Strategy-to-signal conversion
+  - **`config.py`**: Environment configuration
+- **`examples/strategies/`**: Example trading strategies
+  - **`sma.py`**: SMA crossover strategy
+  - **`random_strategy.py`**: Random trading strategy
 
 ## 🔧 Configuration
 

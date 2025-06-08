@@ -28,9 +28,9 @@ from typing import Dict, List, Optional, Type, Any
 import pandas as pd
 import json
 
-from data_ingestion import setup_data_ingestion, PolygonDataIngestion, TestDataIngestion
-from signal_extractor import LiveSignalExtractor, SignalExtractorStrategy, TradingSignal, SignalType
-from config import load_config, DataConfig, TradingConfig
+from src.trading_system import setup_data_ingestion, PolygonDataIngestion, TestDataIngestion
+from src.trading_system import LiveSignalExtractor, SignalExtractorStrategy, TradingSignal, SignalType
+from src.trading_system import load_config, DataConfig, TradingConfig
 
 # Configure logging
 logging.basicConfig(
