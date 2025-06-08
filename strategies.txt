@@ -1,0 +1,22 @@
+# Multi-Strategy Configuration File
+# Format: filename,strategy_id,allocation_percentage
+# 
+# Example configurations:
+# examples/strategies/sma.py,sma_cross,0.4
+# examples/strategies/momentum.py,momentum,0.35
+# examples/strategies/random.py,random,0.25
+#
+# Notes:
+# - Allocation percentages should sum to 1.0 (100%)
+# - Strategy IDs must be unique
+# - File paths can be relative or absolute
+# - Lines starting with # are comments
+# - Empty lines are ignored
+
+# Default configuration for testing
+examples/strategies/sma.py,sma_cross,0.25
+examples/strategies/random.py,random_trader,0.1
+
+# Zipline strategy examples (uncomment to use)
+# examples/strategies/zipline/dual_moving_avg.py,zipline_dma,0.3
+# examples/strategies/zipline/simple_momentum.py,zipline_momentum,0.2

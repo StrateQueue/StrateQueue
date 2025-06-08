@@ -1,0 +1,212 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "StrateQueue"
+version = "0.0.1"
+description = "Deploy any backtested strategy in seconds."
+readme = "README.md"
+license = {text = "AGPL-3.0"}
+authors = [
+    {name = "Trading System Contributors", email = "samuel.tinnerholm@gmail.com"}
+]
+maintainers = [
+    {name = "Trading System Contributors", email = "samuel.tinnerholm@gmail.com"}
+]
+keywords = [
+    "trading", 
+    "backtesting", 
+    "live-trading", 
+    "algorithmic-trading", 
+    "financial-data",
+    "quantitative-finance",
+    "strategy-signals",
+    "alpaca-trading"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Intended Audience :: Developers",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.10,<3.11"
+dependencies = [
+    # Core dependencies - minimal for basic functionality
+    "pandas>=2.0.0",
+    "requests>=2.31.0",
+    "websocket-client>=1.6.0",
+    "python-dotenv>=1.0.0",
+    "alpaca-py>=0.40.0",
+    "questionary>=1.10.0",
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "python-multipart",
+    "rich>=13.0.0",
+    "yfinance==0.2.63"
+]
+
+[project.optional-dependencies]
+# Interactive CLI setup (included in main dependencies)
+interactive = [
+    "questionary>=1.10.0",
+]
+
+# Backtesting.py engine support (NumPy 2.x compatible)
+backtesting = [
+    "numpy>=1.24,<3",
+    "bokeh>=2.4.2",
+    "backtesting.py @ git+https://github.com/dantownsend/backtesting.py.git@master",
+]
+
+# VectorBT engine support (NumPy 1.x only due to dependency conflicts)
+vectorbt = [
+    "numpy<2.0",
+    "numba>=0.56",
+    "vectorbt>=0.26",
+]
+
+# Backtrader engine support
+backtrader = [
+    "backtrader>=1.9.78.123",
+]
+
+# Advanced data processing
+analytics = [
+    "scipy>=1.11.0",
+    "ta-lib>=0.4.0",
+]
+# Database support for production
+database = [
+    "psycopg2-binary>=2.9.7",
+    "redis>=4.6.0",
+]
+# Monitoring and logging
+monitoring = [
+    "prometheus-client>=0.17.0",
+    "structlog>=23.1.0",
+]
+# Interactive Brokers support
+ibkr = [
+    "ib_insync>=0.9.85",
+]
+# Development tools
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.5.0",
+    "isort>=5.12.0",
+    "pre-commit>=3.0.0",
+]
+# Full package with backtesting.py (recommended)
+full = [
+    "numpy>=1.24,<3",
+    "backtesting>=0.3.3",
+    "scipy>=1.11.0",
+    "ta-lib>=0.4.0",
+    "psycopg2-binary>=2.9.7",
+    "redis>=4.6.0",
+    "prometheus-client>=0.17.0",
+    "structlog>=23.1.0",
+    "questionary>=1.10.0",
+]
+# All engines (note: conflicting numpy versions - choose one!)
+all = [
+    "numpy>=1.24,<3",
+    "backtesting>=0.3.3",
+    "vectorbt>=0.25,<0.26",
+    "numba>=0.56,<0.57",
+    "scipy>=1.11.0",
+    "ta-lib>=0.4.0",
+    "psycopg2-binary>=2.9.7",
+    "redis>=4.6.0",
+    "prometheus-client>=0.17.0",
+    "structlog>=23.1.0",
+    "questionary>=1.10.0",
+    "backtrader>=1.9.78.123",
+]
+
+[project.urls]
+Homepage = "https://github.com/StrateQueue/StrateQueue"
+Documentation = "https://github.com/StrateQueue/StrateQueue#readme"
+Repository = "https://github.com/StrateQueue/StrateQueue"
+Issues = "https://github.com/StrateQueue/StrateQueue/issues"
+Changelog = "https://github.com/StrateQueue/StrateQueue/releases"
+
+[project.scripts]
+stratequeue = "StrateQueue.cli.cli:main"
+sq = "StrateQueue.cli.cli:main"
+strateque = "StrateQueue.cli.cli:main"
+strateline = "StrateQueue.cli.cli:main" # for the Americans hehe
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+StrateQueue = ["webui_static/**", "*.txt", "*.md"]
+
+# Black configuration
+[tool.black]
+line-length = 100
+target-version = ['py310']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+# isort configuration
+[tool.isort]
+profile = "black"
+line_length = 100
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+disallow_untyped_decorators = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+# Pytest configuration
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers --strict-config"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+] 
