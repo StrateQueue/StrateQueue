@@ -31,6 +31,7 @@ import json
 from src.trading_system import setup_data_ingestion, PolygonDataIngestion, CoinMarketCapDataIngestion, TestDataIngestion
 from src.trading_system import LiveSignalExtractor, SignalExtractorStrategy, TradingSignal, SignalType
 from src.trading_system import load_config, DataConfig, TradingConfig
+from src.trading_system import AlpacaExecutor, create_alpaca_executor_from_env
 
 # Configure logging
 logging.basicConfig(
@@ -133,16 +134,19 @@ class StrategyLoader:
                 buy_called = False
                 sell_called = False
                 close_called = False
+                trade_params = {}
                 
-                # Create mock methods that track calls
+                # Create mock methods that track calls and parameters
                 def mock_buy(*args, **kwargs):
-                    nonlocal buy_called
+                    nonlocal buy_called, trade_params
                     buy_called = True
+                    trade_params = kwargs
                     return None
                 
                 def mock_sell(*args, **kwargs):
-                    nonlocal sell_called  
+                    nonlocal sell_called, trade_params
                     sell_called = True
+                    trade_params = kwargs
                     return None
                 
                 def mock_close(*args, **kwargs):
@@ -162,10 +166,12 @@ class StrategyLoader:
                     original_next(self)
                 
                 # Determine signal based on what was called
+                signal_size = trade_params.get('size')
+
                 if buy_called:
-                    self.set_signal(SignalType.BUY, confidence=0.8)
+                    self.set_signal(SignalType.BUY, confidence=0.8, size=signal_size)
                 elif sell_called:
-                    self.set_signal(SignalType.SELL, confidence=0.8)
+                    self.set_signal(SignalType.SELL, confidence=0.8, size=signal_size)
                 elif close_called:
                     self.set_signal(SignalType.CLOSE, confidence=0.6)
                 else:
@@ -294,7 +300,8 @@ class LiveTradingSystem:
     """Main live trading system orchestrator"""
     
     def __init__(self, strategy_path: str, symbols: List[str], 
-                 data_source: str = "demo", granularity: str = "1m", lookback_override: Optional[int] = None):
+                 data_source: str = "demo", granularity: str = "1m", lookback_override: Optional[int] = None,
+                 enable_trading: bool = False):
         """
         Initialize live trading system
         
@@ -303,12 +310,14 @@ class LiveTradingSystem:
             symbols: List of symbols to trade
             data_source: Data source ("demo" or "polygon") 
             lookback_override: Override calculated lookback period
+            enable_trading: Enable actual trading execution via Alpaca
         """
         self.strategy_path = strategy_path
         self.symbols = symbols
         self.data_source = data_source
         self.granularity = granularity
         self.lookback_override = lookback_override
+        self.enable_trading = enable_trading
         
         # Load configuration
         self.data_config, self.trading_config = load_config()
@@ -345,6 +354,17 @@ class LiveTradingSystem:
         
         # Track cumulative data for proper live simulation
         self.cumulative_data = {}
+        
+        # Initialize Alpaca executor if trading is enabled
+        self.alpaca_executor = None
+        if self.enable_trading:
+            try:
+                self.alpaca_executor = create_alpaca_executor_from_env()
+                logger.info("✅ Alpaca trading enabled. Trade size is determined by the strategy.")
+            except Exception as e:
+                logger.error(f"Failed to initialize Alpaca executor: {e}")
+                logger.warning("Trading disabled - running in signal-only mode")
+                self.enable_trading = False
         
     def _setup_data_ingestion(self):
         """Setup data ingestion based on data source"""
@@ -384,6 +404,16 @@ class LiveTradingSystem:
         print(f"Granularity: {self.granularity}")
         print(f"Lookback: {self.lookback_period} bars")
         print(f"Duration: {duration_minutes} minutes")
+        
+        if self.enable_trading:
+            print("💰 Trading: ENABLED via Alpaca")
+            if self.alpaca_executor and self.alpaca_executor.config.paper:
+                print("📝 Mode: PAPER TRADING")
+            else:
+                print("🔴 Mode: LIVE TRADING")
+        else:
+            print("📊 Trading: SIGNALS ONLY (no execution)")
+        
         print(f"{'='*60}\n")
         
         start_time = datetime.now()
@@ -404,6 +434,14 @@ class LiveTradingSystem:
                         signal_count += 1
                         self._display_signal(symbol, signal, signal_count)
                         self._log_trade(symbol, signal)
+                        
+                        # Execute trade if trading is enabled
+                        if self.enable_trading and self.alpaca_executor:
+                            success = self.alpaca_executor.execute_signal(symbol, signal)
+                            if success:
+                                logger.info(f"🎯 Trade executed successfully for {symbol}")
+                            else:
+                                logger.error(f"❌ Trade execution failed for {symbol}")
                 
                 # Wait before next cycle - use granularity-based interval
                 from src.trading_system.granularity import parse_granularity
@@ -610,6 +648,28 @@ class LiveTradingSystem:
             for symbol, signal in self.active_signals.items():
                 print(f"  • {symbol}: {signal.signal.value} @ ${signal.price:.2f}")
         
+        # Show trading summary if enabled
+        if self.enable_trading and self.alpaca_executor:
+            try:
+                account_info = self.alpaca_executor.get_account_info()
+                positions = self.alpaca_executor.get_positions()
+                
+                print(f"\n📈 TRADING SUMMARY:")
+                print(f"  Portfolio Value: ${account_info.get('portfolio_value', 0):,.2f}")
+                print(f"  Cash: ${account_info.get('cash', 0):,.2f}")
+                print(f"  Day Trades: {account_info.get('day_trade_count', 0)}")
+                
+                if positions:
+                    print(f"\n🎯 ACTIVE POSITIONS:")
+                    for symbol, pos in positions.items():
+                        print(f"  • {symbol}: {pos['qty']} shares @ ${pos['avg_entry_price']:.2f} "
+                              f"(P&L: ${pos['unrealized_pl']:.2f})")
+                else:
+                    print(f"\n🎯 No active positions")
+                    
+            except Exception as e:
+                print(f"\n❌ Error getting trading summary: {e}")
+        
         print(f"\nTrade log saved to trading_system.log")
 
 def print_granularity_info():
@@ -654,6 +714,8 @@ def main():
     parser.add_argument('--list-granularities', action='store_true',
                        help='List supported granularities for each data source')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose logging')
+    parser.add_argument('--enable-trading', action='store_true', 
+                       help='Enable actual trading execution via Alpaca (requires .env setup)')
     
     args = parser.parse_args()
     
@@ -699,7 +761,8 @@ def main():
             symbols=symbols,
             data_source=args.data_source,
             granularity=granularity,
-            lookback_override=args.lookback
+            lookback_override=args.lookback,
+            enable_trading=args.enable_trading
         )
         
         # Run the system

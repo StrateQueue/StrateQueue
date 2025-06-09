@@ -19,7 +19,7 @@ class SmaCross(Strategy):
     def next(self):
         if crossover(self.sma1, self.sma2):
             self.position.close()
-            self.buy()
+            self.buy(size=0.1)  # Use 10% of available capital
         elif crossover(self.sma2, self.sma1):
             self.position.close()
             self.sell()

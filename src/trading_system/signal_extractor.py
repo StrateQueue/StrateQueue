@@ -25,6 +25,7 @@ class TradingSignal:
     timestamp: pd.Timestamp
     indicators: Dict[str, float]  # Current indicator values
     metadata: Dict[str, Any] = None
+    size: Optional[float] = None  # Position size (e.g., 0.5 for 50% of equity)
 
 class SignalExtractorStrategy(Strategy):
     """
@@ -51,7 +52,7 @@ class SignalExtractorStrategy(Strategy):
         # This will be overridden by actual strategy implementations
         pass
     
-    def set_signal(self, signal: SignalType, confidence: float = 1.0, metadata: Dict[str, Any] = None):
+    def set_signal(self, signal: SignalType, confidence: float = 1.0, metadata: Dict[str, Any] = None, size: Optional[float] = None):
         """Set the current signal instead of calling buy/sell"""
         self.current_signal = signal
         self.signal_confidence = confidence
@@ -64,7 +65,8 @@ class SignalExtractorStrategy(Strategy):
             price=self.data.Close[-1],
             timestamp=self.data.index[-1] if hasattr(self.data.index, '__getitem__') else pd.Timestamp.now(),
             indicators=self.indicators_values.copy(),
-            metadata=metadata or {}
+            metadata=metadata or {},
+            size=size
         )
         
         self.signal_history.append(signal_obj)

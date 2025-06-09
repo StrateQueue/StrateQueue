@@ -1,0 +1,324 @@
+"""
+Alpaca trading execution module for live trading integration.
+"""
+
+import os
+import logging
+from typing import Dict, Optional
+from dataclasses import dataclass
+from enum import Enum
+
+from alpaca.trading.client import TradingClient
+from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.enums import OrderSide, TimeInForce
+from alpaca.common.exceptions import APIError
+
+from .signal_extractor import TradingSignal, SignalType
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class AlpacaConfig:
+    """Alpaca API configuration"""
+    api_key: str
+    secret_key: str
+    base_url: str
+    paper: bool = True
+
+def normalize_crypto_symbol(symbol: str) -> str:
+    """
+    Normalize crypto symbols for Alpaca format.
+    
+    Args:
+        symbol: Original symbol (e.g., 'ETH', 'BTC')
+        
+    Returns:
+        Alpaca-formatted symbol (e.g., 'ETH/USD', 'BTC/USD')
+    """
+    # If already has a slash, assume it's properly formatted
+    if '/' in symbol:
+        return symbol
+    
+    # Add /USD for crypto symbols
+    crypto_symbols = ['BTC', 'ETH', 'LTC', 'BCH', 'DOGE', 'SHIB', 'AVAX', 'UNI']
+    if symbol.upper() in crypto_symbols:
+        return f"{symbol.upper()}/USD"
+    
+    # For other symbols, return as-is (stocks, etc.)
+    return symbol.upper()
+
+class PositionSizeMode(Enum):
+    """Position sizing modes"""
+    FIXED_AMOUNT = "fixed_amount"  # Fixed dollar amount per trade
+    FIXED_SHARES = "fixed_shares"  # Fixed number of shares
+    PERCENTAGE = "percentage"      # Percentage of portfolio
+    SIGNAL_BASED = "signal_based"  # Use signal's suggested position size
+    ALL_IN = "all_in"             # Use all available buying power
+
+@dataclass
+class PositionSizeConfig:
+    """Position sizing configuration"""
+    mode: PositionSizeMode = PositionSizeMode.ALL_IN
+    value: float = 1.0  # Default 100% of buying power for ALL_IN mode
+
+class AlpacaExecutor:
+    """
+    Alpaca trading executor for live trading.
+    
+    Handles the actual execution of trading signals through the Alpaca API.
+    """
+    
+    def __init__(self, config: AlpacaConfig, position_config: Optional[PositionSizeConfig] = None):
+        """
+        Initialize Alpaca executor
+        
+        Args:
+            config: Alpaca API configuration
+            position_config: Position sizing configuration
+        """
+        self.config = config
+        self.position_config = position_config or PositionSizeConfig()
+        
+        # Initialize Alpaca trading client
+        self.trading_client = TradingClient(
+            api_key=config.api_key,
+            secret_key=config.secret_key,
+            paper=config.paper,
+            url_override=config.base_url if config.base_url else None
+        )
+        
+        # Track pending orders
+        self.pending_orders = {}
+        
+        # Validate connection
+        self._validate_connection()
+        
+    def _validate_connection(self):
+        """Validate connection to Alpaca API"""
+        try:
+            account = self.trading_client.get_account()
+            logger.info(f"✅ Connected to Alpaca {'Paper' if self.config.paper else 'Live'} Trading")
+            logger.info(f"Account ID: {account.id}")
+            logger.info(f"Portfolio Value: ${float(account.portfolio_value):,.2f}")
+            logger.info(f"Cash Balance: ${float(account.cash):,.2f}")
+            logger.info(f"Day Trade Count: {account.daytrade_count}")
+        except APIError as e:
+            logger.error(f"Failed to connect to Alpaca: {e}")
+            raise
+        
+    def execute_signal(self, symbol: str, signal: TradingSignal) -> bool:
+        """
+        Execute a trading signal
+        
+        Args:
+            symbol: Symbol to trade
+            signal: Trading signal to execute
+            
+        Returns:
+            True if order was successfully placed, False otherwise
+        """
+        try:
+            # Normalize symbol for Alpaca format
+            alpaca_symbol = normalize_crypto_symbol(symbol)
+            logger.info(f"Executing signal for {symbol} ({alpaca_symbol}): {signal.signal.value} @ ${signal.price:.2f}")
+            
+            if signal.signal == SignalType.BUY:
+                return self._execute_buy(alpaca_symbol, signal)
+            elif signal.signal == SignalType.SELL:
+                return self._execute_sell(alpaca_symbol, signal)
+            elif signal.signal == SignalType.CLOSE:
+                return self._execute_close(alpaca_symbol, signal)
+            elif signal.signal == SignalType.HOLD:
+                logger.debug(f"HOLD signal for {symbol} - no action needed")
+                return True
+            else:
+                logger.warning(f"Unknown signal type: {signal.signal}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error executing signal for {symbol}: {e}")
+            return False
+    
+    def _execute_buy(self, symbol: str, signal: TradingSignal) -> bool:
+        """Execute a buy signal using notional value."""
+        try:
+            order_data = None
+            account = self.trading_client.get_account()
+
+            # Case 1: Strategy specifies a size (e.g., self.buy(size=0.5) for 50% equity)
+            if signal.size and 0 < signal.size <= 1:
+                notional_amount = float(account.portfolio_value) * signal.size
+                # Round to exactly 2 decimal places to meet Alpaca API requirements
+                notional_amount = round(notional_amount, 2)
+                logger.info(f"Signal size is {signal.size:.2%}. Buying notional amount: ${notional_amount:.2f}")
+                order_data = MarketOrderRequest(
+                    symbol=symbol,
+                    notional=notional_amount,
+                    side=OrderSide.BUY,
+                    time_in_force=TimeInForce.GTC
+                )
+            # Case 2: Strategy calls self.buy() with no size, so go all-in with available buying power
+            else:
+                cash_balance = float(account.cash)
+                # Use 99% of cash balance to be safe and leave room for fees/slippage
+                notional_amount = cash_balance * 0.99
+                # Round to exactly 2 decimal places to meet Alpaca API requirements
+                notional_amount = round(notional_amount, 2)
+                logger.info(f"Signal size not specified. Using 99% of cash balance: ${notional_amount:.2f}")
+                order_data = MarketOrderRequest(
+                    symbol=symbol,
+                    notional=notional_amount,
+                    side=OrderSide.BUY,
+                    time_in_force=TimeInForce.GTC
+                )
+
+            # Submit order
+            order = self.trading_client.submit_order(order_data=order_data)
+            self.pending_orders[symbol] = order.id
+            logger.info(f"✅ BUY order placed for {symbol}: Notional=${order_data.notional:.2f}, Order ID: {order.id}")
+            return True
+            
+        except APIError as e:
+            logger.error(f"Alpaca API error placing BUY order for {symbol}: {e}")
+            if "forbidden" in str(e).lower() or "unauthorized" in str(e).lower():
+                logger.critical("Alpaca authentication failed. Check API keys, permissions, and paper/live mode.")
+            elif "not found" in str(e).lower():
+                 logger.error("Could not get account information. Check API endpoint and credentials.")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error placing BUY order for {symbol}: {e}", exc_info=True)
+            return False
+    
+    def _execute_sell(self, symbol: str, signal: TradingSignal) -> bool:
+        """Execute a sell signal based on existing position and signal size."""
+        try:
+            # First, find out if a position exists and its quantity
+            # Try both symbol formats since Alpaca can be inconsistent
+            position = None
+            qty_available = 0
+            
+            try:
+                # Try the original symbol format first
+                position = self.trading_client.get_open_position(symbol)
+                qty_available = abs(float(position.qty))
+                logger.debug(f"Found position for {symbol}: {qty_available}")
+            except APIError as e:
+                if "position does not exist" in str(e).lower() or "not found" in str(e).lower():
+                    # Try alternative symbol format (remove slash for crypto)
+                    alt_symbol = symbol.replace('/', '')
+                    try:
+                        position = self.trading_client.get_open_position(alt_symbol)
+                        qty_available = abs(float(position.qty))
+                        logger.info(f"Found position using alternative symbol {alt_symbol}: {qty_available}")
+                        # Update symbol to the one that worked
+                        symbol = alt_symbol
+                    except APIError as alt_e:
+                        if "position does not exist" in str(alt_e).lower() or "not found" in str(alt_e).lower():
+                            logger.warning(f"SELL signal for {symbol}, but no position exists (tried both {symbol} and {alt_symbol}). No action taken.")
+                            return True  # Not a failure, just nothing to sell
+                        else:
+                            raise alt_e  # Re-raise other critical API errors
+                else:
+                    raise e  # Re-raise other critical API errors
+
+            # Case 1: Strategy specifies a size (e.g., self.sell(size=0.5) for 50% of position)
+            if signal.size and 0 < signal.size <= 1:
+                qty_to_sell = qty_available * signal.size
+                logger.info(f"Signal size is {signal.size:.2%}. Selling {qty_to_sell:.8f} of {qty_available:.8f} {symbol}.")
+                order_data = MarketOrderRequest(
+                    symbol=symbol,
+                    qty=qty_to_sell,
+                    side=OrderSide.SELL,
+                    time_in_force=TimeInForce.GTC
+                )
+                order = self.trading_client.submit_order(order_data=order_data)
+                self.pending_orders[symbol] = order.id
+                logger.info(f"✅ SELL order placed for {qty_to_sell:.8f} {symbol}. Order ID: {order.id}")
+
+            # Case 2: Strategy calls self.sell() or self.position.close(), so sell the entire position
+            else:
+                logger.info(f"Signal size not specified. Closing entire position of {qty_available:.8f} {symbol}.")
+                close_order = self.trading_client.close_position(symbol)
+                self.pending_orders[symbol] = close_order.id
+                logger.info(f"✅ CLOSE position order placed for {symbol}. Order ID: {close_order.id}")
+
+            return True
+
+        except APIError as e:
+            logger.error(f"Alpaca API error placing SELL order for {symbol}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error placing SELL order for {symbol}: {e}", exc_info=True)
+            return False
+    
+    def _execute_close(self, symbol: str, signal: TradingSignal) -> bool:
+        """Execute a close position signal by treating it as a full sell."""
+        logger.info(f"CLOSE signal received for {symbol}. Closing entire position.")
+        return self._execute_sell(symbol, signal) # Passing original signal, _execute_sell handles lack of size
+    
+    def get_account_info(self) -> Dict:
+        """Get account information"""
+        try:
+            account = self.trading_client.get_account()
+            return {
+                'portfolio_value': float(account.portfolio_value),
+                'cash': float(account.cash),
+                'buying_power': float(account.buying_power),
+                'daytrade_count': account.daytrade_count,
+                'pattern_day_trader': account.pattern_day_trader
+            }
+        except APIError as e:
+            logger.error(f"Error getting account info: {e}")
+            return {}
+    
+    def get_positions(self) -> Dict[str, Dict]:
+        """Get current positions"""
+        try:
+            positions = self.trading_client.get_all_positions()
+            result = {}
+            for position in positions:
+                result[position.symbol] = {
+                    'qty': float(position.qty),
+                    'market_value': float(position.market_value),
+                    'avg_entry_price': float(position.avg_entry_price),
+                    'unrealized_pl': float(position.unrealized_pl),
+                    'unrealized_plpc': float(position.unrealized_plpc),
+                }
+            return result
+        except APIError as e:
+            logger.error(f"Error getting positions: {e}")
+            return {}
+
+def create_alpaca_executor_from_env() -> AlpacaExecutor:
+    """
+    Create AlpacaExecutor from environment variables
+    
+    Expected environment variables:
+    - PAPER_KEY: Alpaca API key for paper trading
+    - PAPER_SECRET: Alpaca secret key for paper trading  
+    - PAPER_ENDPOINT: Alpaca base URL for paper trading
+    
+    Returns:
+        Configured AlpacaExecutor instance
+    """
+    # Get environment variables
+    api_key = os.getenv('PAPER_KEY')
+    secret_key = os.getenv('PAPER_SECRET')
+    base_url = os.getenv('PAPER_ENDPOINT')
+    
+    if not api_key or not secret_key:
+        raise ValueError("Missing required environment variables: PAPER_KEY and PAPER_SECRET")
+    
+    # Remove /v2 suffix if present in base_url since TradingClient adds it automatically
+    if base_url and base_url.endswith('/v2'):
+        base_url = base_url[:-3]
+        logger.info(f"Removed /v2 suffix from base_url: {base_url}")
+    
+    config = AlpacaConfig(
+        api_key=api_key,
+        secret_key=secret_key, 
+        base_url=base_url,
+        paper=True  # Always use paper trading for safety
+    )
+    
+    return AlpacaExecutor(config)
