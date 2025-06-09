@@ -10,6 +10,9 @@ from datetime import datetime
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Callable
 
+# Import granularity utilities
+from ..granularity import Granularity, parse_granularity
+
 
 @dataclass
 class MarketData:
@@ -37,20 +40,29 @@ class BaseDataIngestion(ABC):
     
     @abstractmethod
     async def fetch_historical_data(self, symbol: str, days_back: int = 30, 
-                                  timespan: str = "minute", multiplier: int = 1) -> pd.DataFrame:
+                                  granularity: str = "1m") -> pd.DataFrame:
         """
         Fetch historical OHLCV data
         
         Args:
             symbol: Symbol to fetch (e.g., 'AAPL', 'BTC')
             days_back: Number of days of historical data
-            timespan: Time granularity ('minute', 'hour', 'day')
-            multiplier: Size of timespan (e.g., 5 for 5-minute bars)
+            granularity: Data granularity (e.g., '1s', '1m', '5m', '1h', '1d')
             
         Returns:
             DataFrame with OHLCV data indexed by timestamp
         """
         pass
+    
+    async def fetch_historical_data_legacy(self, symbol: str, days_back: int = 30, 
+                                         timespan: str = "minute", multiplier: int = 1) -> pd.DataFrame:
+        """
+        Legacy method for backward compatibility
+        Converts old timespan/multiplier format to new granularity format
+        """
+        # Convert legacy parameters to granularity string
+        granularity_str = f"{multiplier}{timespan[0]}"  # e.g., "1m", "5m"
+        return await self.fetch_historical_data(symbol, days_back, granularity_str)
     
     @abstractmethod
     def subscribe_to_symbol(self, symbol: str):
@@ -108,4 +120,8 @@ class BaseDataIngestion(ABC):
                 callback(market_data)
             except Exception as e:
                 import logging
-                logging.getLogger(__name__).error(f"Error in data callback: {e}") 
+                logging.getLogger(__name__).error(f"Error in data callback: {e}")
+    
+    def _parse_granularity(self, granularity_str: str) -> Granularity:
+        """Parse granularity string with validation"""
+        return parse_granularity(granularity_str) 

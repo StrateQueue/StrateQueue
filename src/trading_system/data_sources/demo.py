@@ -49,43 +49,40 @@ class TestDataIngestion(BaseDataIngestion):
         self.simulation_thread = None
         self.subscribed_symbols: List[str] = []
         
+        # Simulated time tracking for demo mode
+        self.simulated_time = datetime.now()
+        self.granularity_seconds = 60  # Default 1 minute
+        
     async def fetch_historical_data(self, symbol: str, days_back: int = 30, 
-                                  timespan: str = "minute", multiplier: int = 1) -> pd.DataFrame:
+                                  granularity: str = "1m") -> pd.DataFrame:
         """
         Generate historical test data that looks realistic
         
         Args:
             symbol: Symbol to generate data for
             days_back: Number of days of historical data
-            timespan: 'minute', 'hour', 'day'
-            multiplier: Size of timespan (e.g., 5 for 5-minute bars)
+            granularity: Data granularity (e.g., '1s', '1m', '5m', '1h', '1d')
         """
         
-        # Calculate time parameters
-        if timespan == "minute":
-            total_bars = days_back * 24 * 60 // multiplier  # Total minutes / multiplier
-            time_delta = timedelta(minutes=multiplier)
-        elif timespan == "hour":
-            total_bars = days_back * 24 // multiplier  # Total hours / multiplier
-            time_delta = timedelta(hours=multiplier)
-        elif timespan == "day":
-            total_bars = days_back // multiplier  # Total days / multiplier
-            time_delta = timedelta(days=multiplier)
-        else:
-            total_bars = days_back * 24 * 60  # Default to minutes
-            time_delta = timedelta(minutes=1)
+        # Parse granularity to determine time intervals
+        parsed_granularity = self._parse_granularity(granularity)
+        interval_seconds = parsed_granularity.to_seconds()
         
-        # Limit total bars for performance
-        total_bars = min(total_bars, 10000)
+        # Calculate number of bars needed
+        total_seconds = days_back * 86400  # days_back * seconds_per_day
+        total_bars = total_seconds // interval_seconds
+        
+        # Limit total bars for performance (but be more generous than before)
+        total_bars = min(total_bars, 50000)
         
         # Generate timestamps
         end_time = datetime.now()
         timestamps = []
-        current_time = end_time - (time_delta * total_bars)
+        current_time = end_time - timedelta(seconds=total_bars * interval_seconds)
         
-        for i in range(total_bars):
+        for i in range(int(total_bars)):
             timestamps.append(current_time)
-            current_time += time_delta
+            current_time += timedelta(seconds=interval_seconds)
         
         # Get base price for symbol
         base_price = self.base_prices.get(symbol, random.uniform(50, 500))
@@ -149,7 +146,7 @@ class TestDataIngestion(BaseDataIngestion):
         if len(df) > 0:
             self.current_prices[symbol] = df['Close'].iloc[-1]
         
-        logger.info(f"Generated {len(df)} test historical bars for {symbol}")
+        logger.info(f"Generated {len(df)} test historical bars for {symbol} with granularity {granularity}")
         return df
     
     def append_new_bar(self, symbol: str) -> pd.DataFrame:
@@ -230,9 +227,12 @@ class TestDataIngestion(BaseDataIngestion):
         # Generate volume
         volume = random.randint(50000, 500000)
         
+        # Use simulated time progression for demo mode (advance by granularity interval)
+        self.simulated_time += timedelta(seconds=self.granularity_seconds)
+        
         return MarketData(
             symbol=symbol,
-            timestamp=datetime.now(),
+            timestamp=self.simulated_time,
             open=round(open_price, 2),
             high=round(high_price, 2),
             low=round(low_price, 2),
@@ -295,6 +295,20 @@ class TestDataIngestion(BaseDataIngestion):
             self.simulation_thread.join(timeout=2.0)
         
         logger.info("Test data real-time feed stopped")
+    
+    def set_update_interval_from_granularity(self, granularity: str):
+        """Set the update interval based on granularity"""
+        try:
+            parsed_granularity = self._parse_granularity(granularity)
+            interval_seconds = parsed_granularity.to_seconds()
+            
+            # Use the exact granularity as the update interval (no artificial capping for demo)
+            self.update_interval = interval_seconds
+            self.granularity_seconds = interval_seconds  # Store for simulated time progression
+            
+            logger.info(f"Demo update interval set to {self.update_interval} seconds based on granularity {granularity}")
+        except Exception as e:
+            logger.warning(f"Could not parse granularity {granularity}, using default interval: {e}")
     
     def set_update_interval(self, seconds: float):
         """Set the interval between data updates"""

@@ -1,14 +1,14 @@
 """
-Data Ingestion Module
+Data Ingestion Factory and Utilities
 
-Main entry point for data ingestion with factory function to create appropriate data sources.
+Factory functions to create and configure data sources.
 """
 
 import os
 import asyncio
 import time
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from collections import defaultdict
 
 from .data_sources import (
@@ -18,6 +18,7 @@ from .data_sources import (
     CoinMarketCapDataIngestion, 
     TestDataIngestion
 )
+from .granularity import validate_granularity, GranularityParser
 
 # Load environment variables from .env file  
 from dotenv import load_dotenv
@@ -27,40 +28,148 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def setup_data_ingestion(data_source: str = "demo", base_prices: Optional[Dict[str, float]] = None) -> BaseDataIngestion:
+def create_data_source(data_source: str, api_key: Optional[str] = None, 
+                      granularity: str = "1m") -> BaseDataIngestion:
     """
-    Setup function to initialize data ingestion
+    Factory function to create the appropriate data ingestion source
     
     Args:
-        data_source: Data source to use ("demo", "polygon", or "coinmarketcap")
-        base_prices: Base prices for test data (only used when data_source="demo")
+        data_source: Type of data source ('polygon', 'coinmarketcap', 'demo')
+        api_key: API key for external data sources (not needed for demo)
+        granularity: Data granularity (e.g., '1s', '1m', '5m', '1h', '1d')
         
     Returns:
         Configured data ingestion instance
+        
+    Raises:
+        ValueError: If data source is invalid or granularity is not supported
     """
     
-    if data_source == "demo":
-        # Use test data ingestor
-        logger.info("Using test data ingestor")
-        return TestDataIngestion(base_prices=base_prices)
+    # Validate granularity for the specified data source
+    is_valid, error_msg = validate_granularity(granularity, data_source)
+    if not is_valid:
+        raise ValueError(error_msg)
+    
+    # Create the appropriate data source
+    if data_source == "polygon":
+        if not api_key:
+            raise ValueError("Polygon data source requires an API key")
+        
+        data_ingestion = PolygonDataIngestion(api_key)
+        logger.info(f"Created Polygon data source with granularity {granularity}")
         
     elif data_source == "coinmarketcap":
-        # Use CoinMarketCap data
-        api_key = os.getenv('CMC_API_KEY')
         if not api_key:
-            raise ValueError("CMC_API_KEY environment variable not set")
+            api_key = os.getenv('CMC_API_KEY')
+            if not api_key:
+                raise ValueError("CoinMarketCap data source requires an API key. Set CMC_API_KEY environment variable.")
         
-        logger.info("Using CoinMarketCap data ingestor")
-        return CoinMarketCapDataIngestion(api_key)
+        data_ingestion = CoinMarketCapDataIngestion(api_key, granularity)
+        logger.info(f"Created CoinMarketCap data source with granularity {granularity}")
         
-    else:  # polygon or default to polygon
-        # Use real Polygon.io data
-        api_key = os.getenv('POLYGON_API_KEY')
-        if not api_key:
-            raise ValueError("POLYGON_API_KEY environment variable not set")
+    elif data_source == "demo":
+        data_ingestion = TestDataIngestion()
         
-        logger.info("Using real Polygon.io data ingestor")
-        return PolygonDataIngestion(api_key)
+        # Set update interval based on granularity for demo simulation
+        data_ingestion.set_update_interval_from_granularity(granularity)
+        logger.info(f"Created demo data source with granularity {granularity}")
+        
+    else:
+        supported_sources = ["polygon", "coinmarketcap", "demo"]
+        raise ValueError(f"Unsupported data source: {data_source}. Supported sources: {supported_sources}")
+    
+    return data_ingestion
+
+
+def list_supported_granularities(data_source: str) -> List[str]:
+    """
+    Get list of supported granularities for a data source
+        
+        Args:
+        data_source: Data source name
+            
+        Returns:
+        List of supported granularity strings
+    """
+    return GranularityParser.get_supported_granularities(data_source)
+
+
+def get_default_granularity(data_source: str) -> str:
+    """
+    Get the default granularity for a data source
+    
+    Args:
+        data_source: Data source name
+        
+    Returns:
+        Default granularity string
+    """
+    defaults = {
+        "polygon": "1m",
+        "coinmarketcap": "1d",  # Daily historical, but can do intraday real-time
+        "demo": "1m"
+    }
+    return defaults.get(data_source, "1m")
+
+
+def setup_data_ingestion(data_source: str, symbols: List[str], days_back: int = 30,
+                        api_key: Optional[str] = None, granularity: str = "1m") -> BaseDataIngestion:
+    """
+    Set up and initialize a data ingestion source with historical data
+    
+    Args:
+        data_source: Type of data source ('polygon', 'coinmarketcap', 'demo')
+        symbols: List of symbols to fetch data for
+        days_back: Number of days of historical data to fetch
+        api_key: API key for external data sources
+        granularity: Data granularity (e.g., '1s', '1m', '5m', '1h', '1d')
+        
+    Returns:
+        Configured and initialized data ingestion instance
+    """
+    
+    # Create data source
+    data_ingestion = create_data_source(data_source, api_key, granularity)
+    
+    # Fetch historical data for all symbols
+    async def fetch_all_historical():
+        tasks = []
+        for symbol in symbols:
+            task = data_ingestion.fetch_historical_data(symbol, days_back, granularity)
+            tasks.append(task)
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        for symbol, result in zip(symbols, results):
+            if isinstance(result, Exception):
+                logger.error(f"Failed to fetch historical data for {symbol}: {result}")
+            else:
+                logger.info(f"Successfully fetched {len(result)} bars for {symbol}")
+    
+    # Run the historical data fetching
+    try:
+        asyncio.run(fetch_all_historical())
+    except Exception as e:
+        logger.error(f"Error during historical data setup: {e}")
+    
+    logger.info(f"Data ingestion setup complete for {data_source} with granularity {granularity}")
+    return data_ingestion
+
+
+# Legacy compatibility function
+def setup_data_ingestion_legacy(data_source: str, symbols: List[str], days_back: int = 30,
+                               timespan: str = "minute", multiplier: int = 1,
+                               api_key: Optional[str] = None) -> BaseDataIngestion:
+    """
+    Legacy setup function for backward compatibility
+    Converts old timespan/multiplier format to new granularity format
+    """
+    # Convert legacy parameters to granularity string
+    granularity_str = f"{multiplier}{timespan[0]}"  # e.g., "1m", "5m", "1h", "1d"
+    
+    logger.info(f"Converting legacy timespan={timespan}, multiplier={multiplier} to granularity={granularity_str}")
+    
+    return setup_data_ingestion(data_source, symbols, days_back, api_key, granularity_str)
 
 
 class MinimalSignalGenerator:
@@ -107,11 +216,9 @@ def demo_test_data_ingestion():
     # Setup test data ingestion
     data_ingestion = setup_data_ingestion(
         data_source="demo",
-        base_prices={
-            'AAPL': 175.0,
-            'MSFT': 400.0,
-            'TSLA': 250.0
-        }
+        symbols=['AAPL', 'MSFT', 'TSLA'],
+        days_back=5,
+        granularity="minute"
     )
     
     # Setup signal generator

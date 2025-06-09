@@ -31,16 +31,19 @@ class PolygonDataIngestion(BaseDataIngestion):
         self.is_connected = False
         
     async def fetch_historical_data(self, symbol: str, days_back: int = 30, 
-                                  timespan: str = "minute", multiplier: int = 1) -> pd.DataFrame:
+                                  granularity: str = "1m") -> pd.DataFrame:
         """
         Fetch historical OHLCV data for backtesting compatibility
         
         Args:
             symbol: Stock symbol (e.g., 'AAPL')
             days_back: Number of days of historical data
-            timespan: 'minute', 'hour', 'day'
-            multiplier: Size of timespan (e.g., 5 for 5-minute bars)
+            granularity: Data granularity (e.g., '1s', '1m', '5m', '1h', '1d')
         """
+        # Parse granularity
+        parsed_granularity = self._parse_granularity(granularity)
+        timespan, multiplier = parsed_granularity.to_timespan_params()
+        
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days_back)
         
@@ -58,7 +61,7 @@ class PolygonDataIngestion(BaseDataIngestion):
             data = response.json()
             
             if 'results' not in data:
-                logger.warning(f"No data returned for {symbol}")
+                logger.warning(f"No data returned for {symbol} with granularity {granularity}")
                 return pd.DataFrame()
             
             # Convert to backtesting.py compatible format
@@ -80,11 +83,11 @@ class PolygonDataIngestion(BaseDataIngestion):
             # Cache the data
             self.historical_data[symbol] = df
             
-            logger.info(f"Fetched {len(df)} historical bars for {symbol}")
+            logger.info(f"Fetched {len(df)} historical bars for {symbol} with granularity {granularity}")
             return df
             
         except Exception as e:
-            logger.error(f"Error fetching historical data for {symbol}: {e}")
+            logger.error(f"Error fetching historical data for {symbol} with granularity {granularity}: {e}")
             return pd.DataFrame()
     
     def _on_ws_message(self, ws, message):

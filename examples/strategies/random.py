@@ -43,7 +43,7 @@ if __name__ == "__main__":
     from backtesting.test import GOOG
     
     # Test the random strategy with sample data
-    bt = Backtest(GOOG, RandomStrategy, cash=10000, commission=.002)
+    bt = Backtest(GOOG, RandomStrategy, cash=500_000, commission=.002)
     output = bt.run()
     print(f"Random Strategy Results:")
     print(f"Return: {output['Return [%]']:.2f}%")

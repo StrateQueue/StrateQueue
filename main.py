@@ -264,7 +264,7 @@ class LiveTradingSystem:
     """Main live trading system orchestrator"""
     
     def __init__(self, strategy_path: str, symbols: List[str], 
-                 data_source: str = "demo", lookback_override: Optional[int] = None):
+                 data_source: str = "demo", granularity: str = "1m", lookback_override: Optional[int] = None):
         """
         Initialize live trading system
         
@@ -277,6 +277,7 @@ class LiveTradingSystem:
         self.strategy_path = strategy_path
         self.symbols = symbols
         self.data_source = data_source
+        self.granularity = granularity
         self.lookback_override = lookback_override
         
         # Load configuration
@@ -314,12 +315,18 @@ class LiveTradingSystem:
         
     def _setup_data_ingestion(self):
         """Setup data ingestion based on data source"""
-        if self.data_source == "demo":
-            # Use test data with realistic base prices
-            base_prices = {symbol: 100.0 + hash(symbol) % 200 for symbol in self.symbols}
-            return setup_data_ingestion(data_source="demo", base_prices=base_prices)
-        else:
-            return setup_data_ingestion(data_source=self.data_source)
+        import os
+        from src.trading_system.data_ingestion import create_data_source
+        
+        # Get API key if needed
+        api_key = None
+        if self.data_source == "polygon":
+            api_key = os.getenv('POLYGON_API_KEY')
+        elif self.data_source == "coinmarketcap":
+            api_key = os.getenv('CMC_API_KEY')
+        
+        # Create data source with granularity support
+        return create_data_source(self.data_source, api_key, self.granularity)
     
     async def run_live_system(self, duration_minutes: int = 60):
         """
@@ -332,6 +339,7 @@ class LiveTradingSystem:
         logger.info(f"Strategy: {self.strategy_class.__name__}")
         logger.info(f"Symbols: {', '.join(self.symbols)}")
         logger.info(f"Data Source: {self.data_source}")
+        logger.info(f"Granularity: {self.granularity}")
         logger.info(f"Lookback Period: {self.lookback_period} bars")
         
         print(f"\n{'='*60}")
@@ -340,6 +348,7 @@ class LiveTradingSystem:
         print(f"Strategy: {self.strategy_class.__name__}")
         print(f"Symbols: {', '.join(self.symbols)}")
         print(f"Data Source: {self.data_source}")
+        print(f"Granularity: {self.granularity}")
         print(f"Lookback: {self.lookback_period} bars")
         print(f"Duration: {duration_minutes} minutes")
         print(f"{'='*60}\n")
@@ -363,8 +372,17 @@ class LiveTradingSystem:
                         self._display_signal(symbol, signal, signal_count)
                         self._log_trade(symbol, signal)
                 
-                # Wait before next cycle (simulate real-time processing)
-                await asyncio.sleep(5)  # 5 second intervals
+                # Wait before next cycle - use granularity-based interval
+                from src.trading_system.granularity import parse_granularity
+                try:
+                    parsed_granularity = parse_granularity(self.granularity)
+                    sleep_interval = parsed_granularity.to_seconds()
+                    # For very short intervals (< 1 second), use 1 second minimum for UI responsiveness
+                    sleep_interval = max(sleep_interval, 1.0)
+                    await asyncio.sleep(sleep_interval)
+                except Exception:
+                    # Fallback to 5 seconds if granularity parsing fails
+                    await asyncio.sleep(5)
                 
         except KeyboardInterrupt:
             logger.info("System stopped by user")
@@ -380,26 +398,51 @@ class LiveTradingSystem:
         """Initialize historical data for all symbols"""
         logger.info("Fetching initial historical data...")
         
+        # Start real-time feed first so we can get live data even if historical fails
+        self.data_ingester.start_realtime_feed()
+        
         for symbol in self.symbols:
             try:
-                if self.data_source == "demo":
-                    # For demo, generate initial historical data
-                    historical_data = await self.data_ingester.fetch_historical_data(
-                        symbol, days_back=max(5, self.lookback_period // 100)
-                    )
-                else:
-                    # For real data, get actual historical data
-                    historical_data = await self.data_ingester.fetch_historical_data(
-                        symbol, days_back=max(5, self.lookback_period // 100)
-                    )
+                # Subscribe to real-time data for this symbol
+                self.data_ingester.subscribe_to_symbol(symbol)
+                
+                # Try to fetch historical data with granularity
+                historical_data = await self.data_ingester.fetch_historical_data(
+                    symbol, 
+                    days_back=max(5, self.lookback_period // 100),
+                    granularity=self.granularity
+                )
                 
                 # Store the initial cumulative data
                 self.cumulative_data[symbol] = historical_data.copy()
                 
-                logger.info(f"Loaded {len(historical_data)} initial historical bars for {symbol}")
+                logger.info(f"✅ Loaded {len(historical_data)} initial historical bars for {symbol}")
                 
             except Exception as e:
                 logger.error(f"Error loading historical data for {symbol}: {e}")
+                
+                # If historical data fails, start with empty DataFrame - we'll build from real-time
+                self.cumulative_data[symbol] = pd.DataFrame()
+                logger.info(f"📊 Will build {symbol} data from real-time feeds only (no historical data available)")
+        
+        # Give real-time feed a moment to get initial data
+        await asyncio.sleep(2)
+        
+        # Check if we got any initial real-time data
+        for symbol in self.symbols:
+            current_data = self.data_ingester.get_current_data(symbol)
+            if current_data and len(self.cumulative_data[symbol]) == 0:
+                # Add the first real-time bar to start building data
+                first_bar = pd.DataFrame({
+                    'Open': [current_data.open],
+                    'High': [current_data.high],
+                    'Low': [current_data.low],
+                    'Close': [current_data.close],
+                    'Volume': [current_data.volume]
+                }, index=[current_data.timestamp])
+                
+                self.cumulative_data[symbol] = first_bar
+                logger.info(f"🚀 Started building {symbol} data from first real-time bar: ${current_data.close:.2f}")
     
     async def _process_trading_cycle(self) -> Dict[str, TradingSignal]:
         """Process one trading cycle for all symbols"""
@@ -413,34 +456,55 @@ class LiveTradingSystem:
                     if len(updated_data) > 0:
                         self.cumulative_data[symbol] = updated_data
                 else:
-                    # For real data, append current real-time bar to cumulative data
-                    updated_data = self.data_ingester.append_current_bar(symbol)
-                    if len(updated_data) > 0:
-                        self.cumulative_data[symbol] = updated_data
+                    # For real data sources (like CoinMarketCap), get current real-time data
+                    current_data = self.data_ingester.get_current_data(symbol)
+                    
+                    if current_data:
+                        # Add current real-time bar to cumulative data
+                        new_bar = pd.DataFrame({
+                            'Open': [current_data.open],
+                            'High': [current_data.high],
+                            'Low': [current_data.low],
+                            'Close': [current_data.close],
+                            'Volume': [current_data.volume]
+                        }, index=[current_data.timestamp])
+                        
+                        if symbol in self.cumulative_data and len(self.cumulative_data[symbol]) > 0:
+                            # Check if this is a new timestamp (avoid duplicates)
+                            last_timestamp = self.cumulative_data[symbol].index[-1]
+                            if (current_data.timestamp - last_timestamp).total_seconds() >= 30:  # New bar
+                                self.cumulative_data[symbol] = pd.concat([self.cumulative_data[symbol], new_bar])
+                                logger.debug(f"📊 Added new bar for {symbol}: ${current_data.close:.2f}")
+                        else:
+                            # First bar
+                            self.cumulative_data[symbol] = new_bar
+                            logger.info(f"🎬 First bar for {symbol}: ${current_data.close:.2f}")
                 
                 # Use cumulative data for signal extraction
-                current_data = self.cumulative_data.get(symbol, pd.DataFrame())
+                current_data_df = self.cumulative_data.get(symbol, pd.DataFrame())
                 
-                if len(current_data) >= self.lookback_period:
+                if len(current_data_df) >= self.lookback_period:
                     # Extract signal from cumulative data
-                    signal = self.signal_extractors[symbol].extract_signal(current_data)
+                    signal = self.signal_extractors[symbol].extract_signal(current_data_df)
                     signals[symbol] = signal
                     self.active_signals[symbol] = signal
                     
                     # Log the data growth
-                    logger.debug(f"Processing {symbol}: {len(current_data)} total bars, "
-                               f"latest price: ${current_data['Close'].iloc[-1]:.2f}")
+                    logger.debug(f"Processing {symbol}: {len(current_data_df)} total bars, "
+                               f"latest price: ${current_data_df['Close'].iloc[-1]:.2f}")
                     
-                elif len(current_data) > 0:
+                elif len(current_data_df) > 0:
                     # For simple strategies (like random), generate signals even with minimal data
                     strategy_name = self.strategy_class.__name__.lower()
                     if 'random' in strategy_name or self.lookback_period <= 10:
-                        logger.info(f"Processing {symbol} with minimal data for simple strategy: {len(current_data)} bars")
-                        signal = self.signal_extractors[symbol].extract_signal(current_data)
+                        logger.info(f"Processing {symbol} with minimal data for simple strategy: {len(current_data_df)} bars")
+                        signal = self.signal_extractors[symbol].extract_signal(current_data_df)
                         signals[symbol] = signal
                         self.active_signals[symbol] = signal
                     else:
-                        logger.warning(f"Insufficient data for {symbol}: {len(current_data)} < {self.lookback_period}")
+                        # Show progress towards having enough data
+                        progress_pct = (len(current_data_df) / self.lookback_period) * 100
+                        logger.info(f"Building {symbol} data: {len(current_data_df)}/{self.lookback_period} bars ({progress_pct:.1f}% complete)")
                 else:
                     logger.warning(f"No data available for {symbol}")
                     
@@ -499,21 +563,82 @@ class LiveTradingSystem:
         
         print(f"\nTrade log saved to trading_system.log")
 
+def print_granularity_info():
+    """Print information about supported granularities"""
+    from src.trading_system.granularity import GranularityParser
+    
+    print("\nSupported granularities by data source:")
+    print("=" * 50)
+    
+    for source in ["polygon", "coinmarketcap", "demo"]:
+        granularities = GranularityParser.get_supported_granularities(source)
+        print(f"\n{source.upper()}:")
+        print(f"  Supported: {', '.join(granularities)}")
+        if source == "polygon":
+            print(f"  Default: 1m (very flexible with most timeframes)")
+        elif source == "coinmarketcap":
+            print(f"  Default: 1d (historical), supports intraday real-time simulation")
+        elif source == "demo":
+            print(f"  Default: 1m (can generate any granularity)")
+    
+    print("\nExample granularity formats:")
+    print("  1s   = 1 second")
+    print("  30s  = 30 seconds") 
+    print("  1m   = 1 minute")
+    print("  5m   = 5 minutes")
+    print("  1h   = 1 hour")
+    print("  1d   = 1 day")
+    print()
+
+
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description='Live Trading System')
-    parser.add_argument('--strategy', required=True, help='Path to strategy file (e.g., sma.py)')
+    parser.add_argument('--strategy', help='Path to strategy file (e.g., sma.py)')
     parser.add_argument('--symbols', default='AAPL', help='Comma-separated list of symbols (e.g., AAPL,MSFT)')
     parser.add_argument('--data-source', choices=['demo', 'polygon', 'coinmarketcap'], default='demo', 
                        help='Data source to use')
+    parser.add_argument('--granularity', type=str, 
+                       help='Data granularity (e.g., 1s, 1m, 5m, 1h, 1d)')
     parser.add_argument('--lookback', type=int, help='Override calculated lookback period')
     parser.add_argument('--duration', type=int, default=60, help='Duration to run in minutes')
+    parser.add_argument('--list-granularities', action='store_true',
+                       help='List supported granularities for each data source')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose logging')
     
     args = parser.parse_args()
     
+    # Handle granularity info request
+    if args.list_granularities:
+        print_granularity_info()
+        return 0
+    
+    # Strategy is required for normal operation
+    if not args.strategy:
+        parser.error("--strategy is required when not using --list-granularities")
+    
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
+    
+    # Determine granularity
+    granularity = args.granularity
+    if not granularity:
+        defaults = {
+            "polygon": "1m",
+            "coinmarketcap": "1d",
+            "demo": "1m"
+        }
+        granularity = defaults.get(args.data_source, "1m")
+        logger.info(f"Using default granularity {granularity} for {args.data_source}")
+    
+    # Validate granularity for the chosen data source
+    from src.trading_system.granularity import validate_granularity
+    is_valid, error_msg = validate_granularity(granularity, args.data_source)
+    if not is_valid:
+        logger.error(f"Invalid granularity: {error_msg}")
+        print(f"\nError: {error_msg}")
+        print(f"Use --list-granularities to see supported options.")
+        return 1
     
     # Parse symbols
     symbols = [s.strip().upper() for s in args.symbols.split(',')]
@@ -524,6 +649,7 @@ def main():
             strategy_path=args.strategy,
             symbols=symbols,
             data_source=args.data_source,
+            granularity=granularity,
             lookback_override=args.lookback
         )
         

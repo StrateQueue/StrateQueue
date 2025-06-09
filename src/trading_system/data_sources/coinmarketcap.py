@@ -6,14 +6,17 @@ Cryptocurrency data from CoinMarketCap Pro API
 
 import asyncio
 import pandas as pd
+import random
 import requests
 import threading
 import time
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Optional
+import os
 
 from .base import BaseDataIngestion, MarketData
+from ..granularity import TimeUnit
 
 logger = logging.getLogger(__name__)
 
@@ -21,16 +24,50 @@ logger = logging.getLogger(__name__)
 class CoinMarketCapDataIngestion(BaseDataIngestion):
     """CoinMarketCap data ingestion for cryptocurrency signals"""
     
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str = None, granularity: str = "1d"):
+        """Initialize CoinMarketCap data source with granularity validation"""
         super().__init__()
-        self.api_key = api_key
+        
+        # Validate granularity early
+        parsed_granularity = self._parse_granularity(granularity)
+        if parsed_granularity.to_seconds() < 60:
+            raise Exception(f"CoinMarketCap does not support {granularity} granularity. CMC only updates every 60 seconds, so minimum supported granularity is 1 minute ('1m').")
+        
+        self.api_key = api_key or os.getenv('CMC_API_KEY')
+        if not self.api_key:
+            raise ValueError("CoinMarketCap API key is required. Set CMC_API_KEY environment variable.")
+        
         self.rest_base_url = "https://pro-api.coinmarketcap.com"
-        self.symbol_to_id: Dict[str, int] = {}  # Map symbols to CMC IDs
+        self.ws_base_url = None  # CMC doesn't have public WebSocket API
+        
+        # Track subscribed symbols
+        self.subscribed_symbols = set()
+        self.historical_data = {}
+        self.symbol_id_cache = {}
+        self.symbol_to_id = {}  # Initialize symbol to ID mapping
+        
+        # Set granularity and calculate update interval
+        self.granularity = granularity
+        parsed = self._parse_granularity(granularity)
+        self.granularity_seconds = parsed.to_seconds()
+        
+        # CMC updates every 60 seconds, so for granularities >= 1m, use that interval
+        # For exactly 1m, update every 60s. For longer intervals, still check every 60s
+        # but only emit signals at the appropriate granularity boundary
+        if self.granularity_seconds >= 60:
+            self.update_interval = 60  # Always check every 60s for fresh data
+            logger.info(f"CMC update interval set to 60 seconds based on granularity {granularity}")
+        else:
+            # This should not happen due to validation above, but just in case
+            raise Exception(f"Unsupported granularity {granularity} for CoinMarketCap")
+        
+        # For simulation and time tracking
+        self.simulated_time = datetime.utcnow()
+        self.last_signal_time = None
         
         # Real-time simulation
         self.simulation_running = False
         self.simulation_thread = None
-        self.update_interval = 60.0  # 60 seconds between updates (CMC API rate limits)
         
     async def _fetch_symbol_id(self, symbol: str) -> Optional[int]:
         """Fetch CoinMarketCap ID for a symbol"""
@@ -66,21 +103,35 @@ class CoinMarketCapDataIngestion(BaseDataIngestion):
             return None
     
     async def fetch_historical_data(self, symbol: str, days_back: int = 30, 
-                                  timespan: str = "daily", multiplier: int = 1) -> pd.DataFrame:
+                                  granularity: str = "1d") -> pd.DataFrame:
         """
         Fetch historical cryptocurrency data from CoinMarketCap
         
         Args:
             symbol: Cryptocurrency symbol (e.g., 'BTC')
             days_back: Number of days of historical data
-            timespan: 'daily' (only option for CMC historical data)
-            multiplier: Not used for CMC (always 1 day)
+            granularity: Data granularity (e.g., '1d' for daily)
         """
+        # Parse granularity to determine if we can fetch historical data
+        parsed_granularity = self._parse_granularity(granularity)
+        
+        # CMC historical API only supports daily data
+        if parsed_granularity.unit == TimeUnit.DAY:
+            return await self._fetch_daily_historical_data(symbol, days_back)
+        else:
+            # For intraday granularities, we cannot provide historical data
+            # But we should clarify that real-time data is available for 1m+
+            if parsed_granularity.to_seconds() >= 60:
+                raise Exception(f"CoinMarketCap does not support {granularity} historical data. Only daily ('1d') historical data is available. However, real-time {granularity} data updates are available via live feeds (CMC updates every 60 seconds).")
+            else:
+                raise Exception(f"CoinMarketCap does not support {granularity} granularity. CMC only updates every 60 seconds, so minimum supported granularity is 1 minute ('1m').")
+    
+    async def _fetch_daily_historical_data(self, symbol: str, days_back: int) -> pd.DataFrame:
+        """Fetch actual daily historical data from CMC"""
         # Get CMC ID for the symbol
         cmc_id = await self._fetch_symbol_id(symbol)
         if not cmc_id:
-            logger.error(f"Cannot fetch historical data for {symbol} - no CMC ID found")
-            return pd.DataFrame()
+            raise Exception(f"Cannot fetch historical data for {symbol} - symbol not found in CoinMarketCap")
         
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days_back)
@@ -88,7 +139,7 @@ class CoinMarketCapDataIngestion(BaseDataIngestion):
         url = f"{self.rest_base_url}/v1/cryptocurrency/ohlcv/historical"
         headers = {
             'X-CMC_PRO_API_KEY': self.api_key,
-            'Content-Type': 'application/json'
+            'Accept': 'application/json'
         }
         params = {
             'id': cmc_id,
@@ -98,13 +149,20 @@ class CoinMarketCapDataIngestion(BaseDataIngestion):
         }
         
         try:
-            response = requests.get(url, headers=headers, params=params)
-            response.raise_for_status()
+            logger.info(f"Fetching {days_back} days of historical data for {symbol} from CoinMarketCap...")
+            response = requests.get(url, headers=headers, params=params, timeout=15)
+            
+            if response.status_code == 401:
+                raise Exception(f"CoinMarketCap API authentication failed - check your API key. Status: 401")
+            elif response.status_code == 403:
+                raise Exception(f"CoinMarketCap API rate limit exceeded or access forbidden. Status: 403")
+            elif response.status_code != 200:
+                raise Exception(f"CoinMarketCap historical API returned error status {response.status_code}: {response.text}")
+            
             data = response.json()
             
             if 'data' not in data or not data['data'].get('quotes'):
-                logger.warning(f"No historical data returned for {symbol}")
-                return pd.DataFrame()
+                raise Exception(f"No historical data returned for {symbol} from CoinMarketCap API")
             
             # Convert to backtesting.py compatible format
             df_data = []
@@ -119,6 +177,9 @@ class CoinMarketCapDataIngestion(BaseDataIngestion):
                     'timestamp': datetime.fromisoformat(quote['timestamp'].replace('Z', '+00:00'))
                 })
             
+            if not df_data:
+                raise Exception(f"No historical data points found for {symbol}")
+            
             df = pd.DataFrame(df_data)
             df.set_index('timestamp', inplace=True)
             df.index = pd.to_datetime(df.index)
@@ -127,74 +188,94 @@ class CoinMarketCapDataIngestion(BaseDataIngestion):
             # Cache the data
             self.historical_data[symbol] = df
             
-            logger.info(f"Fetched {len(df)} historical bars for {symbol} from CoinMarketCap")
+            logger.info(f"✅ Fetched {len(df)} daily historical bars for {symbol} from CoinMarketCap")
             return df
             
+        except requests.exceptions.Timeout:
+            raise Exception(f"CoinMarketCap historical API timeout for {symbol} - network connectivity issue")
+        except requests.exceptions.ConnectionError:
+            raise Exception(f"CoinMarketCap historical API connection error for {symbol} - check internet connection")
         except Exception as e:
-            logger.error(f"Error fetching historical data for {symbol} from CoinMarketCap: {e}")
-            # For simple strategies that don't need historical data, create minimal dummy data
-            logger.info(f"Creating minimal dummy historical data for {symbol}")
-            try:
-                # Try to get current price first
-                current_quote = await self._fetch_current_quote(symbol)
-                if current_quote:
-                    price = current_quote.close
-                else:
-                    # Use a reasonable default price for crypto
-                    price = 50000.0 if symbol == 'BTC' else 3000.0 if symbol == 'ETH' else 100.0
-                
-                # Create minimal historical data with just a few bars
-                timestamps = [datetime.now() - timedelta(days=i) for i in range(days_back, 0, -1)]
-                df_data = []
-                for ts in timestamps[-5:]:  # Only last 5 days
-                    df_data.append({
-                        'Open': price,
-                        'High': price * 1.02,
-                        'Low': price * 0.98,
-                        'Close': price,
-                        'Volume': 1000000,
-                        'timestamp': ts
-                    })
-                
-                df = pd.DataFrame(df_data)
-                df.set_index('timestamp', inplace=True)
-                df.index = pd.to_datetime(df.index)
-                
-                # Cache the dummy data
-                self.historical_data[symbol] = df
-                
-                logger.info(f"Created {len(df)} dummy historical bars for {symbol}")
-                return df
-                
-            except Exception as fallback_error:
-                logger.error(f"Failed to create dummy data: {fallback_error}")
-                return pd.DataFrame()
+            # Re-raise any exception to ensure we don't silently fail
+            if "CoinMarketCap" in str(e):
+                raise  # Already has good error message
+            else:
+                raise Exception(f"Error fetching CoinMarketCap historical data for {symbol}: {e}")
+    
+    async def _create_dummy_historical_data(self, symbol: str, days_back: int, granularity: str) -> pd.DataFrame:
+        """REMOVED: No more dummy data - system should fail instead"""
+        raise Exception("Dummy historical data disabled - system should use real data only")
     
     async def _fetch_current_quote(self, symbol: str) -> Optional[MarketData]:
-        """Fetch current quote for a symbol"""
-        url = f"{self.rest_base_url}/v1/cryptocurrency/quotes/latest"
+        """Fetch current quote for a symbol using V2 API - FAILS if API is not working"""
+        # Use V2 API endpoint exactly like the working test script
+        url = "https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/latest"
         headers = {
             'X-CMC_PRO_API_KEY': self.api_key,
-            'Content-Type': 'application/json'
+            'Accept': 'application/json'
         }
         params = {
-            'symbol': symbol
+            'symbol': symbol,
+            'convert': 'USD'
         }
         
         try:
-            response = requests.get(url, headers=headers, params=params)
-            response.raise_for_status()
+            logger.info(f"🌐 Fetching real-time quote for {symbol} from CoinMarketCap V2 API...")
+            response = requests.get(url, headers=headers, params=params, timeout=10)
+            
+            if response.status_code == 401:
+                raise Exception(f"CoinMarketCap API authentication failed - check your API key. Status: 401")
+            elif response.status_code == 403:
+                raise Exception(f"CoinMarketCap API rate limit exceeded or access forbidden. Status: 403")
+            elif response.status_code != 200:
+                raise Exception(f"CoinMarketCap API returned error status {response.status_code}: {response.text}")
+            
             data = response.json()
             
             if 'data' not in data or symbol not in data['data']:
-                logger.warning(f"No current quote data for {symbol}")
-                return None
+                raise Exception(f"No current quote data for {symbol} in CoinMarketCap API response")
             
-            quote_data = data['data'][symbol]['quote']['USD']
-            timestamp = datetime.now()
+            # V2 API returns an array - get the first entry which is the real cryptocurrency
+            # For BTC, this filters out the meme tokens that also use "BTC" symbol
+            symbol_data_array = data['data'][symbol]
+            if not symbol_data_array or len(symbol_data_array) == 0:
+                raise Exception(f"No data entries found for {symbol} in API response")
+            
+            # Get the first entry (real Bitcoin has id=1 and is always first)
+            btc_data = symbol_data_array[0]
+            quote_data = btc_data['quote']['USD']
+            
+            # Log what we found
+            logger.info(f"📊 Found {btc_data['name']} (ID: {btc_data['id']}, Rank: {btc_data.get('cmc_rank', 'N/A')})")
+            
+            # Use the API's last_updated timestamp from the quote
+            api_timestamp = None
+            if 'last_updated' in quote_data:
+                try:
+                    api_timestamp = datetime.fromisoformat(quote_data['last_updated'].replace('Z', '+00:00'))
+                    logger.info(f"📅 Using quote timestamp: {api_timestamp}")
+                except Exception as e:
+                    logger.warning(f"Could not parse quote timestamp: {e}")
+            
+            # For real-time data, use the API timestamp or current time
+            if api_timestamp:
+                timestamp = api_timestamp
+            else:
+                timestamp = datetime.utcnow()
+            
+            # Get the real price from CoinMarketCap
+            price = float(quote_data['price'])
+            volume_24h = int(quote_data.get('volume_24h', 0))
+            
+            logger.info(f"✅ Real CMC data for {symbol}: ${price:.2f} (24h volume: ${volume_24h:,})")
+            
+            # Status info from API response
+            if 'status' in data:
+                status = data['status']
+                logger.info(f"🕐 API Timestamp: {status['timestamp']}, Credits: {status['credit_count']}, Response: {status['elapsed']}ms")
             
             # Since CMC doesn't provide OHLC for current quotes, use price as all values
-            price = quote_data['price']
+            # This is exactly how the test script works
             market_data = MarketData(
                 symbol=symbol,
                 timestamp=timestamp,
@@ -202,21 +283,32 @@ class CoinMarketCapDataIngestion(BaseDataIngestion):
                 high=price,
                 low=price,
                 close=price,
-                volume=int(quote_data.get('volume_24h', 0))
+                volume=volume_24h
             )
             
             return market_data
             
+        except requests.exceptions.Timeout:
+            raise Exception(f"CoinMarketCap API timeout for {symbol} - network connectivity issue")
+        except requests.exceptions.ConnectionError:
+            raise Exception(f"CoinMarketCap API connection error for {symbol} - check internet connection")
         except Exception as e:
-            logger.error(f"Error fetching current quote for {symbol}: {e}")
-            return None
+            # Re-raise any exception to ensure we don't silently fail
+            if "CoinMarketCap" in str(e):
+                raise  # Already has good error message
+            else:
+                raise Exception(f"Error fetching CoinMarketCap quote for {symbol}: {e}")
+    
+    def _create_simulated_quote(self, symbol: str) -> MarketData:
+        """REMOVED: No more fallback data - system should fail instead"""
+        raise Exception("Simulated quotes disabled - system should use real data only")
     
     def _simulation_loop(self):
         """Simulate real-time data updates by fetching current quotes periodically"""
         logger.info("Starting CoinMarketCap real-time simulation")
         
         while self.simulation_running:
-            for symbol in list(self.current_bars.keys()):
+            for symbol in list(self.subscribed_symbols):
                 try:
                     # Use asyncio.run to handle async call in thread
                     market_data = asyncio.run(self._fetch_current_quote(symbol))
@@ -238,9 +330,20 @@ class CoinMarketCapDataIngestion(BaseDataIngestion):
     def subscribe_to_symbol(self, symbol: str):
         """Subscribe to real-time data for a symbol"""
         logger.info(f"Subscribed to {symbol} on CoinMarketCap")
+        self.subscribed_symbols.add(symbol)
+        
         # Initialize with empty data - will be populated by simulation
         if symbol not in self.current_bars:
             self.current_bars[symbol] = None
+            
+        # Try to get initial data immediately
+        try:
+            initial_data = asyncio.run(self._fetch_current_quote(symbol))
+            if initial_data:
+                self.current_bars[symbol] = initial_data
+                logger.info(f"✅ Got initial data for {symbol}: ${initial_data.close:.2f}")
+        except Exception as e:
+            logger.warning(f"Could not get initial data for {symbol}: {e}")
     
     def start_realtime_feed(self):
         """Start the real-time data simulation"""
@@ -286,6 +389,24 @@ class CoinMarketCapDataIngestion(BaseDataIngestion):
             return self.historical_data[symbol]
         
         return self.get_backtesting_data(symbol)
+    
+    def set_update_interval_from_granularity(self, granularity: str):
+        """Set the update interval based on granularity"""
+        try:
+            parsed_granularity = self._parse_granularity(granularity)
+            interval_seconds = parsed_granularity.to_seconds()
+            
+            # Respect CMC API rate limits (minimum 30 seconds for real API calls)
+            # But allow shorter intervals for demo/simulation purposes
+            if interval_seconds < 30:
+                logger.warning(f"CMC granularity {granularity} is shorter than recommended 30s minimum for API rate limits")
+            
+            self.update_interval = interval_seconds
+            self.granularity_seconds = interval_seconds  # Store for simulated time progression
+            
+            logger.info(f"CMC update interval set to {self.update_interval} seconds based on granularity {granularity}")
+        except Exception as e:
+            logger.warning(f"Could not parse granularity {granularity}, using default interval: {e}")
     
     def set_update_interval(self, seconds: float):
         """Set the update interval for real-time simulation"""

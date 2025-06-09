@@ -57,6 +57,7 @@ class SignalExtractorStrategy(Strategy):
         self.signal_confidence = confidence
         
         # Store signal with current data
+        # For live trading, use the data timestamp; for demo, the data timestamp will be simulated time
         signal_obj = TradingSignal(
             signal=signal,
             confidence=confidence,
