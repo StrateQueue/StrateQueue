@@ -15,8 +15,22 @@ Public API:
 """
 
 from .config import AlpacaConfig, PositionSizeConfig, PositionSizeMode
-from .executor import AlpacaExecutor
-from .utils import normalize_crypto_symbol, create_alpaca_executor_from_env
+
+# Try importing executor - if alpaca isn't installed, provide graceful fallback
+try:
+    from .executor import AlpacaExecutor
+    from .utils import normalize_crypto_symbol, create_alpaca_executor_from_env
+except ImportError as e:
+    # Create dummy classes that provide helpful error messages
+    class AlpacaExecutor:
+        def __init__(self, *args, **kwargs):
+            raise ImportError("alpaca-trade-api not installed. Install with: pip install stratequeue[trading]")
+    
+    def normalize_crypto_symbol(*args, **kwargs):
+        raise ImportError("alpaca-trade-api not installed. Install with: pip install stratequeue[trading]")
+    
+    def create_alpaca_executor_from_env(*args, **kwargs):
+        raise ImportError("alpaca-trade-api not installed. Install with: pip install stratequeue[trading]")
 
 __all__ = [
     'AlpacaExecutor',

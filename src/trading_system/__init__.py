@@ -36,7 +36,24 @@ from .data_ingestion import setup_data_ingestion
 from .data_sources import PolygonDataIngestion, CoinMarketCapDataIngestion, TestDataIngestion, MarketData
 from .signal_extractor import LiveSignalExtractor, SignalExtractorStrategy, TradingSignal, SignalType
 from .config import load_config, DataConfig, TradingConfig
-from .alpaca import AlpacaExecutor, AlpacaConfig, create_alpaca_executor_from_env, normalize_crypto_symbol
+# Alpaca imports - only import if available
+try:
+    from .alpaca import AlpacaExecutor, AlpacaConfig, create_alpaca_executor_from_env, normalize_crypto_symbol
+except ImportError:
+    # Create dummy classes if alpaca is not installed
+    class AlpacaExecutor:
+        def __init__(self, *args, **kwargs):
+            raise ImportError("alpaca-trade-api not installed. Install with: pip install stratequeue[trading]")
+    
+    class AlpacaConfig:
+        def __init__(self, *args, **kwargs):
+            raise ImportError("alpaca-trade-api not installed. Install with: pip install stratequeue[trading]")
+    
+    def create_alpaca_executor_from_env(*args, **kwargs):
+        raise ImportError("alpaca-trade-api not installed. Install with: pip install stratequeue[trading]")
+    
+    def normalize_crypto_symbol(*args, **kwargs):
+        raise ImportError("alpaca-trade-api not installed. Install with: pip install stratequeue[trading]")
 from .strategy_loader import StrategyLoader
 from .live_system import LiveTradingSystem
 from .multi_strategy import MultiStrategyRunner

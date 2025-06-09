@@ -13,7 +13,11 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 
 from ..config import load_config
-from ..alpaca import create_alpaca_executor_from_env
+try:
+    from ..alpaca import create_alpaca_executor_from_env
+except ImportError:
+    def create_alpaca_executor_from_env(*args, **kwargs):
+        raise ImportError("alpaca-trade-api not installed. Install with: pip install stratequeue[trading]")
 from ..signal_extractor import SignalType
 from ..strategy_loader import StrategyLoader
 from ..multi_strategy import MultiStrategyRunner
