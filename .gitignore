@@ -163,3 +163,4 @@ cython_debug/
 *.html  # Backtesting output files
 *.log   # Log files
 .DS_Store  # macOS files
+SmaCross.html
