@@ -125,16 +125,18 @@ class LiveSignalExtractor:
     Extracts live trading signals from backtesting.py strategies
     """
     
-    def __init__(self, strategy_class, **strategy_params):
+    def __init__(self, strategy_class, min_bars_required: int = 2, **strategy_params):
         """
         Initialize with a strategy class and its parameters
         
         Args:
             strategy_class: A SignalExtractorStrategy subclass
+            min_bars_required: Minimum number of bars needed for signal extraction
             **strategy_params: Parameters to pass to the strategy
         """
         self.strategy_class = strategy_class
         self.strategy_params = strategy_params
+        self.min_bars_required = min_bars_required
         self.last_signal = None
         
     def extract_signal(self, historical_data: pd.DataFrame) -> TradingSignal:
@@ -149,7 +151,7 @@ class LiveSignalExtractor:
         """
         try:
             # Ensure we have enough data
-            if len(historical_data) < 2:
+            if len(historical_data) < self.min_bars_required:
                 logger.warning("Insufficient historical data for signal extraction")
                 return TradingSignal(
                     signal=SignalType.HOLD,

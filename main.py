@@ -334,7 +334,10 @@ class LiveTradingSystem:
         # Initialize signal extractors for each symbol
         self.signal_extractors = {}
         for symbol in symbols:
-            self.signal_extractors[symbol] = LiveSignalExtractor(self.strategy_class)
+            self.signal_extractors[symbol] = LiveSignalExtractor(
+                self.strategy_class, 
+                min_bars_required=self.lookback_period
+            )
         
         # Track active signals
         self.active_signals = {}
@@ -502,9 +505,19 @@ class LiveTradingSystem:
                         if symbol in self.cumulative_data and len(self.cumulative_data[symbol]) > 0:
                             # Check if this is a new timestamp (avoid duplicates)
                             last_timestamp = self.cumulative_data[symbol].index[-1]
-                            if (current_data.timestamp - last_timestamp).total_seconds() >= 30:  # New bar
+                            time_diff = (current_data.timestamp - last_timestamp).total_seconds()
+                            
+                            # For CoinMarketCap, be more flexible with timestamps since they cache for 60s
+                            # Add new bar if: significant time difference OR price changed OR first few bars
+                            last_price = self.cumulative_data[symbol]['Close'].iloc[-1]
+                            price_changed = abs(current_data.close - last_price) > 0.01  # Price changed by more than 1 cent
+                            need_more_bars = len(self.cumulative_data[symbol]) < self.lookback_period
+                            
+                            if time_diff >= 30 or price_changed or need_more_bars:
                                 self.cumulative_data[symbol] = pd.concat([self.cumulative_data[symbol], new_bar])
-                                logger.debug(f"📊 Added new bar for {symbol}: ${current_data.close:.2f}")
+                                logger.debug(f"📊 Added new bar for {symbol}: ${current_data.close:.2f} (time_diff: {time_diff}s, price_changed: {price_changed}, need_more: {need_more_bars})")
+                            else:
+                                logger.debug(f"⏭️  Skipping duplicate bar for {symbol}: same timestamp and price")
                         else:
                             # First bar
                             self.cumulative_data[symbol] = new_bar
@@ -524,10 +537,16 @@ class LiveTradingSystem:
                                f"latest price: ${current_data_df['Close'].iloc[-1]:.2f}")
                     
                 elif len(current_data_df) > 0:
-                    # For simple strategies (like random), generate signals even with minimal data
-                    strategy_name = self.strategy_class.__name__.lower()
-                    if 'random' in strategy_name or self.lookback_period <= 10:
-                        logger.info(f"Processing {symbol} with minimal data for simple strategy: {len(current_data_df)} bars")
+                    # For simple strategies that don't need much historical data, generate signals
+                    if len(current_data_df) >= self.lookback_period:
+                        # We have enough data - generate signals
+                        logger.info(f"Processing {symbol} with sufficient data: {len(current_data_df)} >= {self.lookback_period} bars")
+                        signal = self.signal_extractors[symbol].extract_signal(current_data_df)
+                        signals[symbol] = signal
+                        self.active_signals[symbol] = signal
+                    elif 'random' in self.strategy_class.__name__.lower():
+                        # Random strategy can work with any amount of data
+                        logger.info(f"Processing {symbol} with random strategy: {len(current_data_df)} bars available")
                         signal = self.signal_extractors[symbol].extract_signal(current_data_df)
                         signals[symbol] = signal
                         self.active_signals[symbol] = signal
