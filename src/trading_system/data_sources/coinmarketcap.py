@@ -206,7 +206,7 @@ class CoinMarketCapDataIngestion(BaseDataIngestion):
         """REMOVED: No more dummy data - system should fail instead"""
         raise Exception("Dummy historical data disabled - system should use real data only")
     
-    async def _fetch_current_quote(self, symbol: str) -> Optional[MarketData]:
+    def _fetch_current_quote(self, symbol: str) -> Optional[MarketData]:
         """Fetch current quote for a symbol using V2 API - FAILS if API is not working"""
         # Use V2 API endpoint exactly like the working test script
         url = "https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/latest"
@@ -310,8 +310,7 @@ class CoinMarketCapDataIngestion(BaseDataIngestion):
         while self.simulation_running:
             for symbol in list(self.subscribed_symbols):
                 try:
-                    # Use asyncio.run to handle async call in thread
-                    market_data = asyncio.run(self._fetch_current_quote(symbol))
+                    market_data = self._fetch_current_quote(symbol)
                     
                     if market_data:
                         self.current_bars[symbol] = market_data
@@ -338,7 +337,7 @@ class CoinMarketCapDataIngestion(BaseDataIngestion):
             
         # Try to get initial data immediately
         try:
-            initial_data = asyncio.run(self._fetch_current_quote(symbol))
+            initial_data = self._fetch_current_quote(symbol)
             if initial_data:
                 self.current_bars[symbol] = initial_data
                 logger.info(f"✅ Got initial data for {symbol}: ${initial_data.close:.2f}")

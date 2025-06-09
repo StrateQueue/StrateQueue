@@ -14,7 +14,7 @@ import logging
 from typing import List, Tuple, Dict, Any
 
 from .granularity import GranularityParser, validate_granularity
-from .live_trading_system import LiveTradingSystem
+from .live_system import LiveTradingSystem
 
 logger = logging.getLogger(__name__)
 
