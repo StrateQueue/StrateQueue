@@ -10,6 +10,10 @@ from .data_sources import PolygonDataIngestion, CoinMarketCapDataIngestion, Test
 from .signal_extractor import LiveSignalExtractor, SignalExtractorStrategy, TradingSignal, SignalType
 from .config import load_config, DataConfig, TradingConfig
 from .alpaca_execution import AlpacaExecutor, AlpacaConfig, create_alpaca_executor_from_env, normalize_crypto_symbol
+from .strategy_loader import StrategyLoader
+from .live_trading_system import LiveTradingSystem
+from .mocks import Order
+from .cli import main as cli_main
 
 __version__ = "0.1.0"
 __all__ = [
@@ -28,5 +32,9 @@ __all__ = [
     "AlpacaExecutor",
     "AlpacaConfig",
     "create_alpaca_executor_from_env",
-    "normalize_crypto_symbol"
+    "normalize_crypto_symbol",
+    "StrategyLoader",
+    "LiveTradingSystem",
+    "Order",
+    "cli_main"
 ] 
