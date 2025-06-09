@@ -52,8 +52,11 @@ def create_argument_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run with SMA strategy on demo data
+  # Single strategy mode
   python3 main.py --strategy sma.py --symbols AAPL,MSFT --data-source demo
+  
+  # Multi-strategy mode
+  python3 main.py --strategies strategies.txt --symbols AAPL,MSFT --data-source demo
   
   # Run with real Polygon data
   python3 main.py --strategy sma.py --symbols AAPL --data-source polygon --lookback 50
@@ -61,13 +64,19 @@ Examples:
   # Enable paper trading via Alpaca
   python3 main.py --strategy sma.py --symbols AAPL --enable-trading
   
+  # Multi-strategy with trading enabled
+  python3 main.py --strategies strategies.txt --symbols AAPL,MSFT --enable-trading
+  
   # Show granularity options
   python3 main.py --list-granularities
         """
     )
     
     parser.add_argument('--strategy', 
-                       help='Path to strategy file (e.g., sma.py)')
+                       help='Path to strategy file for single-strategy mode (e.g., sma.py)')
+    
+    parser.add_argument('--strategies', 
+                       help='Path to multi-strategy configuration file (e.g., strategies.txt)')
     
     parser.add_argument('--symbols', default='AAPL', 
                        help='Comma-separated list of symbols (e.g., AAPL,MSFT)')
@@ -113,9 +122,23 @@ def validate_arguments(args: argparse.Namespace) -> Tuple[bool, List[str]]:
     if args.list_granularities:
         return True, []  # No validation needed for info request
     
-    # Strategy is required for normal operation
-    if not args.strategy:
-        errors.append("--strategy is required when not using --list-granularities")
+    # Either strategy or strategies is required, but not both
+    if not args.strategy and not args.strategies:
+        errors.append("Either --strategy (single-strategy mode) or --strategies (multi-strategy mode) is required")
+    elif args.strategy and args.strategies:
+        errors.append("Cannot use both --strategy and --strategies. Choose single-strategy or multi-strategy mode.")
+    
+    # Validate strategy file exists (single-strategy mode)
+    if args.strategy:
+        import os
+        if not os.path.exists(args.strategy):
+            errors.append(f"Strategy file not found: {args.strategy}")
+    
+    # Validate strategies config file exists (multi-strategy mode)
+    if args.strategies:
+        import os
+        if not os.path.exists(args.strategies):
+            errors.append(f"Multi-strategy config file not found: {args.strategies}")
     
     # Validate granularity for the chosen data source
     if args.granularity:
@@ -211,15 +234,27 @@ async def run_trading_system(args: argparse.Namespace) -> int:
         granularity = determine_granularity(args)
         symbols = parse_symbols(args.symbols)
         
-        # Create and run the trading system
-        system = LiveTradingSystem(
-            strategy_path=args.strategy,
-            symbols=symbols,
-            data_source=args.data_source,
-            granularity=granularity,
-            lookback_override=args.lookback,
-            enable_trading=args.enable_trading
-        )
+        # Determine mode and create trading system
+        if args.strategies:
+            # Multi-strategy mode
+            system = LiveTradingSystem(
+                symbols=symbols,
+                data_source=args.data_source,
+                granularity=granularity,
+                lookback_override=args.lookback,
+                enable_trading=args.enable_trading,
+                multi_strategy_config=args.strategies
+            )
+        else:
+            # Single-strategy mode
+            system = LiveTradingSystem(
+                strategy_path=args.strategy,
+                symbols=symbols,
+                data_source=args.data_source,
+                granularity=granularity,
+                lookback_override=args.lookback,
+                enable_trading=args.enable_trading
+            )
         
         # Run the system
         await system.run_live_system(duration_minutes=args.duration)

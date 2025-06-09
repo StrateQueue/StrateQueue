@@ -12,6 +12,8 @@ from .config import load_config, DataConfig, TradingConfig
 from .alpaca_execution import AlpacaExecutor, AlpacaConfig, create_alpaca_executor_from_env, normalize_crypto_symbol
 from .strategy_loader import StrategyLoader
 from .live_trading_system import LiveTradingSystem
+from .multi_strategy_runner import MultiStrategyRunner
+from .simple_portfolio_manager import SimplePortfolioManager
 from .mocks import Order
 from .cli import main as cli_main
 
@@ -35,6 +37,8 @@ __all__ = [
     "normalize_crypto_symbol",
     "StrategyLoader",
     "LiveTradingSystem",
+    "MultiStrategyRunner",
+    "SimplePortfolioManager",
     "Order",
     "cli_main"
 ] 

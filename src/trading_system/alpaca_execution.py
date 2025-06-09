@@ -7,6 +7,7 @@ import logging
 from typing import Dict, Optional
 from dataclasses import dataclass
 from enum import Enum
+from datetime import datetime
 
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import (
@@ -20,6 +21,7 @@ from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.common.exceptions import APIError
 
 from .signal_extractor import TradingSignal, SignalType
+from .simple_portfolio_manager import SimplePortfolioManager
 
 logger = logging.getLogger(__name__)
 
@@ -72,18 +74,22 @@ class AlpacaExecutor:
     Alpaca trading executor for live trading.
     
     Handles the actual execution of trading signals through the Alpaca API.
+    Supports multi-strategy trading with portfolio management and conflict prevention.
     """
     
-    def __init__(self, config: AlpacaConfig, position_config: Optional[PositionSizeConfig] = None):
+    def __init__(self, config: AlpacaConfig, position_config: Optional[PositionSizeConfig] = None,
+                 portfolio_manager: Optional[SimplePortfolioManager] = None):
         """
         Initialize Alpaca executor
         
         Args:
             config: Alpaca API configuration
             position_config: Position sizing configuration
+            portfolio_manager: Optional portfolio manager for multi-strategy support
         """
         self.config = config
         self.position_config = position_config or PositionSizeConfig()
+        self.portfolio_manager = portfolio_manager
         
         # Initialize Alpaca trading client
         self.trading_client = TradingClient(
@@ -93,11 +99,110 @@ class AlpacaExecutor:
             url_override=config.base_url if config.base_url else None
         )
         
-        # Track pending orders
+        # Track pending orders and order counter for unique IDs
         self.pending_orders = {}
+        self.order_counter = 0
         
         # Validate connection
         self._validate_connection()
+    
+    def _generate_client_order_id(self, strategy_id: Optional[str] = None) -> str:
+        """
+        Generate a unique client_order_id with optional strategy tagging
+        
+        Args:
+            strategy_id: Optional strategy identifier for tagging
+            
+        Returns:
+            Unique client_order_id string
+        """
+        self.order_counter += 1
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        if strategy_id:
+            # Format: strategy_timestamp_counter (max 128 chars)
+            return f"{strategy_id}_{timestamp}_{self.order_counter:03d}"
+        else:
+            # Single strategy format
+            return f"single_{timestamp}_{self.order_counter:03d}"
+    
+    def _validate_portfolio_constraints(self, symbol: str, signal: TradingSignal) -> tuple[bool, str]:
+        """
+        Validate signal against portfolio constraints
+        
+        Args:
+            symbol: Symbol to trade
+            signal: Trading signal to validate
+            
+        Returns:
+            Tuple of (is_valid: bool, reason: str)
+        """
+        if not self.portfolio_manager:
+            return True, "No portfolio constraints (single strategy mode)"
+        
+        strategy_id = getattr(signal, 'strategy_id', None)
+        if not strategy_id:
+            return False, "Signal missing strategy_id for multi-strategy mode"
+        
+        # Update portfolio manager with current account value
+        try:
+            account = self.trading_client.get_account()
+            self.portfolio_manager.update_account_value(float(account.portfolio_value))
+        except Exception as e:
+            logger.warning(f"Could not update portfolio value: {e}")
+        
+        # Validate buy signals
+        if signal.signal in [SignalType.BUY, SignalType.LIMIT_BUY, SignalType.STOP_BUY, 
+                           SignalType.STOP_LIMIT_BUY]:
+            
+            # Calculate order amount based on signal size and account value
+            account_value = float(account.portfolio_value)
+            if signal.size and 0 < signal.size <= 1:
+                order_amount = account_value * signal.size
+            else:
+                # Default to using available cash
+                cash_balance = float(account.cash)
+                order_amount = cash_balance * 0.99
+            
+            return self.portfolio_manager.can_buy(strategy_id, symbol, order_amount)
+        
+        # Validate sell signals
+        elif signal.signal in [SignalType.SELL, SignalType.CLOSE, SignalType.LIMIT_SELL,
+                             SignalType.STOP_SELL, SignalType.STOP_LIMIT_SELL, 
+                             SignalType.TRAILING_STOP_SELL]:
+            
+            return self.portfolio_manager.can_sell(strategy_id, symbol)
+        
+        # Hold signals are always valid
+        return True, "OK"
+    
+    def _record_trade_execution(self, symbol: str, signal: TradingSignal, execution_amount: float,
+                              execution_successful: bool):
+        """
+        Record trade execution in portfolio manager
+        
+        Args:
+            symbol: Symbol that was traded
+            signal: Signal that was executed
+            execution_amount: Dollar amount of the trade
+            execution_successful: Whether execution was successful
+        """
+        if not self.portfolio_manager or not execution_successful:
+            return
+        
+        strategy_id = getattr(signal, 'strategy_id', None)
+        if not strategy_id:
+            return
+        
+        # Record in portfolio manager
+        if signal.signal in [SignalType.BUY, SignalType.LIMIT_BUY, SignalType.STOP_BUY, 
+                           SignalType.STOP_LIMIT_BUY]:
+            self.portfolio_manager.record_buy(strategy_id, symbol, execution_amount)
+            
+        elif signal.signal in [SignalType.SELL, SignalType.CLOSE, SignalType.LIMIT_SELL,
+                             SignalType.STOP_SELL, SignalType.STOP_LIMIT_SELL, 
+                             SignalType.TRAILING_STOP_SELL]:
+            self.portfolio_manager.record_sell(strategy_id, symbol, execution_amount)
         
     def _validate_connection(self):
         """Validate connection to Alpaca API"""
@@ -114,7 +219,7 @@ class AlpacaExecutor:
         
     def execute_signal(self, symbol: str, signal: TradingSignal) -> bool:
         """
-        Execute a trading signal
+        Execute a trading signal with portfolio constraint validation
         
         Args:
             symbol: Symbol to trade
@@ -126,7 +231,18 @@ class AlpacaExecutor:
         try:
             # Normalize symbol for Alpaca format
             alpaca_symbol = normalize_crypto_symbol(symbol)
-            logger.info(f"Executing signal for {symbol} ({alpaca_symbol}): {signal.signal.value} @ ${signal.price:.2f}")
+            
+            strategy_id = getattr(signal, 'strategy_id', None)
+            strategy_info = f" [{strategy_id}]" if strategy_id else ""
+            
+            logger.info(f"Executing signal{strategy_info} for {symbol} ({alpaca_symbol}): "
+                       f"{signal.signal.value} @ ${signal.price:.2f}")
+            
+            # Validate portfolio constraints if in multi-strategy mode
+            is_valid, reason = self._validate_portfolio_constraints(alpaca_symbol, signal)
+            if not is_valid:
+                logger.warning(f"❌ Signal blocked{strategy_info} for {symbol}: {reason}")
+                return False
             
             if signal.signal == SignalType.BUY:
                 return self._execute_buy(alpaca_symbol, signal)
@@ -165,6 +281,10 @@ class AlpacaExecutor:
             order_data = None
             account = self.trading_client.get_account()
 
+            # Generate client_order_id with strategy tagging
+            strategy_id = getattr(signal, 'strategy_id', None)
+            client_order_id = self._generate_client_order_id(strategy_id)
+            
             # Case 1: Strategy specifies a size (e.g., self.buy(size=0.5) for 50% equity)
             if signal.size and 0 < signal.size <= 1:
                 notional_amount = float(account.portfolio_value) * signal.size
@@ -175,7 +295,8 @@ class AlpacaExecutor:
                     symbol=symbol,
                     notional=notional_amount,
                     side=OrderSide.BUY,
-                    time_in_force=TimeInForce.GTC
+                    time_in_force=TimeInForce.GTC,
+                    client_order_id=client_order_id
                 )
             # Case 2: Strategy calls self.buy() with no size, so go all-in with available buying power
             else:
@@ -189,13 +310,19 @@ class AlpacaExecutor:
                     symbol=symbol,
                     notional=notional_amount,
                     side=OrderSide.BUY,
-                    time_in_force=TimeInForce.GTC
+                    time_in_force=TimeInForce.GTC,
+                    client_order_id=client_order_id
                 )
 
             # Submit order
             order = self.trading_client.submit_order(order_data=order_data)
             self.pending_orders[symbol] = order.id
-            logger.info(f"✅ BUY order placed for {symbol}: Notional=${order_data.notional:.2f}, Order ID: {order.id}")
+            
+            # Record execution in portfolio manager
+            self._record_trade_execution(symbol, signal, order_data.notional, True)
+            
+            logger.info(f"✅ BUY order placed for {symbol}: Notional=${order_data.notional:.2f}, "
+                       f"Order ID: {order.id}, Client ID: {client_order_id}")
             return True
             
         except APIError as e:
@@ -241,26 +368,46 @@ class AlpacaExecutor:
                 else:
                     raise e  # Re-raise other critical API errors
 
+            # Generate client_order_id with strategy tagging
+            strategy_id = getattr(signal, 'strategy_id', None)
+            client_order_id = self._generate_client_order_id(strategy_id)
+            
+            # Get current position value for portfolio tracking
+            current_price = float(position.market_value) / qty_available if qty_available > 0 else 0
+            
             # Case 1: Strategy specifies a size (e.g., self.sell(size=0.5) for 50% of position)
             if signal.size and 0 < signal.size <= 1:
                 qty_to_sell = qty_available * signal.size
+                sell_value = qty_to_sell * current_price
                 logger.info(f"Signal size is {signal.size:.2%}. Selling {qty_to_sell:.8f} of {qty_available:.8f} {symbol}.")
                 order_data = MarketOrderRequest(
                     symbol=symbol,
                     qty=qty_to_sell,
                     side=OrderSide.SELL,
-                    time_in_force=TimeInForce.GTC
+                    time_in_force=TimeInForce.GTC,
+                    client_order_id=client_order_id
                 )
                 order = self.trading_client.submit_order(order_data=order_data)
                 self.pending_orders[symbol] = order.id
-                logger.info(f"✅ SELL order placed for {qty_to_sell:.8f} {symbol}. Order ID: {order.id}")
+                
+                # Record execution in portfolio manager
+                self._record_trade_execution(symbol, signal, sell_value, True)
+                
+                logger.info(f"✅ SELL order placed for {qty_to_sell:.8f} {symbol}. "
+                           f"Order ID: {order.id}, Client ID: {client_order_id}")
 
             # Case 2: Strategy calls self.sell() or self.position.close(), so sell the entire position
             else:
+                total_value = float(position.market_value)
                 logger.info(f"Signal size not specified. Closing entire position of {qty_available:.8f} {symbol}.")
                 close_order = self.trading_client.close_position(symbol)
                 self.pending_orders[symbol] = close_order.id
-                logger.info(f"✅ CLOSE position order placed for {symbol}. Order ID: {close_order.id}")
+                
+                # Record execution in portfolio manager
+                self._record_trade_execution(symbol, signal, total_value, True)
+                
+                logger.info(f"✅ CLOSE position order placed for {symbol}. "
+                           f"Order ID: {close_order.id}")
 
             return True
 
@@ -284,6 +431,11 @@ class AlpacaExecutor:
                 return False
                 
             account = self.trading_client.get_account()
+            
+            # Generate client_order_id with strategy tagging
+            strategy_id = getattr(signal, 'strategy_id', None)
+            client_order_id = self._generate_client_order_id(strategy_id)
+            
             order_data = None
 
             # Case 1: Strategy specifies a size (e.g., self.buy(size=0.5) for 50% equity)
@@ -296,7 +448,8 @@ class AlpacaExecutor:
                     notional=notional_amount,
                     side=OrderSide.BUY,
                     time_in_force=TimeInForce.GTC,
-                    limit_price=signal.limit_price
+                    limit_price=signal.limit_price,
+                    client_order_id=client_order_id
                 )
             else:
                 # Case 2: Use all available cash for the buy
@@ -309,13 +462,19 @@ class AlpacaExecutor:
                     notional=notional_amount,
                     side=OrderSide.BUY,
                     time_in_force=TimeInForce.GTC,
-                    limit_price=signal.limit_price
+                    limit_price=signal.limit_price,
+                    client_order_id=client_order_id
                 )
 
             # Submit order
             order = self.trading_client.submit_order(order_data=order_data)
             self.pending_orders[symbol] = order.id
-            logger.info(f"✅ LIMIT BUY order placed for {symbol}: Notional=${order_data.notional:.2f}, Limit=${signal.limit_price:.2f}, Order ID: {order.id}")
+            
+            # Record execution in portfolio manager
+            self._record_trade_execution(symbol, signal, order_data.notional, True)
+            
+            logger.info(f"✅ LIMIT BUY order placed for {symbol}: Notional=${order_data.notional:.2f}, "
+                       f"Limit=${signal.limit_price:.2f}, Order ID: {order.id}, Client ID: {client_order_id}")
             return True
             
         except APIError as e:
@@ -700,7 +859,7 @@ class AlpacaExecutor:
             logger.error(f"Unexpected error placing TRAILING STOP SELL order for {symbol}: {e}", exc_info=True)
             return False
 
-def create_alpaca_executor_from_env() -> AlpacaExecutor:
+def create_alpaca_executor_from_env(portfolio_manager: Optional[SimplePortfolioManager] = None) -> AlpacaExecutor:
     """
     Create AlpacaExecutor from environment variables
     
@@ -708,6 +867,9 @@ def create_alpaca_executor_from_env() -> AlpacaExecutor:
     - PAPER_KEY: Alpaca API key for paper trading
     - PAPER_SECRET: Alpaca secret key for paper trading  
     - PAPER_ENDPOINT: Alpaca base URL for paper trading
+    
+    Args:
+        portfolio_manager: Optional portfolio manager for multi-strategy support
     
     Returns:
         Configured AlpacaExecutor instance
@@ -732,4 +894,4 @@ def create_alpaca_executor_from_env() -> AlpacaExecutor:
         paper=True  # Always use paper trading for safety
     )
     
-    return AlpacaExecutor(config)
+    return AlpacaExecutor(config, portfolio_manager=portfolio_manager)

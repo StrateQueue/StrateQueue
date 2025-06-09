@@ -1,5 +1,5 @@
 # Strategy Configuration
-LOOKBACK = 20  # Need at least 20 bars for the longer moving average (n2)
+LOOKBACK = 3  # Need at least 3 bars for the longer moving average (n2)
 
 from backtesting import Backtest, Strategy
 from backtesting.lib import crossover
@@ -8,8 +8,8 @@ from backtesting.test import SMA, GOOG
 
 
 class SmaCross(Strategy):
-    n1 = 10
-    n2 = 20
+    n1 = 1
+    n2 = 3
 
     def init(self):
         close = self.data.Close

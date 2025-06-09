@@ -38,6 +38,7 @@ class TradingSignal:
     trail_percent: Optional[float] = None  # For trailing stop orders (percentage)
     trail_price: Optional[float] = None  # For trailing stop orders (absolute price)
     time_in_force: str = "gtc"  # Time in force (gtc, day, etc.)
+    strategy_id: Optional[str] = None  # Strategy identifier for multi-strategy mode
 
 class SignalExtractorStrategy(Strategy):
     """
