@@ -28,7 +28,7 @@ from typing import Dict, List, Optional, Type, Any
 import pandas as pd
 import json
 
-from src.trading_system import setup_data_ingestion, PolygonDataIngestion, TestDataIngestion
+from src.trading_system import setup_data_ingestion, PolygonDataIngestion, CoinMarketCapDataIngestion, TestDataIngestion
 from src.trading_system import LiveSignalExtractor, SignalExtractorStrategy, TradingSignal, SignalType
 from src.trading_system import load_config, DataConfig, TradingConfig
 
@@ -215,6 +215,12 @@ class StrategyLoader:
             Required lookback period in number of bars
         """
         try:
+            # Check for simple strategies that don't need much historical data
+            strategy_name = strategy_class.__name__.lower()
+            if 'random' in strategy_name:
+                logger.info(f"Detected random strategy, using minimal lookback: 5 bars")
+                return 5
+            
             # Look for common indicator periods in class attributes
             lookback_indicators = []
             
@@ -222,9 +228,12 @@ class StrategyLoader:
                 if not attr_name.startswith('_'):
                     attr_value = getattr(strategy_class, attr_name)
                     if isinstance(attr_value, int) and 1 <= attr_value <= 1000:
-                        # Likely a period parameter
-                        if any(keyword in attr_name.lower() for keyword in 
-                              ['n', 'period', 'window', 'length', 'span']):
+                        # Only consider attributes that are likely period parameters
+                        # Exclude probability/percentage attributes
+                        if (any(keyword in attr_name.lower() for keyword in 
+                               ['n', 'period', 'window', 'length', 'span', 'ma', 'sma', 'ema']) and
+                            not any(keyword in attr_name.lower() for keyword in
+                                   ['prob', 'percent', 'pct', 'ratio', 'rate'])):
                             lookback_indicators.append(attr_value)
             
             if lookback_indicators:
@@ -233,6 +242,17 @@ class StrategyLoader:
                 logger.info(f"Calculated lookback period: {calculated_lookback} bars")
                 return calculated_lookback
             else:
+                # Check if this appears to be a simple strategy by looking at the init method
+                try:
+                    import inspect
+                    init_source = inspect.getsource(strategy_class.init)
+                    # If init method is very simple (just pass or minimal code), use smaller lookback
+                    if 'pass' in init_source or len(init_source.strip().split('\n')) <= 3:
+                        logger.info(f"Detected simple strategy, using reduced lookback: 20 bars")
+                        return 20
+                except:
+                    pass
+                
                 logger.info(f"Using default lookback period: {default_lookback} bars")
                 return default_lookback
                 
@@ -297,9 +317,9 @@ class LiveTradingSystem:
         if self.data_source == "demo":
             # Use test data with realistic base prices
             base_prices = {symbol: 100.0 + hash(symbol) % 200 for symbol in self.symbols}
-            return setup_data_ingestion(use_test_data=True, base_prices=base_prices)
+            return setup_data_ingestion(data_source="demo", base_prices=base_prices)
         else:
-            return setup_data_ingestion(use_test_data=False)
+            return setup_data_ingestion(data_source=self.data_source)
     
     async def run_live_system(self, duration_minutes: int = 60):
         """
@@ -411,8 +431,18 @@ class LiveTradingSystem:
                     logger.debug(f"Processing {symbol}: {len(current_data)} total bars, "
                                f"latest price: ${current_data['Close'].iloc[-1]:.2f}")
                     
+                elif len(current_data) > 0:
+                    # For simple strategies (like random), generate signals even with minimal data
+                    strategy_name = self.strategy_class.__name__.lower()
+                    if 'random' in strategy_name or self.lookback_period <= 10:
+                        logger.info(f"Processing {symbol} with minimal data for simple strategy: {len(current_data)} bars")
+                        signal = self.signal_extractors[symbol].extract_signal(current_data)
+                        signals[symbol] = signal
+                        self.active_signals[symbol] = signal
+                    else:
+                        logger.warning(f"Insufficient data for {symbol}: {len(current_data)} < {self.lookback_period}")
                 else:
-                    logger.warning(f"Insufficient data for {symbol}: {len(current_data)} < {self.lookback_period}")
+                    logger.warning(f"No data available for {symbol}")
                     
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
@@ -474,7 +504,7 @@ def main():
     parser = argparse.ArgumentParser(description='Live Trading System')
     parser.add_argument('--strategy', required=True, help='Path to strategy file (e.g., sma.py)')
     parser.add_argument('--symbols', default='AAPL', help='Comma-separated list of symbols (e.g., AAPL,MSFT)')
-    parser.add_argument('--data-source', choices=['demo', 'polygon'], default='demo', 
+    parser.add_argument('--data-source', choices=['demo', 'polygon', 'coinmarketcap'], default='demo', 
                        help='Data source to use')
     parser.add_argument('--lookback', type=int, help='Override calculated lookback period')
     parser.add_argument('--duration', type=int, default=60, help='Duration to run in minutes')

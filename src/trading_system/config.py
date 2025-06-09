@@ -6,6 +6,7 @@ from typing import List
 class DataConfig:
     """Configuration for data ingestion"""
     polygon_api_key: str
+    cmc_api_key: str
     symbols: List[str]
     historical_days: int = 30
     timespan: str = "minute"  # minute, hour, day
@@ -23,6 +24,7 @@ def load_config() -> tuple[DataConfig, TradingConfig]:
     
     data_config = DataConfig(
         polygon_api_key=os.getenv('POLYGON_API_KEY', ''),
+        cmc_api_key=os.getenv('CMC_API_KEY', ''),
         symbols=os.getenv('TRADING_SYMBOLS', 'AAPL,MSFT,GOOGL').split(','),
         historical_days=int(os.getenv('HISTORICAL_DAYS', '30')),
         timespan=os.getenv('TIMESPAN', 'minute'),
