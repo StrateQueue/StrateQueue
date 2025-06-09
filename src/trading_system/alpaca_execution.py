@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.common.exceptions import APIError
 
@@ -128,6 +128,10 @@ class AlpacaExecutor:
                 return self._execute_sell(alpaca_symbol, signal)
             elif signal.signal == SignalType.CLOSE:
                 return self._execute_close(alpaca_symbol, signal)
+            elif signal.signal == SignalType.LIMIT_BUY:
+                return self._execute_limit_buy(alpaca_symbol, signal)
+            elif signal.signal == SignalType.LIMIT_SELL:
+                return self._execute_limit_sell(alpaca_symbol, signal)
             elif signal.signal == SignalType.HOLD:
                 logger.debug(f"HOLD signal for {symbol} - no action needed")
                 return True
@@ -255,6 +259,123 @@ class AlpacaExecutor:
         """Execute a close position signal by treating it as a full sell."""
         logger.info(f"CLOSE signal received for {symbol}. Closing entire position.")
         return self._execute_sell(symbol, signal) # Passing original signal, _execute_sell handles lack of size
+    
+    def _execute_limit_buy(self, symbol: str, signal: TradingSignal) -> bool:
+        """Execute a limit buy signal."""
+        try:
+            if not signal.limit_price:
+                logger.error(f"LIMIT_BUY signal for {symbol} missing limit_price")
+                return False
+                
+            account = self.trading_client.get_account()
+            order_data = None
+
+            # Case 1: Strategy specifies a size (e.g., self.buy(size=0.5) for 50% equity)
+            if signal.size and 0 < signal.size <= 1:
+                notional_amount = float(account.portfolio_value) * signal.size
+                notional_amount = round(notional_amount, 2)
+                logger.info(f"LIMIT_BUY signal size is {signal.size:.2%}. Buying notional amount: ${notional_amount:.2f} at limit ${signal.limit_price:.2f}")
+                order_data = LimitOrderRequest(
+                    symbol=symbol,
+                    notional=notional_amount,
+                    side=OrderSide.BUY,
+                    time_in_force=TimeInForce.GTC,
+                    limit_price=signal.limit_price
+                )
+            else:
+                # Case 2: Use all available cash for the buy
+                cash_balance = float(account.cash)
+                notional_amount = cash_balance * 0.99
+                notional_amount = round(notional_amount, 2)
+                logger.info(f"LIMIT_BUY signal size not specified. Using 99% of cash balance: ${notional_amount:.2f} at limit ${signal.limit_price:.2f}")
+                order_data = LimitOrderRequest(
+                    symbol=symbol,
+                    notional=notional_amount,
+                    side=OrderSide.BUY,
+                    time_in_force=TimeInForce.GTC,
+                    limit_price=signal.limit_price
+                )
+
+            # Submit order
+            order = self.trading_client.submit_order(order_data=order_data)
+            self.pending_orders[symbol] = order.id
+            logger.info(f"✅ LIMIT BUY order placed for {symbol}: Notional=${order_data.notional:.2f}, Limit=${signal.limit_price:.2f}, Order ID: {order.id}")
+            return True
+            
+        except APIError as e:
+            logger.error(f"Alpaca API error placing LIMIT BUY order for {symbol}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error placing LIMIT BUY order for {symbol}: {e}", exc_info=True)
+            return False
+    
+    def _execute_limit_sell(self, symbol: str, signal: TradingSignal) -> bool:
+        """Execute a limit sell signal based on existing position and signal size."""
+        try:
+            if not signal.limit_price:
+                logger.error(f"LIMIT_SELL signal for {symbol} missing limit_price")
+                return False
+                
+            # First, find out if a position exists and its quantity
+            position = None
+            qty_available = 0
+            
+            try:
+                position = self.trading_client.get_open_position(symbol)
+                qty_available = abs(float(position.qty))
+                logger.debug(f"Found position for {symbol}: {qty_available}")
+            except APIError as e:
+                if "position does not exist" in str(e).lower() or "not found" in str(e).lower():
+                    # Try alternative symbol format (remove slash for crypto)
+                    alt_symbol = symbol.replace('/', '')
+                    try:
+                        position = self.trading_client.get_open_position(alt_symbol)
+                        qty_available = abs(float(position.qty))
+                        logger.info(f"Found position using alternative symbol {alt_symbol}: {qty_available}")
+                        symbol = alt_symbol
+                    except APIError as alt_e:
+                        if "position does not exist" in str(alt_e).lower() or "not found" in str(alt_e).lower():
+                            logger.warning(f"LIMIT_SELL signal for {symbol}, but no position exists. No action taken.")
+                            return True
+                        else:
+                            raise alt_e
+                else:
+                    raise e
+
+            # Case 1: Strategy specifies a size (e.g., self.sell(size=0.5) for 50% of position)
+            if signal.size and 0 < signal.size <= 1:
+                qty_to_sell = qty_available * signal.size
+                logger.info(f"LIMIT_SELL signal size is {signal.size:.2%}. Selling {qty_to_sell:.8f} of {qty_available:.8f} {symbol} at limit ${signal.limit_price:.2f}")
+                order_data = LimitOrderRequest(
+                    symbol=symbol,
+                    qty=qty_to_sell,
+                    side=OrderSide.SELL,
+                    time_in_force=TimeInForce.GTC,
+                    limit_price=signal.limit_price
+                )
+            else:
+                # Case 2: Sell entire position
+                logger.info(f"LIMIT_SELL signal size not specified. Selling entire position of {qty_available:.8f} {symbol} at limit ${signal.limit_price:.2f}")
+                order_data = LimitOrderRequest(
+                    symbol=symbol,
+                    qty=qty_available,
+                    side=OrderSide.SELL,
+                    time_in_force=TimeInForce.GTC,
+                    limit_price=signal.limit_price
+                )
+
+            # Submit order
+            order = self.trading_client.submit_order(order_data=order_data)
+            self.pending_orders[symbol] = order.id
+            logger.info(f"✅ LIMIT SELL order placed for {qty_to_sell if signal.size else qty_available:.8f} {symbol}. Limit=${signal.limit_price:.2f}, Order ID: {order.id}")
+            return True
+
+        except APIError as e:
+            logger.error(f"Alpaca API error placing LIMIT SELL order for {symbol}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error placing LIMIT SELL order for {symbol}: {e}", exc_info=True)
+            return False
     
     def get_account_info(self) -> Dict:
         """Get account information"""

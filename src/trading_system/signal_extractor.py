@@ -15,6 +15,8 @@ class SignalType(Enum):
     SELL = "SELL" 
     HOLD = "HOLD"
     CLOSE = "CLOSE"
+    LIMIT_BUY = "LIMIT_BUY"
+    LIMIT_SELL = "LIMIT_SELL"
 
 @dataclass
 class TradingSignal:
@@ -26,6 +28,7 @@ class TradingSignal:
     indicators: Dict[str, float]  # Current indicator values
     metadata: Dict[str, Any] = None
     size: Optional[float] = None  # Position size (e.g., 0.5 for 50% of equity)
+    limit_price: Optional[float] = None  # For limit orders
 
 class SignalExtractorStrategy(Strategy):
     """
@@ -52,7 +55,7 @@ class SignalExtractorStrategy(Strategy):
         # This will be overridden by actual strategy implementations
         pass
     
-    def set_signal(self, signal: SignalType, confidence: float = 1.0, metadata: Dict[str, Any] = None, size: Optional[float] = None):
+    def set_signal(self, signal: SignalType, confidence: float = 1.0, metadata: Dict[str, Any] = None, size: Optional[float] = None, limit_price: Optional[float] = None):
         """Set the current signal instead of calling buy/sell"""
         self.current_signal = signal
         self.signal_confidence = confidence
@@ -66,11 +69,20 @@ class SignalExtractorStrategy(Strategy):
             timestamp=self.data.index[-1] if hasattr(self.data.index, '__getitem__') else pd.Timestamp.now(),
             indicators=self.indicators_values.copy(),
             metadata=metadata or {},
-            size=size
+            size=size,
+            limit_price=limit_price
         )
         
         self.signal_history.append(signal_obj)
         
+    def set_limit_buy_signal(self, limit_price: float, confidence: float = 1.0, size: Optional[float] = None, metadata: Dict[str, Any] = None):
+        """Set a limit buy signal with specified limit price"""
+        self.set_signal(SignalType.LIMIT_BUY, confidence, metadata, size, limit_price)
+        
+    def set_limit_sell_signal(self, limit_price: float, confidence: float = 1.0, size: Optional[float] = None, metadata: Dict[str, Any] = None):
+        """Set a limit sell signal with specified limit price"""
+        self.set_signal(SignalType.LIMIT_SELL, confidence, metadata, size, limit_price)
+    
     def get_current_signal(self) -> TradingSignal:
         """Get the most recent signal"""
         if self.signal_history:

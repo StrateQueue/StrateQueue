@@ -167,11 +167,18 @@ class StrategyLoader:
                 
                 # Determine signal based on what was called
                 signal_size = trade_params.get('size')
+                limit_price = trade_params.get('limit')
 
                 if buy_called:
-                    self.set_signal(SignalType.BUY, confidence=0.8, size=signal_size)
+                    if limit_price is not None:
+                        self.set_signal(SignalType.LIMIT_BUY, confidence=0.8, size=signal_size, limit_price=limit_price)
+                    else:
+                        self.set_signal(SignalType.BUY, confidence=0.8, size=signal_size)
                 elif sell_called:
-                    self.set_signal(SignalType.SELL, confidence=0.8, size=signal_size)
+                    if limit_price is not None:
+                        self.set_signal(SignalType.LIMIT_SELL, confidence=0.8, size=signal_size, limit_price=limit_price)
+                    else:
+                        self.set_signal(SignalType.SELL, confidence=0.8, size=signal_size)
                 elif close_called:
                     self.set_signal(SignalType.CLOSE, confidence=0.6)
                 else:
