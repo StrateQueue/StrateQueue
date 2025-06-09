@@ -17,6 +17,11 @@ class SignalType(Enum):
     CLOSE = "CLOSE"
     LIMIT_BUY = "LIMIT_BUY"
     LIMIT_SELL = "LIMIT_SELL"
+    STOP_BUY = "STOP_BUY"
+    STOP_SELL = "STOP_SELL"
+    STOP_LIMIT_BUY = "STOP_LIMIT_BUY"
+    STOP_LIMIT_SELL = "STOP_LIMIT_SELL"
+    TRAILING_STOP_SELL = "TRAILING_STOP_SELL"
 
 @dataclass
 class TradingSignal:
@@ -29,6 +34,10 @@ class TradingSignal:
     metadata: Dict[str, Any] = None
     size: Optional[float] = None  # Position size (e.g., 0.5 for 50% of equity)
     limit_price: Optional[float] = None  # For limit orders
+    stop_price: Optional[float] = None  # For stop orders
+    trail_percent: Optional[float] = None  # For trailing stop orders (percentage)
+    trail_price: Optional[float] = None  # For trailing stop orders (absolute price)
+    time_in_force: str = "gtc"  # Time in force (gtc, day, etc.)
 
 class SignalExtractorStrategy(Strategy):
     """
@@ -55,7 +64,10 @@ class SignalExtractorStrategy(Strategy):
         # This will be overridden by actual strategy implementations
         pass
     
-    def set_signal(self, signal: SignalType, confidence: float = 1.0, metadata: Dict[str, Any] = None, size: Optional[float] = None, limit_price: Optional[float] = None):
+    def set_signal(self, signal: SignalType, confidence: float = 1.0, metadata: Dict[str, Any] = None, 
+                   size: Optional[float] = None, limit_price: Optional[float] = None,
+                   stop_price: Optional[float] = None, trail_percent: Optional[float] = None,
+                   trail_price: Optional[float] = None, time_in_force: str = "gtc"):
         """Set the current signal instead of calling buy/sell"""
         self.current_signal = signal
         self.signal_confidence = confidence
@@ -70,7 +82,11 @@ class SignalExtractorStrategy(Strategy):
             indicators=self.indicators_values.copy(),
             metadata=metadata or {},
             size=size,
-            limit_price=limit_price
+            limit_price=limit_price,
+            stop_price=stop_price,
+            trail_percent=trail_percent,
+            trail_price=trail_price,
+            time_in_force=time_in_force
         )
         
         self.signal_history.append(signal_obj)

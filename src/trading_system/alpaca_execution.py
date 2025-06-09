@@ -9,7 +9,13 @@ from dataclasses import dataclass
 from enum import Enum
 
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
+from alpaca.trading.requests import (
+    MarketOrderRequest, 
+    LimitOrderRequest,
+    StopOrderRequest,
+    StopLimitOrderRequest,
+    TrailingStopOrderRequest
+)
 from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.common.exceptions import APIError
 
@@ -132,6 +138,16 @@ class AlpacaExecutor:
                 return self._execute_limit_buy(alpaca_symbol, signal)
             elif signal.signal == SignalType.LIMIT_SELL:
                 return self._execute_limit_sell(alpaca_symbol, signal)
+            elif signal.signal == SignalType.STOP_BUY:
+                return self._execute_stop_buy(alpaca_symbol, signal)
+            elif signal.signal == SignalType.STOP_SELL:
+                return self._execute_stop_sell(alpaca_symbol, signal)
+            elif signal.signal == SignalType.STOP_LIMIT_BUY:
+                return self._execute_stop_limit_buy(alpaca_symbol, signal)
+            elif signal.signal == SignalType.STOP_LIMIT_SELL:
+                return self._execute_stop_limit_sell(alpaca_symbol, signal)
+            elif signal.signal == SignalType.TRAILING_STOP_SELL:
+                return self._execute_trailing_stop_sell(alpaca_symbol, signal)
             elif signal.signal == SignalType.HOLD:
                 logger.debug(f"HOLD signal for {symbol} - no action needed")
                 return True
@@ -409,6 +425,280 @@ class AlpacaExecutor:
         except APIError as e:
             logger.error(f"Error getting positions: {e}")
             return {}
+    
+    def _execute_stop_buy(self, symbol: str, signal: TradingSignal) -> bool:
+        """Execute a stop buy order."""
+        try:
+            if not signal.stop_price:
+                logger.error(f"STOP_BUY signal for {symbol} missing stop_price")
+                return False
+                
+            account = self.trading_client.get_account()
+            
+            # Calculate notional amount
+            if signal.size and 0 < signal.size <= 1:
+                notional_amount = float(account.portfolio_value) * signal.size
+            else:
+                cash_balance = float(account.cash)
+                notional_amount = cash_balance * 0.99
+            
+            notional_amount = round(notional_amount, 2)
+            
+            # Get time in force
+            time_in_force = TimeInForce.GTC
+            if signal.time_in_force.upper() == "DAY":
+                time_in_force = TimeInForce.DAY
+            
+            order_data = StopOrderRequest(
+                symbol=symbol,
+                notional=notional_amount,
+                side=OrderSide.BUY,
+                time_in_force=time_in_force,
+                stop_price=signal.stop_price
+            )
+            
+            order = self.trading_client.submit_order(order_data=order_data)
+            self.pending_orders[symbol] = order.id
+            logger.info(f"✅ STOP BUY order placed for {symbol}: Notional=${notional_amount:.2f}, Stop=${signal.stop_price:.2f}, Order ID: {order.id}")
+            return True
+            
+        except APIError as e:
+            logger.error(f"Alpaca API error placing STOP BUY order for {symbol}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error placing STOP BUY order for {symbol}: {e}", exc_info=True)
+            return False
+    
+    def _execute_stop_sell(self, symbol: str, signal: TradingSignal) -> bool:
+        """Execute a stop sell order."""
+        try:
+            if not signal.stop_price:
+                logger.error(f"STOP_SELL signal for {symbol} missing stop_price")
+                return False
+                
+            # Get position
+            position = None
+            qty_available = 0
+            
+            try:
+                position = self.trading_client.get_open_position(symbol)
+                qty_available = abs(float(position.qty))
+            except APIError as e:
+                if "position does not exist" in str(e).lower() or "not found" in str(e).lower():
+                    alt_symbol = symbol.replace('/', '')
+                    try:
+                        position = self.trading_client.get_open_position(alt_symbol)
+                        qty_available = abs(float(position.qty))
+                        symbol = alt_symbol
+                    except APIError:
+                        logger.warning(f"STOP_SELL signal for {symbol}, but no position exists. No action taken.")
+                        return True
+                else:
+                    raise e
+            
+            # Calculate quantity to sell
+            if signal.size and 0 < signal.size <= 1:
+                qty_to_sell = qty_available * signal.size
+            else:
+                qty_to_sell = qty_available
+            
+            # Get time in force
+            time_in_force = TimeInForce.GTC
+            if signal.time_in_force.upper() == "DAY":
+                time_in_force = TimeInForce.DAY
+            
+            order_data = StopOrderRequest(
+                symbol=symbol,
+                qty=qty_to_sell,
+                side=OrderSide.SELL,
+                time_in_force=time_in_force,
+                stop_price=signal.stop_price
+            )
+            
+            order = self.trading_client.submit_order(order_data=order_data)
+            self.pending_orders[symbol] = order.id
+            logger.info(f"✅ STOP SELL order placed for {qty_to_sell:.8f} {symbol}. Stop=${signal.stop_price:.2f}, Order ID: {order.id}")
+            return True
+            
+        except APIError as e:
+            logger.error(f"Alpaca API error placing STOP SELL order for {symbol}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error placing STOP SELL order for {symbol}: {e}", exc_info=True)
+            return False
+    
+    def _execute_stop_limit_buy(self, symbol: str, signal: TradingSignal) -> bool:
+        """Execute a stop-limit buy order."""
+        try:
+            if not signal.stop_price or not signal.limit_price:
+                logger.error(f"STOP_LIMIT_BUY signal for {symbol} missing stop_price or limit_price")
+                return False
+                
+            account = self.trading_client.get_account()
+            
+            # Calculate notional amount
+            if signal.size and 0 < signal.size <= 1:
+                notional_amount = float(account.portfolio_value) * signal.size
+            else:
+                cash_balance = float(account.cash)
+                notional_amount = cash_balance * 0.99
+            
+            notional_amount = round(notional_amount, 2)
+            
+            # Get time in force
+            time_in_force = TimeInForce.GTC
+            if signal.time_in_force.upper() == "DAY":
+                time_in_force = TimeInForce.DAY
+            
+            order_data = StopLimitOrderRequest(
+                symbol=symbol,
+                notional=notional_amount,
+                side=OrderSide.BUY,
+                time_in_force=time_in_force,
+                stop_price=signal.stop_price,
+                limit_price=signal.limit_price
+            )
+            
+            order = self.trading_client.submit_order(order_data=order_data)
+            self.pending_orders[symbol] = order.id
+            logger.info(f"✅ STOP LIMIT BUY order placed for {symbol}: Notional=${notional_amount:.2f}, Stop=${signal.stop_price:.2f}, Limit=${signal.limit_price:.2f}, Order ID: {order.id}")
+            return True
+            
+        except APIError as e:
+            logger.error(f"Alpaca API error placing STOP LIMIT BUY order for {symbol}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error placing STOP LIMIT BUY order for {symbol}: {e}", exc_info=True)
+            return False
+    
+    def _execute_stop_limit_sell(self, symbol: str, signal: TradingSignal) -> bool:
+        """Execute a stop-limit sell order."""
+        try:
+            if not signal.stop_price or not signal.limit_price:
+                logger.error(f"STOP_LIMIT_SELL signal for {symbol} missing stop_price or limit_price")
+                return False
+                
+            # Get position
+            position = None
+            qty_available = 0
+            
+            try:
+                position = self.trading_client.get_open_position(symbol)
+                qty_available = abs(float(position.qty))
+            except APIError as e:
+                if "position does not exist" in str(e).lower() or "not found" in str(e).lower():
+                    alt_symbol = symbol.replace('/', '')
+                    try:
+                        position = self.trading_client.get_open_position(alt_symbol)
+                        qty_available = abs(float(position.qty))
+                        symbol = alt_symbol
+                    except APIError:
+                        logger.warning(f"STOP_LIMIT_SELL signal for {symbol}, but no position exists. No action taken.")
+                        return True
+                else:
+                    raise e
+            
+            # Calculate quantity to sell
+            if signal.size and 0 < signal.size <= 1:
+                qty_to_sell = qty_available * signal.size
+            else:
+                qty_to_sell = qty_available
+            
+            # Get time in force
+            time_in_force = TimeInForce.GTC
+            if signal.time_in_force.upper() == "DAY":
+                time_in_force = TimeInForce.DAY
+            
+            order_data = StopLimitOrderRequest(
+                symbol=symbol,
+                qty=qty_to_sell,
+                side=OrderSide.SELL,
+                time_in_force=time_in_force,
+                stop_price=signal.stop_price,
+                limit_price=signal.limit_price
+            )
+            
+            order = self.trading_client.submit_order(order_data=order_data)
+            self.pending_orders[symbol] = order.id
+            logger.info(f"✅ STOP LIMIT SELL order placed for {qty_to_sell:.8f} {symbol}. Stop=${signal.stop_price:.2f}, Limit=${signal.limit_price:.2f}, Order ID: {order.id}")
+            return True
+            
+        except APIError as e:
+            logger.error(f"Alpaca API error placing STOP LIMIT SELL order for {symbol}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error placing STOP LIMIT SELL order for {symbol}: {e}", exc_info=True)
+            return False
+    
+    def _execute_trailing_stop_sell(self, symbol: str, signal: TradingSignal) -> bool:
+        """Execute a trailing stop sell order."""
+        try:
+            if not signal.trail_percent and not signal.trail_price:
+                logger.error(f"TRAILING_STOP_SELL signal for {symbol} missing trail_percent or trail_price")
+                return False
+                
+            # Get position
+            position = None
+            qty_available = 0
+            
+            try:
+                position = self.trading_client.get_open_position(symbol)
+                qty_available = abs(float(position.qty))
+            except APIError as e:
+                if "position does not exist" in str(e).lower() or "not found" in str(e).lower():
+                    alt_symbol = symbol.replace('/', '')
+                    try:
+                        position = self.trading_client.get_open_position(alt_symbol)
+                        qty_available = abs(float(position.qty))
+                        symbol = alt_symbol
+                    except APIError:
+                        logger.warning(f"TRAILING_STOP_SELL signal for {symbol}, but no position exists. No action taken.")
+                        return True
+                else:
+                    raise e
+            
+            # Calculate quantity to sell
+            if signal.size and 0 < signal.size <= 1:
+                qty_to_sell = qty_available * signal.size
+            else:
+                qty_to_sell = qty_available
+            
+            # Get time in force
+            time_in_force = TimeInForce.GTC
+            if signal.time_in_force.upper() == "DAY":
+                time_in_force = TimeInForce.DAY
+            
+            # Create trailing stop order (prefer percentage over absolute price)
+            if signal.trail_percent:
+                order_data = TrailingStopOrderRequest(
+                    symbol=symbol,
+                    qty=qty_to_sell,
+                    side=OrderSide.SELL,
+                    time_in_force=time_in_force,
+                    trail_percent=signal.trail_percent
+                )
+                trail_info = f"Trail%={signal.trail_percent:.2%}"
+            else:
+                order_data = TrailingStopOrderRequest(
+                    symbol=symbol,
+                    qty=qty_to_sell,
+                    side=OrderSide.SELL,
+                    time_in_force=time_in_force,
+                    trail_price=signal.trail_price
+                )
+                trail_info = f"Trail=${signal.trail_price:.2f}"
+            
+            order = self.trading_client.submit_order(order_data=order_data)
+            self.pending_orders[symbol] = order.id
+            logger.info(f"✅ TRAILING STOP SELL order placed for {qty_to_sell:.8f} {symbol}. {trail_info}, Order ID: {order.id}")
+            return True
+            
+        except APIError as e:
+            logger.error(f"Alpaca API error placing TRAILING STOP SELL order for {symbol}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error placing TRAILING STOP SELL order for {symbol}: {e}", exc_info=True)
+            return False
 
 def create_alpaca_executor_from_env() -> AlpacaExecutor:
     """

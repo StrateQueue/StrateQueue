@@ -44,6 +44,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Mock Order class for compatibility with example strategies
+class Order:
+    """Mock Order class to provide compatibility with strategy examples that use Order.Stop, etc."""
+    
+    class Stop:
+        """Mock Stop order type"""
+        __name__ = "Stop"
+        
+    class Limit:
+        """Mock Limit order type"""
+        __name__ = "Limit"
+        
+    class StopLimit:
+        """Mock StopLimit order type"""
+        __name__ = "StopLimit"
+        
+    class Market:
+        """Mock Market order type"""
+        __name__ = "Market"
+
 class StrategyLoader:
     """Dynamically load and analyze trading strategies"""
     
@@ -65,6 +85,10 @@ class StrategyLoader:
             # Load the module
             spec = importlib.util.spec_from_file_location("strategy_module", strategy_path)
             module = importlib.util.module_from_spec(spec)
+            
+            # Inject Order class into module namespace before execution
+            module.Order = Order
+            
             spec.loader.exec_module(module)
             
             # Find strategy classes
@@ -141,12 +165,20 @@ class StrategyLoader:
                     nonlocal buy_called, trade_params
                     buy_called = True
                     trade_params = kwargs
+                    # Also capture positional args if any (like price as first arg)
+                    if args:
+                        if 'price' not in kwargs and len(args) > 0:
+                            trade_params['price'] = args[0]
                     return None
                 
                 def mock_sell(*args, **kwargs):
                     nonlocal sell_called, trade_params
                     sell_called = True
                     trade_params = kwargs
+                    # Also capture positional args if any (like price as first arg)
+                    if args:
+                        if 'price' not in kwargs and len(args) > 0:
+                            trade_params['price'] = args[0]
                     return None
                 
                 def mock_close(*args, **kwargs):
@@ -168,19 +200,72 @@ class StrategyLoader:
                 # Determine signal based on what was called
                 signal_size = trade_params.get('size')
                 limit_price = trade_params.get('limit')
+                stop_price = trade_params.get('stop')
+                stop_loss = trade_params.get('sl')
+                take_profit = trade_params.get('tp')
+                exectype = trade_params.get('exectype')
+                valid = trade_params.get('valid')
+                
+                # Convert valid to time_in_force
+                time_in_force = "gtc"
+                if valid is not None:
+                    if valid == 0 or (hasattr(valid, 'days') and valid.days == 0):
+                        time_in_force = "day"
 
                 if buy_called:
-                    if limit_price is not None:
-                        self.set_signal(SignalType.LIMIT_BUY, confidence=0.8, size=signal_size, limit_price=limit_price)
+                    if exectype and hasattr(exectype, '__name__'):
+                        exec_name = exectype.__name__
+                        if 'Stop' in exec_name and 'Limit' in exec_name:
+                            # StopLimit order
+                            self.set_signal(SignalType.STOP_LIMIT_BUY, confidence=0.8, size=signal_size, 
+                                          stop_price=stop_price, limit_price=limit_price, time_in_force=time_in_force)
+                        elif 'Stop' in exec_name:
+                            # Stop order
+                            self.set_signal(SignalType.STOP_BUY, confidence=0.8, size=signal_size, 
+                                          stop_price=stop_price, time_in_force=time_in_force)
+                        elif 'Limit' in exec_name:
+                            # Limit order
+                            self.set_signal(SignalType.LIMIT_BUY, confidence=0.8, size=signal_size, 
+                                          limit_price=limit_price, time_in_force=time_in_force)
+                        else:
+                            # Market order
+                            self.set_signal(SignalType.BUY, confidence=0.8, size=signal_size, time_in_force=time_in_force)
+                    elif limit_price is not None:
+                        # Legacy limit order detection
+                        self.set_signal(SignalType.LIMIT_BUY, confidence=0.8, size=signal_size, 
+                                      limit_price=limit_price, time_in_force=time_in_force)
                     else:
-                        self.set_signal(SignalType.BUY, confidence=0.8, size=signal_size)
+                        # Market order
+                        self.set_signal(SignalType.BUY, confidence=0.8, size=signal_size, time_in_force=time_in_force)
+                        
                 elif sell_called:
-                    if limit_price is not None:
-                        self.set_signal(SignalType.LIMIT_SELL, confidence=0.8, size=signal_size, limit_price=limit_price)
+                    if exectype and hasattr(exectype, '__name__'):
+                        exec_name = exectype.__name__
+                        if 'Stop' in exec_name and 'Limit' in exec_name:
+                            # StopLimit order
+                            self.set_signal(SignalType.STOP_LIMIT_SELL, confidence=0.8, size=signal_size, 
+                                          stop_price=stop_price, limit_price=limit_price, time_in_force=time_in_force)
+                        elif 'Stop' in exec_name:
+                            # Stop order
+                            self.set_signal(SignalType.STOP_SELL, confidence=0.8, size=signal_size, 
+                                          stop_price=stop_price, time_in_force=time_in_force)
+                        elif 'Limit' in exec_name:
+                            # Limit order
+                            self.set_signal(SignalType.LIMIT_SELL, confidence=0.8, size=signal_size, 
+                                          limit_price=limit_price, time_in_force=time_in_force)
+                        else:
+                            # Market order
+                            self.set_signal(SignalType.SELL, confidence=0.8, size=signal_size, time_in_force=time_in_force)
+                    elif limit_price is not None:
+                        # Legacy limit order detection
+                        self.set_signal(SignalType.LIMIT_SELL, confidence=0.8, size=signal_size, 
+                                      limit_price=limit_price, time_in_force=time_in_force)
                     else:
-                        self.set_signal(SignalType.SELL, confidence=0.8, size=signal_size)
+                        # Market order
+                        self.set_signal(SignalType.SELL, confidence=0.8, size=signal_size, time_in_force=time_in_force)
+                        
                 elif close_called:
-                    self.set_signal(SignalType.CLOSE, confidence=0.6)
+                    self.set_signal(SignalType.CLOSE, confidence=0.6, time_in_force=time_in_force)
                 else:
                     self.set_signal(SignalType.HOLD, confidence=0.1)
                 
