@@ -24,7 +24,7 @@ class SmaCross(Strategy):
 
 ```bash
 # One command to start live trading
-stratequeue --strategy sma.py --symbols AAPL --paper
+stratequeue deploy --strategy sma.py --symbols AAPL --paper
 ```
 
 **That's it!** Your strategy is now running live, generating real-time signals and executing trades.
@@ -44,19 +44,19 @@ pip install stratequeue
 ### 1. Test a Strategy (No Trading)
 ```bash
 # See what signals your strategy generates (safe)
-stratequeue --strategy examples/strategies/sma.py --symbols AAPL --no-trading
+stratequeue deploy --strategy examples/strategies/sma.py --symbols AAPL --no-trading
 ```
 
 ### 2. Paper Trading (Fake Money)
 ```bash
 # Test with fake money on real market data (safe)
-stratequeue --strategy examples/strategies/sma.py --symbols AAPL --paper
+stratequeue deploy --strategy examples/strategies/sma.py --symbols AAPL --paper
 ```
 
 ### 3. Live Trading (Real Money)
 ```bash
 # Trade with real money (requires broker setup)
-stratequeue --strategy examples/strategies/sma.py --symbols AAPL --live
+stratequeue deploy --strategy examples/strategies/sma.py --symbols AAPL --live
 ```
 
 ## 🎯 Core Features
@@ -136,13 +136,13 @@ stratequeue --strategy sma.py,momentum.py --allocation 0.5,0.5 --symbols AAPL,MS
 
 ```bash
 # Check what brokers you have configured
-stratequeue --broker-status
+stratequeue status
 
 # Get setup instructions for a specific broker
-stratequeue --broker-setup alpaca
+stratequeue setup broker alpaca
 
 # List all available brokers
-stratequeue --list-brokers
+stratequeue list brokers
 ```
 
 ## 📊 Data Sources
@@ -155,8 +155,8 @@ stratequeue --list-brokers
 
 ```bash
 # Use different data sources
-stratequeue --strategy crypto.py --symbols BTC,ETH --data-source coinmarketcap
-stratequeue --strategy stocks.py --symbols AAPL,MSFT --data-source polygon
+stratequeue deploy --strategy crypto.py --symbols BTC,ETH --data-source coinmarketcap
+stratequeue deploy --strategy stocks.py --symbols AAPL,MSFT --data-source polygon
 ```
 
 ## 🛡️ Safety Features

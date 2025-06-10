@@ -2,7 +2,7 @@
 Command Line Interface
 
 This module handles:
-1. Command-line argument parsing
+1. Command-line argument parsing with subcommands
 2. Validation of user inputs
 3. Configuration display
 4. Main entry point coordination
@@ -46,152 +46,226 @@ def print_granularity_info():
 
 def print_broker_info():
     """Print information about supported brokers"""
-    
-    print("\n🏦 Supported Brokers")
+    print("\n📊 Supported Brokers:")
     print("=" * 50)
     
     try:
-        from ..brokers import list_broker_features, get_supported_brokers
+        from ..brokers import get_broker_info
+        broker_info = get_broker_info()
         
-        supported_brokers = get_supported_brokers()
-        broker_features = list_broker_features()
-        
-        if not supported_brokers:
-            print("❌ No brokers available (missing dependencies)")
-            print("\nInstall broker dependencies:")
-            print("  pip install stratequeue[trading]  # For Alpaca")
-            return
-        
-        for broker_type in supported_brokers:
-            info = broker_features.get(broker_type)
-            if info:
-                print(f"\n{info.name.upper()} ({broker_type})")
-                print(f"  Version: {info.version}")
-                print(f"  Description: {info.description}")
-                print(f"  Markets: {', '.join(info.supported_markets)}")
-                print(f"  Paper Trading: {'✅' if info.paper_trading else '❌'}")
-                
-                # Show key features
-                key_features = []
-                for feature, supported in info.supported_features.items():
-                    if supported and feature in ['market_orders', 'limit_orders', 'crypto_trading', 'multi_strategy']:
-                        key_features.append(feature.replace('_', ' ').title())
-                
-                if key_features:
-                    print(f"  Key Features: {', '.join(key_features)}")
-            else:
-                print(f"\n{broker_type.upper()}")
-                print(f"  ⚠️  Info not available")
-        
-        print(f"\n📊 Total: {len(supported_brokers)} brokers supported")
-        
+        for broker_name, info in broker_info.items():
+            print(f"\n{broker_name.upper()}:")
+            print(f"  Status: {info.get('status', 'Unknown')}")
+            print(f"  Paper Trading: {info.get('paper_trading', 'Unknown')}")
+            print(f"  Live Trading: {info.get('live_trading', 'Unknown')}")
+            if 'description' in info:
+                print(f"  Description: {info['description']}")
     except ImportError:
-        print("❌ Broker factory not available (missing dependencies)")
-        print("\nInstall broker dependencies:")
+        print("❌ Broker information not available (missing dependencies)")
+        print("")
+        print("🔧 To enable broker support:")
         print("  pip install stratequeue[trading]")
-    except Exception as e:
-        print(f"❌ Error loading broker info: {e}")
+        print("")
+        print("📊 Available Brokers (when installed):")
+        print("  • Alpaca - US stocks, ETFs, and crypto")
+        print("  • Interactive Brokers - Coming soon")
+        print("  • Kraken - Coming soon")
+        print("")
+        print("💡 Quick Start:")
+        print("  1. Install dependencies: pip install stratequeue[trading]")
+        print("  2. Setup broker: stratequeue setup broker alpaca")
+        print("  3. Check status: stratequeue status")
+    
+    print()
 
 def print_broker_status():
-    """Print detailed broker environment status"""
+    """Print current broker environment status"""
+    print("\n🔍 Broker Environment Status:")
+    print("=" * 50)
     
     try:
-        from ..brokers.utils import print_broker_environment_status
-        print_broker_environment_status()
+        from ..brokers import get_broker_status
+        status = get_broker_status()
         
+        for broker, broker_status in status.items():
+            print(f"\n{broker.upper()}:")
+            for env_var, value in broker_status.items():
+                status_icon = "✅" if value else "❌"
+                print(f"  {status_icon} {env_var}: {'Set' if value else 'Not set'}")
+                
+            # Provide helpful guidance if not set up
+            if not any(broker_status.values()):
+                print(f"  💡 Setup help: stratequeue setup broker {broker}")
+                
     except ImportError:
-        print("❌ Broker utilities not available (missing dependencies)")
-        print("\nInstall broker dependencies:")
+        print("❌ Broker status check not available (missing dependencies)")
+        print("")
+        print("🔧 To check broker status:")
         print("  pip install stratequeue[trading]")
-    except Exception as e:
-        print(f"❌ Error checking broker status: {e}")
+        print("")
+        print("💡 After installation:")
+        print("  stratequeue status      # Check your broker setup")
+        print("  stratequeue setup broker alpaca  # Get setup instructions")
+    
+    print()
 
 def print_broker_setup_help(broker_type: str = None):
     """Print broker setup instructions"""
+    print("\n🔧 Broker Setup Instructions:")
+    print("=" * 50)
     
     try:
-        from ..brokers.utils import suggest_environment_setup
-        from ..brokers import get_supported_brokers
+        from ..brokers import get_setup_instructions
         
-        if broker_type:
-            # Show specific broker setup
-            print(f"\n🔧 Setup Instructions for {broker_type.title()}")
-            print("=" * 50)
-            setup_text = suggest_environment_setup(broker_type)
-            print(setup_text)
+        if broker_type and broker_type != 'all':
+            instructions = get_setup_instructions(broker_type)
+            if instructions:
+                print(f"\n{broker_type.upper()} Setup:")
+                print(instructions)
+            else:
+                print(f"❌ No setup instructions available for {broker_type}")
+                print("💡 Available brokers: alpaca, kraken")
         else:
-            # Show all supported brokers
-            print("\n🔧 Broker Setup Instructions")
-            print("=" * 50)
-            
-            supported_brokers = get_supported_brokers()
-            for broker in supported_brokers:
-                setup_text = suggest_environment_setup(broker)
-                print(setup_text)
+            # Show all broker setup instructions
+            all_instructions = get_setup_instructions()
+            for broker, instructions in all_instructions.items():
+                print(f"\n{broker.upper()} Setup:")
+                print(instructions)
                 print("-" * 30)
-        
     except ImportError:
-        print("❌ Broker utilities not available (missing dependencies)")
-    except Exception as e:
-        print(f"❌ Error loading setup instructions: {e}")
+        print("❌ Broker setup instructions not available (missing dependencies)")
+        print("")
+        print("🔧 To get setup instructions:")
+        print("  pip install stratequeue[trading]")
+        print("")
+        print("📋 Manual Setup (Alpaca Example):")
+        print("  1. Create account at alpaca.markets")
+        print("  2. Get API keys from dashboard")
+        print("  3. Set environment variables:")
+        print("     export ALPACA_API_KEY='your_key_here'")
+        print("     export ALPACA_API_SECRET='your_secret_here'")
+        print("  4. For paper trading (recommended):")
+        print("     export ALPACA_BASE_URL='https://paper-api.alpaca.markets'")
+        print("  5. For live trading:")
+        print("     export ALPACA_BASE_URL='https://api.alpaca.markets'")
+        print("")
+        print("💡 After setup:")
+        print("  stratequeue status                    # Verify setup")
+        print("  stratequeue deploy --strategy sma.py --symbols AAPL --paper")
+    
+    print()
 
-def create_argument_parser() -> argparse.ArgumentParser:
-    """Create and configure the argument parser"""
+def create_main_parser() -> argparse.ArgumentParser:
+    """Create the main parser with subcommands"""
     
     parser = argparse.ArgumentParser(
-        description='Live Trading System',
+        description='StrateQueue - Transform your backtesting strategies into live trading',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Available Commands:
+  deploy    Deploy strategies for live trading
+  setup     Configure brokers and system settings
+  status    Check system and broker status
+  list      List available options (brokers, granularities, etc.)
+  webui     Start the web interface (coming soon)
+  
+Examples:
+  # Deploy a single strategy
+  stratequeue deploy --strategy sma.py --symbols AAPL --paper
+  
+  # Deploy multiple strategies
+  stratequeue deploy --strategy sma.py,momentum.py --allocation 0.6,0.4 --symbols AAPL,MSFT
+  
+  # Check broker status
+  stratequeue status
+  
+  # Setup broker credentials
+  stratequeue setup broker alpaca
+  
+  # List available brokers
+  stratequeue list brokers
+  
+  # Start web interface
+  stratequeue webui --port 8080
+        """
+    )
+    
+    # Global arguments
+    parser.add_argument('--verbose', '-v', action='store_true', 
+                       help='Enable verbose logging')
+    
+    # Create subparsers
+    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    
+    # Deploy subcommand
+    deploy_parser = create_deploy_parser(subparsers)
+    
+    # Setup subcommand
+    setup_parser = create_setup_parser(subparsers)
+    
+    # Status subcommand
+    status_parser = create_status_parser(subparsers)
+    
+    # List subcommand
+    list_parser = create_list_parser(subparsers)
+    
+    # WebUI subcommand
+    webui_parser = create_webui_parser(subparsers)
+    
+    return parser
+
+def create_deploy_parser(subparsers) -> argparse.ArgumentParser:
+    """Create the deploy subcommand parser"""
+    
+    deploy_parser = subparsers.add_parser(
+        'deploy',
+        help='Deploy strategies for live trading',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Single strategy mode
-  python3 main.py --strategy sma.py --symbols AAPL,MSFT --data-source demo
+  stratequeue deploy --strategy sma.py --symbols AAPL,MSFT --data-source demo
   
   # Multi-strategy mode (comma-separated values)
-  python3 main.py --strategy sma.py,momentum.py,random.py --allocation 0.4,0.35,0.25 --symbols AAPL,MSFT --data-source demo
+  stratequeue deploy --strategy sma.py,momentum.py,random.py --allocation 0.4,0.35,0.25 --symbols AAPL,MSFT --data-source demo
   
   # Multi-strategy with 1:1 strategy-symbol mapping
-  python3 main.py --strategy sma.py,random.py --allocation 0.5,0.5 --symbols ETH,AAPL --data-source demo
+  stratequeue deploy --strategy sma.py,random.py --allocation 0.5,0.5 --symbols ETH,AAPL --data-source demo
   
   # Multi-strategy with custom strategy IDs
-  python3 main.py --strategy sma.py,momentum.py --strategy-id sma_cross,momentum_trend --allocation 0.6,0.4 --symbols AAPL
+  stratequeue deploy --strategy sma.py,momentum.py --strategy-id sma_cross,momentum_trend --allocation 0.6,0.4 --symbols AAPL
   
   # Multi-strategy with dollar allocations
-  python3 main.py --strategy sma.py,momentum.py --allocation 1000,500 --symbols AAPL --broker alpaca --paper
+  stratequeue deploy --strategy sma.py,momentum.py --allocation 1000,500 --symbols AAPL --broker alpaca --paper
   
   # Multi-strategy with different granularities per strategy
-  python3 main.py --strategy sma.py,momentum.py --allocation 0.6,0.4 --granularity 1m,5m --symbols ETH,BTC
+  stratequeue deploy --strategy sma.py,momentum.py --allocation 0.6,0.4 --granularity 1m,5m --symbols ETH,BTC
   
   # Multi-strategy with different data sources per strategy  
-  python3 main.py --strategy sma.py,momentum.py --allocation 0.6,0.4 --data-source polygon,coinmarketcap --symbols AAPL,ETH
+  stratequeue deploy --strategy sma.py,momentum.py --allocation 0.6,0.4 --data-source polygon,coinmarketcap --symbols AAPL,ETH
   
   # Single value applies to all strategies
-  python3 main.py --strategy sma.py,momentum.py --allocation 0.5,0.5 --granularity 1m --broker alpaca --symbols ETH
+  stratequeue deploy --strategy sma.py,momentum.py --allocation 0.5,0.5 --granularity 1m --broker alpaca --symbols ETH
   
   # Run with real Polygon data
-  python3 main.py --strategy sma.py --symbols AAPL --data-source polygon --lookback 50
+  stratequeue deploy --strategy sma.py --symbols AAPL --data-source polygon --lookback 50
   
   # Paper trading (default behavior)
-  python3 main.py --strategy sma.py --symbols AAPL --paper
+  stratequeue deploy --strategy sma.py --symbols AAPL --paper
   
   # Live trading (use with caution!)
-  python3 main.py --strategy sma.py --symbols AAPL --live
+  stratequeue deploy --strategy sma.py --symbols AAPL --live
   
   # Disable trading execution (signals only)
-  python3 main.py --strategy sma.py --symbols AAPL --no-trading
+  stratequeue deploy --strategy sma.py --symbols AAPL --no-trading
   
   # Multi-strategy with live trading
-  python3 main.py --strategy sma.py,momentum.py --allocation 0.6,0.4 --symbols AAPL,MSFT --live
-  
-  # Information commands
-  python3 main.py --list-granularities
-  python3 main.py --list-brokers
-  python3 main.py --broker-status
-  python3 main.py --broker-setup alpaca
+  stratequeue deploy --strategy sma.py,momentum.py --allocation 0.6,0.4 --symbols AAPL,MSFT --live
         """
     )
     
     # Strategy configuration
-    strategy_group = parser.add_argument_group('Strategy Configuration')
+    strategy_group = deploy_parser.add_argument_group('Strategy Configuration')
 
     # All arguments now use comma-separated values for consistency
     strategy_group.add_argument('--strategy', required=True,
@@ -204,26 +278,26 @@ Examples:
                        help='Strategy allocation(s) as percentage (0-1) or dollar amount. Single value or comma-separated list (e.g., 0.4 or 0.4,0.35,0.25). Required for multi-strategy mode.')
 
     # Trading configuration - now supports multiple values with smart defaulting
-    parser.add_argument('--symbols', default='AAPL', 
+    deploy_parser.add_argument('--symbols', default='AAPL', 
                        help='Symbol(s) to trade. Single or comma-separated list (e.g., AAPL or ETH,BTC,AAPL). When number of symbols equals number of strategies, creates 1:1 mapping.')
     
-    parser.add_argument('--data-source', default='demo',
+    deploy_parser.add_argument('--data-source', default='demo',
                        help='Data source(s). Single value applies to all, or comma-separated list matching strategies (e.g., demo or polygon,coinmarketcap)')
     
-    parser.add_argument('--granularity', 
+    deploy_parser.add_argument('--granularity', 
                        help='Data granularity/granularities. Single value applies to all, or comma-separated list matching strategies (e.g., 1m or 1m,5m,1h)')
     
-    parser.add_argument('--broker',
+    deploy_parser.add_argument('--broker',
                        help='Broker(s) for trading. Single value applies to all, or comma-separated list matching strategies (e.g., alpaca or alpaca,kraken)')
     
-    parser.add_argument('--lookback', type=int, 
+    deploy_parser.add_argument('--lookback', type=int, 
                        help='Override calculated lookback period')
     
-    parser.add_argument('--duration', type=int, default=60, 
+    deploy_parser.add_argument('--duration', type=int, default=60, 
                        help='Duration to run in minutes')
     
     # Trading mode configuration
-    trading_group = parser.add_mutually_exclusive_group()
+    trading_group = deploy_parser.add_mutually_exclusive_group()
     trading_group.add_argument('--paper', action='store_true', default=True,
                               help='Use paper trading (default)')
     trading_group.add_argument('--live', action='store_true',
@@ -232,27 +306,124 @@ Examples:
                               help='Disable trading execution (signals only)')
     
     # Legacy support (deprecated but maintained for backward compatibility)
-    parser.add_argument('--enable-trading', action='store_true',
+    deploy_parser.add_argument('--enable-trading', action='store_true',
                        help='(Deprecated) Use --paper or --live instead')
     
-    # Information commands
-    parser.add_argument('--list-granularities', action='store_true',
-                       help='List supported granularities for each data source')
+    return deploy_parser
+
+def create_setup_parser(subparsers) -> argparse.ArgumentParser:
+    """Create the setup subcommand parser"""
     
-    parser.add_argument('--list-brokers', action='store_true',
-                       help='List supported brokers and their features')
+    setup_parser = subparsers.add_parser(
+        'setup',
+        help='Configure brokers and system settings',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Show setup instructions for all brokers
+  stratequeue setup broker
+  
+  # Show setup instructions for specific broker
+  stratequeue setup broker alpaca
+  
+  # Show setup instructions for Kraken
+  stratequeue setup broker kraken
+        """
+    )
     
-    parser.add_argument('--broker-status', action='store_true',
-                       help='Show broker environment variable status')
+    # Create subparsers for setup
+    setup_subparsers = setup_parser.add_subparsers(dest='setup_type', help='What to setup')
     
-    parser.add_argument('--broker-setup', type=str, nargs='?', const='all',
-                       help='Show broker setup instructions (specify broker type or "all")')
+    # Broker setup
+    broker_setup = setup_subparsers.add_parser(
+        'broker',
+        help='Setup broker credentials'
+    )
+    broker_setup.add_argument('broker_name', nargs='?', default='all',
+                             help='Broker to setup (default: show all brokers)')
     
-    # Logging
-    parser.add_argument('--verbose', '-v', action='store_true', 
-                       help='Enable verbose logging')
+    return setup_parser
+
+def create_status_parser(subparsers) -> argparse.ArgumentParser:
+    """Create the status subcommand parser"""
     
-    return parser
+    status_parser = subparsers.add_parser(
+        'status',
+        help='Check system and broker status',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Check all broker credentials status
+  stratequeue status
+  
+  # Same as above - status is the default
+  stratequeue status broker
+        """
+    )
+    
+    status_parser.add_argument('status_type', nargs='?', default='broker',
+                              help='Type of status to check (default: broker)')
+    
+    return status_parser
+
+def create_list_parser(subparsers) -> argparse.ArgumentParser:
+    """Create the list subcommand parser"""
+    
+    list_parser = subparsers.add_parser(
+        'list',
+        help='List available options',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # List all supported brokers
+  stratequeue list brokers
+  
+  # List supported granularities for data sources
+  stratequeue list granularities
+        """
+    )
+    
+    list_parser.add_argument('list_type', nargs='?',
+                            help='What to list (options: brokers, granularities)')
+    
+    return list_parser
+
+def create_webui_parser(subparsers) -> argparse.ArgumentParser:
+    """Create the webui subcommand parser"""
+    
+    webui_parser = subparsers.add_parser(
+        'webui',
+        help='Start the web interface',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Start web UI on default port (8080)
+  stratequeue webui
+  
+  # Start web UI on custom port
+  stratequeue webui --port 3000
+  
+  # Start web UI with custom host
+  stratequeue webui --host 0.0.0.0 --port 8080
+  
+  # Start web UI in development mode
+  stratequeue webui --dev
+        """
+    )
+    
+    webui_parser.add_argument('--port', type=int, default=8080,
+                             help='Port to run the web interface on (default: 8080)')
+    
+    webui_parser.add_argument('--host', default='localhost',
+                             help='Host to bind the web interface to (default: localhost)')
+    
+    webui_parser.add_argument('--dev', action='store_true',
+                             help='Start in development mode with hot reload')
+    
+    webui_parser.add_argument('--config-dir', 
+                             help='Directory to store web UI configurations')
+    
+    return webui_parser
 
 def validate_arguments(args: argparse.Namespace) -> Tuple[bool, List[str]]:
     """
@@ -265,10 +436,6 @@ def validate_arguments(args: argparse.Namespace) -> Tuple[bool, List[str]]:
         Tuple of (is_valid, error_messages)
     """
     errors = []
-    
-    # Handle info requests (no validation needed)
-    if any([args.list_granularities, args.list_brokers, args.broker_status, args.broker_setup]):
-        return True, []
     
     # Handle legacy --enable-trading flag
     if args.enable_trading:
@@ -769,48 +936,30 @@ async def run_trading_system(args: argparse.Namespace) -> int:
         print(f"\n❌ Error: {e}")
         return 1
 
-def main() -> int:
-    """
-    Main CLI entry point
-    
-    Returns:
-        Exit code
-    """
-    # Create and parse arguments
-    parser = create_argument_parser()
-    args = parser.parse_args()
-    
-    # Setup logging
-    setup_logging(args.verbose)
-    
-    # Handle information requests
-    if args.list_granularities:
-        print_granularity_info()
-        return 0
-    
-    if args.list_brokers:
-        print_broker_info()
-        return 0
-    
-    if args.broker_status:
-        print_broker_status()
-        return 0
-    
-    if args.broker_setup:
-        if args.broker_setup == 'all':
-            print_broker_setup_help()
-        else:
-            print_broker_setup_help(args.broker_setup)
-        return 0
+def handle_deploy_command(args: argparse.Namespace) -> int:
+    """Handle the deploy subcommand"""
     
     # Validate arguments
     is_valid, errors = validate_arguments(args)
     if not is_valid:
         for error in errors:
-            print(f"Error: {error}")
-        print(f"\nUse --list-brokers to see supported brokers.")
-        print(f"Use --broker-status to check your broker setup.")
-        print(f"Use --broker-setup <broker> for setup instructions.")
+            print(f"❌ Error: {error}")
+        print("")
+        print("💡 Quick Help:")
+        print("  stratequeue list brokers              # See supported brokers")
+        print("  stratequeue status                    # Check broker credentials")
+        print("  stratequeue setup broker <broker>     # Setup broker")
+        print("  stratequeue deploy --help             # Detailed deployment help")
+        print("")
+        print("📖 Common Examples:")
+        print("  # Test strategy (no trading)")
+        print("  stratequeue deploy --strategy sma.py --symbols AAPL --no-trading")
+        print("")
+        print("  # Paper trading (fake money)")  
+        print("  stratequeue deploy --strategy sma.py --symbols AAPL --paper")
+        print("")
+        print("  # Live trading (real money - be careful!)")
+        print("  stratequeue deploy --strategy sma.py --symbols AAPL --live")
         return 1
     
     # Run the trading system
@@ -822,4 +971,163 @@ def main() -> int:
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
         print(f"❌ Unexpected error: {e}")
+        return 1
+
+def handle_setup_command(args: argparse.Namespace) -> int:
+    """Handle the setup subcommand"""
+    
+    if not hasattr(args, 'setup_type') or args.setup_type is None:
+        # No setup type provided, show help
+        print("🔧 StrateQueue Setup")
+        print("=" * 50)
+        print("Available setup options:")
+        print("  broker    Configure broker credentials")
+        print("")
+        print("Usage:")
+        print("  stratequeue setup broker           # Show all broker setup instructions")
+        print("  stratequeue setup broker alpaca    # Show Alpaca setup instructions")
+        print("  stratequeue setup broker kraken    # Show Kraken setup instructions")
+        print("")
+        print("Example:")
+        print("  stratequeue setup broker alpaca")
+        return 0
+    
+    if args.setup_type == 'broker':
+        if args.broker_name == 'all':
+            print_broker_setup_help()
+        else:
+            print_broker_setup_help(args.broker_name)
+        return 0
+    else:
+        print(f"❌ Unknown setup type: {args.setup_type}")
+        print("💡 Try: stratequeue setup broker")
+        return 1
+
+def handle_status_command(args: argparse.Namespace) -> int:
+    """Handle the status subcommand"""
+    
+    if args.status_type == 'broker':
+        print_broker_status()
+        return 0
+    else:
+        print(f"❌ Unknown status type: {args.status_type}")
+        print("💡 Try: stratequeue status")
+        return 1
+
+def handle_list_command(args: argparse.Namespace) -> int:
+    """Handle the list subcommand"""
+    
+    if not hasattr(args, 'list_type') or args.list_type is None:
+        # No list type provided, show available options
+        print("📋 StrateQueue List Options")
+        print("=" * 50)
+        print("Available list commands:")
+        print("  brokers         List supported brokers and their features")
+        print("  granularities   List supported data granularities by source")
+        print("")
+        print("Usage:")
+        print("  stratequeue list brokers         # Show all supported brokers")
+        print("  stratequeue list granularities  # Show data timeframe options")
+        print("")
+        print("Examples:")
+        print("  stratequeue list brokers")
+        print("  stratequeue list granularities")
+        return 0
+    
+    if args.list_type == 'brokers':
+        print_broker_info()
+        return 0
+    elif args.list_type == 'granularities':
+        print_granularity_info()
+        return 0
+    else:
+        print(f"❌ Unknown list type: {args.list_type}")
+        print("💡 Available options: brokers, granularities")
+        print("💡 Try: stratequeue list brokers")
+        return 1
+
+def handle_webui_command(args: argparse.Namespace) -> int:
+    """Handle the webui subcommand"""
+    
+    print("🚧 Web UI is coming soon!")
+    print(f"Will start web interface on {args.host}:{args.port}")
+    
+    if args.dev:
+        print("Development mode enabled")
+    
+    if args.config_dir:
+        print(f"Config directory: {args.config_dir}")
+    
+    # TODO: Implement web UI startup
+    print("\n📝 Implementation roadmap:")
+    print("  1. Create React + shadcn/ui frontend")
+    print("  2. Build FastAPI backend with WebSocket support")
+    print("  3. Integrate with existing trading system")
+    print("  4. Add real-time dashboard and strategy management")
+    
+    return 0
+
+def main() -> int:
+    """
+    Main CLI entry point
+    
+    Returns:
+        Exit code
+    """
+    # Create and parse arguments
+    parser = create_main_parser()
+    args = parser.parse_args()
+    
+    # Setup logging
+    setup_logging(args.verbose)
+    
+    # Handle no command provided
+    if not args.command:
+        print("🚀 StrateQueue - Live Trading System")
+        print("=" * 50)
+        print("Transform your backtesting strategies into live trading!")
+        print("")
+        print("Quick Start:")
+        print("  stratequeue deploy --strategy sma.py --symbols AAPL --paper")
+        print("")
+        print("Available Commands:")
+        print("  deploy    Deploy strategies for live trading")
+        print("  setup     Configure brokers and system settings")  
+        print("  status    Check system and broker status")
+        print("  list      List available options (brokers, granularities)")
+        print("  webui     Start the web interface (coming soon)")
+        print("")
+        print("Get Help:")
+        print("  stratequeue --help           # Show detailed help")
+        print("  stratequeue deploy --help    # Help for deploy command")
+        print("  stratequeue setup --help     # Help for setup command")
+        print("")
+        print("Examples:")
+        print("  stratequeue list brokers              # See supported brokers")
+        print("  stratequeue status                    # Check broker credentials")
+        print("  stratequeue setup broker alpaca       # Setup Alpaca broker")
+        return 0
+    
+    # Route to appropriate command handler
+    if args.command == 'deploy':
+        return handle_deploy_command(args)
+    elif args.command == 'setup':
+        return handle_setup_command(args)
+    elif args.command == 'status':
+        return handle_status_command(args)
+    elif args.command == 'list':
+        return handle_list_command(args)
+    elif args.command == 'webui':
+        return handle_webui_command(args)
+    else:
+        print(f"❌ Unknown command: {args.command}")
+        print("")
+        print("Available commands:")
+        print("  deploy    Deploy strategies for live trading")
+        print("  setup     Configure brokers and system settings")
+        print("  status    Check system and broker status")
+        print("  list      List available options")
+        print("  webui     Start the web interface")
+        print("")
+        print("💡 Try: stratequeue --help")
         return 1 
