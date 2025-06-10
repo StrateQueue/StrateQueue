@@ -27,6 +27,7 @@ class StrategyConfig:
     lookback_period: int = 20
     strategy_class: Optional[type] = None
     signal_extractor: Optional[object] = None  # Will be LiveSignalExtractor
+    symbol: Optional[str] = None  # Optional symbol for 1:1 strategy-symbol mapping
 
 class ConfigManager:
     """Manages loading and validation of strategy configurations"""
@@ -108,13 +109,14 @@ class ConfigManager:
         Raises:
             ValueError: If line format is invalid
         """
-        # Parse line: filename,strategy_id,allocation
+        # Parse line: filename,strategy_id,allocation[,symbol]
         parts = [part.strip() for part in line.split(',')]
-        if len(parts) != 3:
+        if len(parts) not in [3, 4]:
             raise ValueError(f"Invalid format in line {line_num}: {line}. "
-                           f"Expected: filename,strategy_id,allocation")
+                           f"Expected: filename,strategy_id,allocation[,symbol]")
         
-        file_path, strategy_id, allocation_str = parts
+        file_path, strategy_id, allocation_str = parts[:3]
+        symbol = parts[3] if len(parts) == 4 else None
         
         # Validate allocation
         try:
@@ -132,7 +134,8 @@ class ConfigManager:
         return StrategyConfig(
             strategy_id=strategy_id,
             file_path=resolved_path,
-            allocation=allocation
+            allocation=allocation,
+            symbol=symbol
         )
     
     def _resolve_file_path(self, file_path: str) -> str:

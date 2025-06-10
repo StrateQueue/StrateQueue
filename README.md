@@ -61,10 +61,40 @@ stratequeue --strategy examples/strategies/sma.py --symbols AAPL --live
 
 ## 🎯 Core Features
 
+### **Automatic Strategy-Symbol Mapping**
+Stratequeue automatically detects your intent based on the number of strategies vs symbols:
+
+| Strategies | Symbols | Behavior | Example |
+|------------|---------|----------|---------|
+| 2 | 1 | **Traditional**: Both strategies trade the symbol | `sma.py,momentum.py` → `AAPL` |
+| 2 | 2 | **1:1 Mapping**: Each strategy gets its own symbol | `sma.py,momentum.py` → `AAPL,MSFT` |
+| 2 | 3+ | **Traditional**: Both strategies trade all symbols | `sma.py,momentum.py` → `AAPL,MSFT,GOOGL` |
+
+```bash
+# 🔄 Traditional Mode (all strategies on all symbols)
+stratequeue --strategy sma.py,momentum.py --symbols AAPL,MSFT,GOOGL
+# → sma trades AAPL,MSFT,GOOGL + momentum trades AAPL,MSFT,GOOGL
+
+# 🎯 1:1 Mapping Mode (each strategy gets one symbol)  
+stratequeue --strategy sma.py,momentum.py --symbols AAPL,MSFT
+# → sma trades AAPL only + momentum trades MSFT only
+```
+
 ### **Multiple Strategies at Once**
 ```bash
 # Run 3 strategies simultaneously with different allocations
 stratequeue --strategy sma.py,momentum.py,mean_revert.py --allocation 0.4,0.35,0.25 --symbols AAPL,MSFT
+```
+
+### **1:1 Strategy-Symbol Mapping**
+```bash
+# When strategy count = symbol count, each strategy gets its own symbol
+stratequeue --strategy sma.py,random.py --allocation 0.5,0.5 --symbols ETH,AAPL
+# ✅ sma.py trades ETH only, random.py trades AAPL only
+
+# Perfect for specialized strategies
+stratequeue --strategy stock_algo.py,crypto_algo.py --allocation 0.8,0.2 --symbols AAPL,BTC
+# ✅ stock_algo.py → AAPL, crypto_algo.py → BTC
 ```
 
 ### **Any Time Frame**
@@ -79,15 +109,19 @@ stratequeue --strategy sma.py,scalper.py --allocation 0.6,0.4 --granularity 1h,1
 stratequeue --strategy stock_algo.py,crypto_algo.py --broker alpaca,kraken --symbols AAPL,BTC
 ```
 
-### **Smart Defaults**
+### **Smart Strategy-Symbol Mapping**
 ```bash
-# Single values apply everywhere (easy!)
+# All strategies on one symbol (traditional mode)
 stratequeue --strategy sma.py,momentum.py --allocation 0.5,0.5 --symbols AAPL --granularity 1m
 # Both strategies trade AAPL on 1m timeframes
 
-# Multiple values match by position (advanced!)
-stratequeue --strategy sma.py,momentum.py --allocation 0.6,0.4 --symbols AAPL,MSFT --granularity 1h,5m
-# sma.py trades AAPL on 1h, momentum.py trades MSFT on 5m
+# 1:1 strategy-symbol mapping (when counts match)
+stratequeue --strategy sma.py,momentum.py --allocation 0.6,0.4 --symbols AAPL,MSFT
+# sma.py trades AAPL only, momentum.py trades MSFT only
+
+# Traditional mode (when counts don't match)
+stratequeue --strategy sma.py,momentum.py --allocation 0.5,0.5 --symbols AAPL,MSFT,GOOGL
+# Both strategies trade all symbols (AAPL, MSFT, GOOGL)
 ```
 
 ## 🏦 Supported Brokers
@@ -171,16 +205,16 @@ stratequeue --strategy swing_trade.py --symbols AAPL,MSFT --granularity 1d
 
 ### Multi-Strategy Examples
 ```bash
-# Simple portfolio
+# Traditional mode: both strategies trade AAPL
 stratequeue --strategy sma.py,momentum.py --allocation 0.6,0.4 --symbols AAPL
 
-# Different timeframes per strategy
+# Traditional mode: both strategies trade SPY  
 stratequeue --strategy day_trade.py,swing_trade.py --allocation 0.3,0.7 --granularity 1m,1d --symbols SPY
 
-# Different assets per strategy
+# 1:1 mapping: stock_algo.py→AAPL, crypto_algo.py→BTC
 stratequeue --strategy stock_algo.py,crypto_algo.py --allocation 0.8,0.2 --symbols AAPL,BTC --data-source polygon,coinmarketcap
 
-# Complex portfolio
+# 1:1 mapping: each strategy gets its own symbol
 stratequeue \
   --strategy sma.py,momentum.py,mean_revert.py \
   --allocation 0.4,0.35,0.25 \

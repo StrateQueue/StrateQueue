@@ -72,7 +72,10 @@ class SignalCoordinator:
     
     async def generate_signals(self, symbol: str, historical_data) -> Dict[str, TradingSignal]:
         """
-        Generate signals from all strategies for a given symbol
+        Generate signals from strategies for a given symbol
+        
+        In 1:1 mapping mode, only generates signals from strategies configured for this symbol.
+        In traditional mode, generates signals from all strategies.
         
         Args:
             symbol: Symbol to generate signals for
@@ -85,6 +88,12 @@ class SignalCoordinator:
         
         for strategy_id, config in self.strategy_configs.items():
             if not config.signal_extractor:
+                continue
+            
+            # Check if this strategy should run on this symbol
+            # If config.symbol is None, it runs on all symbols (traditional mode)
+            # If config.symbol is set, it only runs on that specific symbol (1:1 mode)
+            if config.symbol is not None and config.symbol != symbol:
                 continue
             
             try:

@@ -149,6 +149,9 @@ Examples:
   # Multi-strategy mode (comma-separated values)
   python3 main.py --strategy sma.py,momentum.py,random.py --allocation 0.4,0.35,0.25 --symbols AAPL,MSFT --data-source demo
   
+  # Multi-strategy with 1:1 strategy-symbol mapping
+  python3 main.py --strategy sma.py,random.py --allocation 0.5,0.5 --symbols ETH,AAPL --data-source demo
+  
   # Multi-strategy with custom strategy IDs
   python3 main.py --strategy sma.py,momentum.py --strategy-id sma_cross,momentum_trend --allocation 0.6,0.4 --symbols AAPL
   
@@ -202,7 +205,7 @@ Examples:
 
     # Trading configuration - now supports multiple values with smart defaulting
     parser.add_argument('--symbols', default='AAPL', 
-                       help='Symbol(s) to trade. Single or comma-separated list (e.g., AAPL or ETH,BTC,AAPL)')
+                       help='Symbol(s) to trade. Single or comma-separated list (e.g., AAPL or ETH,BTC,AAPL). When number of symbols equals number of strategies, creates 1:1 mapping.')
     
     parser.add_argument('--data-source', default='demo',
                        help='Data source(s). Single value applies to all, or comma-separated list matching strategies (e.g., demo or polygon,coinmarketcap)')
@@ -400,6 +403,18 @@ def validate_arguments(args: argparse.Namespace) -> Tuple[bool, List[str]]:
             errors.append("Invalid symbols format. Use comma-separated list like 'AAPL,MSFT'")
     except Exception:
         errors.append("Error parsing symbols")
+    
+    # Validate 1:1 strategy-symbol mapping if applicable
+    if hasattr(args, '_strategies') and len(args._strategies) > 1:
+        try:
+            if len(args._strategies) == len(symbols):
+                print(f"📌 1:1 Strategy-Symbol mapping detected:")
+                for i, (strategy, symbol) in enumerate(zip(args._strategies, symbols)):
+                    strategy_name = os.path.basename(strategy).replace('.py', '')
+                    print(f"   {strategy_name} → {symbol}")
+                print()
+        except:
+            pass  # symbols might not be parsed yet, ignore validation here
     
     # Validate duration
     if args.duration <= 0:
@@ -601,17 +616,38 @@ def create_inline_strategy_config(args: argparse.Namespace) -> str:
     if not hasattr(args, '_strategies') or len(args._strategies) <= 1:
         return None
     
-    config_lines = [
-        "# Auto-generated multi-strategy configuration from CLI arguments",
-        "# Format: filename,strategy_id,allocation_percentage",
-        ""
-    ]
+    # Parse symbols for potential 1:1 mapping
+    symbols = parse_symbols(args.symbols)
     
-    for i, strategy_path in enumerate(args._strategies):
-        strategy_id = args._strategy_ids[i]
-        allocation = args._allocations[i]
+    # Check if we have 1:1 strategy-to-symbol mapping
+    if len(args._strategies) == len(symbols):
+        config_lines = [
+            "# Auto-generated multi-strategy configuration from CLI arguments",
+            "# Format: filename,strategy_id,allocation_percentage,symbol",
+            "# 1:1 Strategy-to-Symbol mapping mode",
+            ""
+        ]
         
-        config_lines.append(f"{strategy_path},{strategy_id},{allocation}")
+        for i, strategy_path in enumerate(args._strategies):
+            strategy_id = args._strategy_ids[i]
+            allocation = args._allocations[i]
+            symbol = symbols[i]
+            
+            config_lines.append(f"{strategy_path},{strategy_id},{allocation},{symbol}")
+        
+    else:
+        # Traditional multi-strategy mode (all strategies on all symbols)
+        config_lines = [
+            "# Auto-generated multi-strategy configuration from CLI arguments",
+            "# Format: filename,strategy_id,allocation_percentage",
+            ""
+        ]
+        
+        for i, strategy_path in enumerate(args._strategies):
+            strategy_id = args._strategy_ids[i]
+            allocation = args._allocations[i]
+            
+            config_lines.append(f"{strategy_path},{strategy_id},{allocation}")
     
     return "\n".join(config_lines)
 
