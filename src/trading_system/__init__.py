@@ -53,7 +53,7 @@ from .core.signal_extractor import LiveSignalExtractor, SignalExtractorStrategy,
 from .utils.config import load_config, DataConfig, TradingConfig
 
 # Statistics tracking
-from .statistics import StatisticsManager, PnLTracker, BaseTracker
+from .statistics import StatisticsManager, PnLTracker, WinLossTracker, BaseTracker
 
 # Broker Factory imports - unified broker interface
 try:
@@ -161,6 +161,7 @@ __all__ = [
     
     # Statistics tracking
     "StatisticsManager",
+    "WinLossTracker",
     "PnLTracker",
     "BaseTracker",
     

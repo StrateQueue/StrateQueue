@@ -11,6 +11,7 @@ from datetime import datetime
 
 from .base_tracker import BaseTracker, TradeEvent
 from .pnl_tracker import PnLTracker
+from .win_loss_tracker import WinLossTracker
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,10 @@ class StatisticsManager:
         # Add PnL tracker
         self.pnl_tracker = PnLTracker()
         self.trackers.append(self.pnl_tracker)
+        
+        # Add Win/Loss tracker
+        self.win_loss_tracker = WinLossTracker()
+        self.trackers.append(self.win_loss_tracker)
         
         # Future trackers will be added here automatically
         # self.drawdown_tracker = DrawdownTracker()
@@ -137,6 +142,10 @@ class StatisticsManager:
         """Get PnL statistics"""
         return self.pnl_tracker.get_current_stats(strategy_id)
     
+    def get_win_loss_stats(self, strategy_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get Win/Loss statistics"""
+        return self.win_loss_tracker.get_current_stats(strategy_id)
+    
     def get_all_stats(self, strategy_id: Optional[str] = None) -> Dict[str, Any]:
         """Get statistics from all trackers"""
         all_stats = {}
@@ -229,6 +238,45 @@ class StatisticsManager:
                 
                 # Overall totals
                 total_open_positions = sum(len(s.get('open_positions', [])) for s in strategies.values())
+                lines.append(f"")
+                lines.append(f"  Total Open Positions: {total_open_positions}")
+                
+            elif tracker_name == 'WinLossTracker':
+                # Get detailed strategy breakdown
+                detailed_stats = self.win_loss_tracker.get_current_stats()
+                
+                # Portfolio summary
+                portfolio = detailed_stats.get('portfolio_summary', {})
+                lines.append(f"🎯 Win/Loss Tracker:")
+                lines.append(f"  Portfolio Win Rate: {portfolio.get('portfolio_win_rate', 0)*100:.1f}%")
+                lines.append(f"  Total Trades: {portfolio.get('total_trades', 0)}")
+                lines.append(f"  Profit Factor: {portfolio.get('portfolio_profit_factor', 0):.2f}")
+                
+                # Individual strategy breakdown
+                strategies = detailed_stats.get('strategies', {})
+                if strategies:
+                    lines.append(f"")
+                    lines.append(f"📈 Strategy Breakdown:")
+                    for strategy_id, strategy_stats in strategies.items():
+                        win_rate = strategy_stats.get('win_rate', 0) * 100
+                        wins = strategy_stats.get('wins', 0)
+                        losses = strategy_stats.get('losses', 0)
+                        profit_factor = strategy_stats.get('profit_factor', 0)
+                        current_streak = strategy_stats.get('current_streak', 0)
+                        
+                        lines.append(f"  • {strategy_id}:")
+                        lines.append(f"    Win Rate: {win_rate:.1f}%")
+                        lines.append(f"    W/L: {wins}/{losses}")
+                        lines.append(f"    Profit Factor: {profit_factor:.2f}")
+                        if current_streak > 0:
+                            lines.append(f"    Current Streak: {current_streak} wins")
+                        elif current_streak < 0:
+                            lines.append(f"    Current Streak: {abs(current_streak)} losses")
+                        else:
+                            lines.append(f"    Current Streak: 0")
+                
+                # Overall totals
+                total_open_positions = portfolio.get('total_open_positions', 0)
                 lines.append(f"")
                 lines.append(f"  Total Open Positions: {total_open_positions}")
             else:

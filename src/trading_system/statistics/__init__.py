@@ -9,10 +9,12 @@ Handles performance tracking and analysis for trading strategies:
 
 from .statistics_manager import StatisticsManager
 from .pnl_tracker import PnLTracker
+from .win_loss_tracker import WinLossTracker
 from .base_tracker import BaseTracker
 
 __all__ = [
     'StatisticsManager',
-    'PnLTracker', 
+    'PnLTracker',
+    'WinLossTracker', 
     'BaseTracker'
 ] 
