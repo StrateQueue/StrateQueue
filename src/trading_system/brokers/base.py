@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 
-from ..signal_extractor import TradingSignal
+from ..core.signal_extractor import TradingSignal
 
 
 class OrderType(Enum):

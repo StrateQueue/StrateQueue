@@ -7,7 +7,7 @@ Features:
 - Multi-strategy portfolio management
 - Real-time data ingestion from multiple sources
 - Dynamic strategy loading and signal extraction
-- Paper and live trading execution via Alpaca
+- Paper and live trading execution via extensible broker factory
 - Support for various data granularities
 - Extensive logging and error handling
 
@@ -15,7 +15,7 @@ Components:
 - LiveTradingSystem: Main orchestrator
 - MultiStrategyRunner: Manages multiple trading strategies
 - Data Sources: Polygon, CoinMarketCap, Demo data
-- AlpacaExecution: Trading execution layer
+- Broker Factory: Unified broker interface supporting multiple platforms
 - SignalExtractor: Strategy signal processing
 - CLI: Command-line interface
 
@@ -32,12 +32,12 @@ Usage:
 __version__ = "1.0.0"
 __author__ = "Trading System Contributors"
 
-from .data_ingestion import setup_data_ingestion
-from .data_sources import PolygonDataIngestion, CoinMarketCapDataIngestion, TestDataIngestion, MarketData
-from .signal_extractor import LiveSignalExtractor, SignalExtractorStrategy, TradingSignal, SignalType
-from .config import load_config, DataConfig, TradingConfig
+from .data.ingestion import setup_data_ingestion
+from .data.sources import PolygonDataIngestion, CoinMarketCapDataIngestion, TestDataIngestion, MarketData
+from .core.signal_extractor import LiveSignalExtractor, SignalExtractorStrategy, TradingSignal, SignalType
+from .utils.config import load_config, DataConfig, TradingConfig
 
-# Broker Factory imports - new unified broker interface
+# Broker Factory imports - unified broker interface
 try:
     from .brokers import (
         BaseBroker, BrokerConfig, BrokerInfo, AccountInfo, Position, OrderResult,
@@ -95,31 +95,12 @@ except ImportError:
     def validate_broker_credentials(*args, **kwargs):
         raise ImportError("Broker dependencies not installed. Install with: pip install stratequeue[trading]")
 
-# Alpaca imports - only import if available (backward compatibility)
-try:
-    from .alpaca import AlpacaExecutor, AlpacaConfig, create_alpaca_executor_from_env, normalize_crypto_symbol
-except ImportError:
-    # Create dummy classes if alpaca is not installed
-    class AlpacaExecutor:
-        def __init__(self, *args, **kwargs):
-            raise ImportError("alpaca-trade-api not installed. Install with: pip install stratequeue[trading]")
-    
-    class AlpacaConfig:
-        def __init__(self, *args, **kwargs):
-            raise ImportError("alpaca-trade-api not installed. Install with: pip install stratequeue[trading]")
-    
-    def create_alpaca_executor_from_env(*args, **kwargs):
-        raise ImportError("alpaca-trade-api not installed. Install with: pip install stratequeue[trading]")
-    
-    def normalize_crypto_symbol(*args, **kwargs):
-        raise ImportError("alpaca-trade-api not installed. Install with: pip install stratequeue[trading]")
-
-from .strategy_loader import StrategyLoader
+from .core.strategy_loader import StrategyLoader
 from .live_system import LiveTradingSystem
 from .multi_strategy import MultiStrategyRunner
-from .simple_portfolio_manager import SimplePortfolioManager
-from .mocks import Order
-from .cli import main as cli_main
+from .core.portfolio_manager import SimplePortfolioManager
+from .utils.mocks import Order
+from .cli.cli import main as cli_main
 
 __all__ = [
     "setup_data_ingestion",
@@ -134,7 +115,7 @@ __all__ = [
     "load_config",
     "DataConfig",
     "TradingConfig",
-    # New broker factory interface
+    # Broker factory interface
     "BaseBroker",
     "BrokerConfig", 
     "BrokerInfo",
@@ -147,11 +128,6 @@ __all__ = [
     "auto_create_broker",
     "validate_broker_credentials",
     "AlpacaBroker",
-    # Legacy Alpaca interface (backward compatibility)
-    "AlpacaExecutor",
-    "AlpacaConfig",
-    "create_alpaca_executor_from_env",
-    "normalize_crypto_symbol",
     # Core components
     "StrategyLoader",
     "LiveTradingSystem",

@@ -12,7 +12,7 @@ import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
-from ..signal_extractor import TradingSignal
+from ..core.signal_extractor import TradingSignal
 
 logger = logging.getLogger(__name__)
 

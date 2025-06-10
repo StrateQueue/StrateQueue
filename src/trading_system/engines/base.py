@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from typing import Type, Optional, Dict, Any
 from dataclasses import dataclass
 
-from ..signal_extractor import TradingSignal
+from ..core.signal_extractor import TradingSignal
 
 
 @dataclass

@@ -11,14 +11,14 @@ import logging
 from typing import Dict, Optional, List
 from collections import defaultdict
 
-from .data_sources import (
+from .sources import (
     BaseDataIngestion, 
     MarketData,
     PolygonDataIngestion, 
     CoinMarketCapDataIngestion, 
     TestDataIngestion
 )
-from .granularity import validate_granularity, GranularityParser
+from ..core.granularity import validate_granularity, GranularityParser
 
 # Load environment variables from .env file  
 from dotenv import load_dotenv

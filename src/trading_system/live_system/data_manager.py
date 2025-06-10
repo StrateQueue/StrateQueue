@@ -41,7 +41,7 @@ class DataManager:
     def setup_data_ingestion(self):
         """Setup data ingestion based on data source"""
         import os
-        from ..data_ingestion import create_data_source
+        from ..data.ingestion import create_data_source
         
         # Get API key if needed
         api_key = None

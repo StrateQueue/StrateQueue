@@ -16,7 +16,7 @@ from typing import Dict, Optional
 import os
 
 from .base import BaseDataIngestion, MarketData
-from ..granularity import TimeUnit
+from ...core.granularity import TimeUnit
 
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Callable
 
 # Import granularity utilities
-from ..granularity import Granularity, parse_granularity
+from ...core.granularity import Granularity, parse_granularity
 
 
 @dataclass

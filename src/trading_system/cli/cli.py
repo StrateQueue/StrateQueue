@@ -13,8 +13,8 @@ import asyncio
 import logging
 from typing import List, Tuple, Dict, Any
 
-from .granularity import GranularityParser, validate_granularity
-from .live_system import LiveTradingSystem
+from ..core.granularity import GranularityParser, validate_granularity
+from ..live_system import LiveTradingSystem
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ def print_broker_info():
     print("=" * 50)
     
     try:
-        from .brokers import list_broker_features, get_supported_brokers
+        from ..brokers import list_broker_features, get_supported_brokers
         
         supported_brokers = get_supported_brokers()
         broker_features = list_broker_features()
@@ -96,7 +96,7 @@ def print_broker_status():
     """Print detailed broker environment status"""
     
     try:
-        from .brokers.utils import print_broker_environment_status
+        from ..brokers.utils import print_broker_environment_status
         print_broker_environment_status()
         
     except ImportError:
@@ -110,8 +110,8 @@ def print_broker_setup_help(broker_type: str = None):
     """Print broker setup instructions"""
     
     try:
-        from .brokers.utils import suggest_environment_setup
-        from .brokers import get_supported_brokers
+        from ..brokers.utils import suggest_environment_setup
+        from ..brokers import get_supported_brokers
         
         if broker_type:
             # Show specific broker setup
@@ -306,7 +306,7 @@ def validate_arguments(args: argparse.Namespace) -> Tuple[bool, List[str]]:
     # Validate broker if specified
     if args.broker:
         try:
-            from .brokers import get_supported_brokers
+            from ..brokers import get_supported_brokers
             supported = get_supported_brokers()
             if args.broker not in supported:
                 errors.append(f"Unsupported broker '{args.broker}'. Supported: {', '.join(supported)}")
@@ -316,7 +316,7 @@ def validate_arguments(args: argparse.Namespace) -> Tuple[bool, List[str]]:
     # Validate trading requirements
     if enable_trading:
         try:
-            from .brokers import detect_broker_type, validate_broker_credentials
+            from ..brokers import detect_broker_type, validate_broker_credentials
             
             # If broker specified, validate it
             if args.broker:
@@ -389,7 +389,7 @@ def determine_broker(args: argparse.Namespace) -> str:
     
     # Auto-detect broker based on trading mode
     try:
-        from .brokers import detect_broker_type
+        from ..brokers import detect_broker_type
         detected = detect_broker_type()
         if detected != 'unknown':
             trading_mode = "paper" if args._paper_trading else "live"

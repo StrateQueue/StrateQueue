@@ -20,8 +20,8 @@ from backtesting import Backtest, Strategy
 from backtesting.lib import crossover
 
 from .base import TradingEngine, EngineStrategy, EngineSignalExtractor, EngineInfo
-from ..signal_extractor import TradingSignal, SignalType
-from ..mocks import Order
+from ..core.signal_extractor import TradingSignal, SignalType
+from ..utils.mocks import Order
 
 logger = logging.getLogger(__name__)
 

@@ -23,17 +23,39 @@ except ImportError:
         pass
 
 from .base import BaseBroker, BrokerConfig, BrokerInfo, AccountInfo, Position, OrderResult, OrderType, OrderSide
-from ..signal_extractor import TradingSignal, SignalType
+from ..core.signal_extractor import TradingSignal, SignalType
 
-# Import Alpaca specific components only if available
+# Define Alpaca-specific components inline since legacy code was removed
 if ALPACA_AVAILABLE:
-    from ..alpaca.config import AlpacaConfig, PositionSizeConfig
-    from ..alpaca.orders import (
-        MarketBuyOrderExecutor, MarketSellOrderExecutor,
-        LimitBuyOrderExecutor, LimitSellOrderExecutor,
-        StopOrderExecutor, StopLimitOrderExecutor, TrailingStopOrderExecutor
-    )
-    from ..alpaca.utils import normalize_crypto_symbol
+    # Inline AlpacaConfig and PositionSizeConfig since legacy code removed
+    class AlpacaConfig:
+        def __init__(self, api_key: str, secret_key: str, base_url: Optional[str] = None, paper: bool = True):
+            self.api_key = api_key
+            self.secret_key = secret_key
+            self.base_url = base_url
+            self.paper = paper
+    
+    class PositionSizeConfig:
+        def __init__(self, default_position_size: float = 100.0, max_position_size: float = 10000.0):
+            self.default_position_size = default_position_size
+            self.max_position_size = max_position_size
+    
+    # Simple crypto symbol normalization function
+    def normalize_crypto_symbol(symbol: str) -> str:
+        """Normalize crypto symbols for Alpaca format"""
+        if '/' in symbol:
+            # Already in pair format (e.g., "BTC/USD")
+            return symbol.upper()
+        
+        # Convert single symbol to USD pair for crypto
+        crypto_symbols = ['BTC', 'ETH', 'LTC', 'BCH', 'DOGE', 'SHIB', 'AVAX', 'UNI', 'LINK', 'MATIC']
+        symbol_upper = symbol.upper()
+        
+        if symbol_upper in crypto_symbols:
+            return f"{symbol_upper}/USD"
+        
+        # For stocks, return as-is
+        return symbol_upper
 
 logger = logging.getLogger(__name__)
 
@@ -204,30 +226,30 @@ class AlpacaBroker(BaseBroker):
                     message=f"Portfolio constraint violation: {reason}"
                 )
             
-            # Handle HOLD signals
+                        # Handle HOLD signals
             if signal.signal == SignalType.HOLD:
                 logger.debug(f"HOLD signal for {symbol} - no action needed")
                 return OrderResult(success=True)
-            
-            # Get the appropriate order executor
-            order_executor = self.order_executors.get(signal.signal)
-            if not order_executor:
+
+            # Check if signal type is supported
+            supported_signals = self.order_executors.get('supported_signal_types', [])
+            if signal.signal not in supported_signals:
                 error_msg = f"Unknown signal type: {signal.signal}"
                 logger.warning(error_msg)
                 return OrderResult(
                     success=False,
                     message=error_msg
                 )
-            
+
             # Generate client order ID
             client_order_id = self._generate_client_order_id(strategy_id)
-            
-            # Execute the order with strategy context
-            success, order_id = order_executor.execute(alpaca_symbol, signal, client_order_id, strategy_id)
-            
+
+            # Execute the order using simplified direct API call
+            success, order_id = self._execute_signal_direct(alpaca_symbol, signal, client_order_id, strategy_id)
+
             if success and order_id:
                 self.pending_orders[alpaca_symbol] = order_id
-            
+
             return OrderResult(
                 success=success,
                 order_id=order_id,
@@ -473,19 +495,183 @@ class AlpacaBroker(BaseBroker):
             return None
     
     def _init_order_executors(self):
-        """Initialize the modular order execution system"""
+        """Initialize simplified order execution system"""
+        # Simplified - use direct Alpaca API calls instead of complex executor classes
         self.order_executors = {
-            SignalType.BUY: MarketBuyOrderExecutor(self.trading_client, self.portfolio_manager),
-            SignalType.SELL: MarketSellOrderExecutor(self.trading_client, self.portfolio_manager),
-            SignalType.CLOSE: MarketSellOrderExecutor(self.trading_client, self.portfolio_manager),  # Close uses sell executor
-            SignalType.LIMIT_BUY: LimitBuyOrderExecutor(self.trading_client, self.portfolio_manager),
-            SignalType.LIMIT_SELL: LimitSellOrderExecutor(self.trading_client, self.portfolio_manager),
-            SignalType.STOP_BUY: StopOrderExecutor(self.trading_client, self.portfolio_manager),
-            SignalType.STOP_SELL: StopOrderExecutor(self.trading_client, self.portfolio_manager),
-            SignalType.STOP_LIMIT_BUY: StopLimitOrderExecutor(self.trading_client, self.portfolio_manager),
-            SignalType.STOP_LIMIT_SELL: StopLimitOrderExecutor(self.trading_client, self.portfolio_manager),
-            SignalType.TRAILING_STOP_SELL: TrailingStopOrderExecutor(self.trading_client, self.portfolio_manager)
+            'supported_signal_types': [
+                SignalType.BUY, SignalType.SELL, SignalType.CLOSE,
+                SignalType.LIMIT_BUY, SignalType.LIMIT_SELL,
+                SignalType.STOP_BUY, SignalType.STOP_SELL,
+                SignalType.STOP_LIMIT_BUY, SignalType.STOP_LIMIT_SELL,
+                SignalType.TRAILING_STOP_SELL
+            ]
         }
+    
+    def _execute_signal_direct(self, symbol: str, signal: TradingSignal, client_order_id: str, strategy_id: Optional[str]) -> tuple[bool, Optional[str]]:
+        """
+        Execute signal using direct Alpaca API calls
+        
+        Args:
+            symbol: Symbol to trade
+            signal: Trading signal
+            client_order_id: Unique client order ID
+            strategy_id: Optional strategy ID
+            
+        Returns:
+            Tuple of (success: bool, order_id: Optional[str])
+        """
+        try:
+            from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
+            from alpaca.trading.enums import OrderSide, TimeInForce
+            
+            logger.info(f"🔄 Processing order for symbol: {symbol}")
+            
+            # Calculate position size - simplified approach
+            if self.portfolio_manager and strategy_id:
+                # Multi-strategy mode: get position size from portfolio manager
+                strategy_status = self.portfolio_manager.get_strategy_status(strategy_id)
+                available_capital = strategy_status.get('available_capital', 100.0)
+                position_size = min(available_capital * 0.1, 1000.0)  # Use 10% of available capital, max $1000
+            else:
+                # Single strategy mode: use default position size
+                position_size = self.position_config.default_position_size
+            
+            logger.info(f"💰 Position size calculated: ${position_size:.2f}")
+            
+            # Determine order side
+            is_buy_signal = signal.signal in [SignalType.BUY, SignalType.LIMIT_BUY, SignalType.STOP_BUY, SignalType.STOP_LIMIT_BUY]
+            side = OrderSide.BUY if is_buy_signal else OrderSide.SELL
+            
+            # Determine time in force based on asset type
+            is_crypto = '/' in symbol  # Crypto pairs have "/" like "ETH/USD"
+            time_in_force = TimeInForce.GTC if is_crypto else TimeInForce.DAY
+            
+            # For crypto, use notional orders; for stocks, use quantity orders
+            order_request = None
+            
+            if is_buy_signal:
+                if is_crypto:
+                    # For crypto buys, use notional amount (USD value)
+                    # Round notional to 2 decimal places for Alpaca API requirement
+                    notional_amount = round(position_size, 2)
+                    logger.info(f"📊 Creating crypto buy order: ${notional_amount:.2f} notional of {symbol}")
+                    if signal.signal == SignalType.BUY:
+                        order_request = MarketOrderRequest(
+                            symbol=symbol,
+                            side=side,
+                            notional=notional_amount,
+                            time_in_force=time_in_force,
+                            client_order_id=client_order_id
+                        )
+                    elif signal.signal == SignalType.LIMIT_BUY:
+                        # For limit orders, calculate quantity
+                        quantity = position_size / signal.price if signal.price else None
+                        if quantity:
+                            logger.info(f"📊 Creating crypto limit buy: {quantity:.6f} {symbol} @ ${signal.price:.2f}")
+                            order_request = LimitOrderRequest(
+                                symbol=symbol,
+                                side=side,
+                                qty=quantity,
+                                limit_price=signal.price,
+                                time_in_force=time_in_force,
+                                client_order_id=client_order_id
+                            )
+                else:
+                    # For stock buys, calculate quantity
+                    quantity = position_size / signal.price if signal.price else 1
+                    logger.info(f"📊 Creating stock buy order: {quantity:.2f} shares of {symbol}")
+                    if signal.signal == SignalType.BUY:
+                        order_request = MarketOrderRequest(
+                            symbol=symbol,
+                            side=side,
+                            qty=quantity,
+                            time_in_force=time_in_force,
+                            client_order_id=client_order_id
+                        )
+                    elif signal.signal == SignalType.LIMIT_BUY:
+                        order_request = LimitOrderRequest(
+                            symbol=symbol,
+                            side=side,
+                            qty=quantity,
+                            limit_price=signal.price,
+                            time_in_force=time_in_force,
+                            client_order_id=client_order_id
+                        )
+            else:
+                # For sell orders, get current position quantity
+                try:
+                    logger.info(f"🔍 Checking current position for {symbol}")
+                    position = self.trading_client.get_open_position(symbol)
+                    quantity = abs(float(position.qty))  # Ensure positive quantity
+                    logger.info(f"📍 Found position: {quantity} shares/units of {symbol}")
+                    
+                    if signal.signal in [SignalType.SELL, SignalType.CLOSE]:
+                        order_request = MarketOrderRequest(
+                            symbol=symbol,
+                            side=side,
+                            qty=quantity,
+                            time_in_force=time_in_force,
+                            client_order_id=client_order_id
+                        )
+                    elif signal.signal == SignalType.LIMIT_SELL:
+                        order_request = LimitOrderRequest(
+                            symbol=symbol,
+                            side=side,
+                            qty=quantity,
+                            limit_price=signal.price,
+                            time_in_force=time_in_force,
+                            client_order_id=client_order_id
+                        )
+                        
+                except Exception as e:
+                    logger.error(f"❌ No position found for {symbol}: {e}")
+                    return False, None
+            
+            if not order_request:
+                logger.error(f"❌ Failed to create order request for {symbol}")
+                return False, None
+            
+            # Submit the order with detailed logging
+            logger.info(f"🚀 Submitting order to Alpaca: {order_request}")
+            order = self.trading_client.submit_order(order_request)
+            logger.info(f"✅ Order submitted successfully!")
+            logger.info(f"   Order ID: {order.id}")
+            logger.info(f"   Symbol: {order.symbol}")
+            logger.info(f"   Side: {order.side}")
+            logger.info(f"   Status: {order.status}")
+            
+                        # Update portfolio manager if in multi-strategy mode
+            if self.portfolio_manager and strategy_id:
+                if is_buy_signal:
+                    # For crypto notional orders, estimate quantity for portfolio tracking
+                    if is_crypto and hasattr(order_request, 'notional'):
+                        notional_used = getattr(order_request, 'notional', position_size)
+                        estimated_quantity = notional_used / signal.price if signal.price else 0
+                        self.portfolio_manager.record_buy(strategy_id, symbol, notional_used, estimated_quantity)
+                        logger.info(f"📝 Portfolio: Recorded buy {strategy_id} - ${notional_used:.2f} (~{estimated_quantity:.6f} {symbol})")
+                    else:
+                        quantity = getattr(order_request, 'qty', 0)
+                        self.portfolio_manager.record_buy(strategy_id, symbol, position_size, quantity)
+                        logger.info(f"📝 Portfolio: Recorded buy {strategy_id} - ${position_size:.2f} ({quantity:.6f} {symbol})")
+                else:
+                    quantity = getattr(order_request, 'qty', 0)
+                    sell_value = quantity * signal.price if signal.price else None
+                    self.portfolio_manager.record_sell(strategy_id, symbol, sell_value, quantity)
+                    logger.info(f"📝 Portfolio: Recorded sell {strategy_id} - {quantity:.6f} {symbol}")
+            
+            return True, order.id
+            
+        except APIError as e:
+            logger.error(f"❌ Alpaca API Error for {symbol}: {e}")
+            logger.error(f"   Error Code: {getattr(e, 'code', 'Unknown')}")
+            logger.error(f"   Error Message: {getattr(e, 'message', str(e))}")
+            return False, None
+        except Exception as e:
+            logger.error(f"❌ Unexpected error executing order for {symbol}: {e}")
+            logger.error(f"   Error Type: {type(e).__name__}")
+            import traceback
+            logger.error(f"   Traceback: {traceback.format_exc()}")
+            return False, None
     
     def _generate_client_order_id(self, strategy_id: Optional[str] = None) -> str:
         """

@@ -12,16 +12,11 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from ..config import load_config
-try:
-    from ..alpaca import create_alpaca_executor_from_env
-except ImportError:
-    def create_alpaca_executor_from_env(*args, **kwargs):
-        raise ImportError("alpaca-trade-api not installed. Install with: pip install stratequeue[trading]")
-from ..signal_extractor import SignalType
-from ..strategy_loader import StrategyLoader
+from ..utils.config import load_config
+from ..core.signal_extractor import SignalType
+from ..core.strategy_loader import StrategyLoader
 from ..multi_strategy import MultiStrategyRunner
-from ..granularity import parse_granularity
+from ..core.granularity import parse_granularity
 from .data_manager import DataManager
 from .trading_processor import TradingProcessor
 from .display_manager import DisplayManager
@@ -172,14 +167,10 @@ class LiveTradingSystem:
                     return None
                 
             except ImportError:
-                # Fallback to legacy Alpaca executor
-                logger.info("Broker factory not available, using legacy Alpaca executor")
-                alpaca_executor = create_alpaca_executor_from_env(portfolio_manager)
-                
-                mode_info = "multi-strategy" if self.is_multi_strategy else "single-strategy"
-                logger.info(f"✅ Alpaca trading enabled with {mode_info} portfolio management")
-                
-                return alpaca_executor
+                # Broker factory not available
+                logger.error("Broker factory not available - no broker dependencies installed")
+                logger.warning("Install broker dependencies with: pip install stratequeue[trading]")
+                return None
                 
         except Exception as e:
             logger.error(f"Failed to initialize trading executor: {e}")

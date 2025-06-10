@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 from .config import ConfigManager, StrategyConfig
 from .signal_coordinator import SignalCoordinator
 from .portfolio_integrator import PortfolioIntegrator
-from ..signal_extractor import TradingSignal
+from ..core.signal_extractor import TradingSignal
 
 logger = logging.getLogger(__name__)
 

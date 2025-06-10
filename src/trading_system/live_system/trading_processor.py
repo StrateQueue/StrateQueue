@@ -12,7 +12,7 @@ import logging
 from typing import Dict, List, Optional
 import pandas as pd
 
-from ..signal_extractor import LiveSignalExtractor, TradingSignal
+from ..core.signal_extractor import LiveSignalExtractor, TradingSignal
 
 logger = logging.getLogger(__name__)
 

@@ -11,8 +11,8 @@ Handles signal generation and validation across multiple strategies:
 import logging
 from typing import Dict, List, Tuple, Optional
 
-from ..strategy_loader import StrategyLoader
-from ..signal_extractor import LiveSignalExtractor, TradingSignal, SignalType
+from ..core.strategy_loader import StrategyLoader
+from ..core.signal_extractor import LiveSignalExtractor, TradingSignal, SignalType
 from .config import StrategyConfig
 
 logger = logging.getLogger(__name__)
@@ -37,8 +37,13 @@ class SignalCoordinator:
         
         for strategy_id, config in self.strategy_configs.items():
             try:
-                # Load strategy class from file
-                strategy_class = StrategyLoader.load_strategy_from_file(config.file_path)
+                # Use cached strategy class or load from file if not cached
+                if config.strategy_class is not None:
+                    strategy_class = config.strategy_class
+                else:
+                    # Load strategy class from file (fallback if not cached)
+                    strategy_class = StrategyLoader.load_strategy_from_file(config.file_path)
+                    config.strategy_class = strategy_class
                 
                 # Convert to signal-generating strategy
                 signal_strategy_class = StrategyLoader.convert_to_signal_strategy(strategy_class)

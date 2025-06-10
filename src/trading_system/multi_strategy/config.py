@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 
-from ..strategy_loader import StrategyLoader
+from ..core.strategy_loader import StrategyLoader
 
 logger = logging.getLogger(__name__)
 
@@ -168,8 +168,12 @@ class ConfigManager:
         
         for strategy_id, config in self.strategy_configs.items():
             try:
-                # Load strategy class to calculate lookback
-                original_strategy = StrategyLoader.load_strategy_from_file(config.file_path)
+                # Load strategy class to calculate lookback (cache it to avoid reloading)
+                if config.strategy_class is None:
+                    original_strategy = StrategyLoader.load_strategy_from_file(config.file_path)
+                    config.strategy_class = original_strategy
+                else:
+                    original_strategy = config.strategy_class
                 
                 # Calculate individual strategy lookback
                 if self.lookback_override:

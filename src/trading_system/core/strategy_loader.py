@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Type, Optional
 
 from .signal_extractor import SignalExtractorStrategy, SignalType
-from .mocks import Order
+from ..utils.mocks import Order
 
 logger = logging.getLogger(__name__)
 

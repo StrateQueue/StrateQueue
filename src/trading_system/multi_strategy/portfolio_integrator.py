@@ -11,8 +11,8 @@ Handles portfolio management integration for multi-strategy trading:
 import logging
 from typing import Dict, Optional
 
-from ..simple_portfolio_manager import SimplePortfolioManager
-from ..signal_extractor import TradingSignal, SignalType
+from ..core.portfolio_manager import SimplePortfolioManager
+from ..core.signal_extractor import TradingSignal, SignalType
 
 logger = logging.getLogger(__name__)
 
