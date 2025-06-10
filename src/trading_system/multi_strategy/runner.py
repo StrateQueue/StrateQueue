@@ -15,6 +15,7 @@ from .config import ConfigManager, StrategyConfig
 from .signal_coordinator import SignalCoordinator
 from .portfolio_integrator import PortfolioIntegrator
 from ..core.signal_extractor import TradingSignal
+from ..statistics import StatisticsManager
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ class MultiStrategyRunner:
     """
     
     def __init__(self, config_file_path: str, symbols: List[str], 
-                 lookback_override: Optional[int] = None):
+                 lookback_override: Optional[int] = None, statistics_manager=None):
         """
         Initialize multi-strategy runner
         
@@ -35,10 +36,12 @@ class MultiStrategyRunner:
             config_file_path: Path to strategy configuration file
             symbols: List of symbols to trade across all strategies
             lookback_override: Override all calculated lookback periods with this value
+            statistics_manager: Optional statistics manager for trade tracking
         """
         self.config_file_path = config_file_path
         self.symbols = symbols
         self.lookback_override = lookback_override
+        self.statistics_manager = statistics_manager
         
         # Initialize configuration manager
         self.config_manager = ConfigManager(config_file_path, lookback_override)
@@ -54,7 +57,7 @@ class MultiStrategyRunner:
         
         # Initialize portfolio integrator
         allocations = self.config_manager.get_allocations()
-        self.portfolio_integrator = PortfolioIntegrator(allocations)
+        self.portfolio_integrator = PortfolioIntegrator(allocations, statistics_manager)
         
         logger.info(f"Initialized multi-strategy runner with {len(strategy_configs)} strategies")
         logger.info(f"Maximum lookback period required: {self.max_lookback_period} bars")

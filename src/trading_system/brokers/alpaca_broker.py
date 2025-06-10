@@ -69,18 +69,22 @@ class AlpacaBroker(BaseBroker):
     management and conflict prevention.
     """
     
-    def __init__(self, config: BrokerConfig, portfolio_manager=None):
+    def __init__(self, config: BrokerConfig, portfolio_manager=None, statistics_manager=None):
         """
         Initialize Alpaca broker
         
         Args:
             config: Broker configuration
             portfolio_manager: Optional portfolio manager for multi-strategy support
+            statistics_manager: Optional statistics manager for trade tracking
         """
         if not ALPACA_AVAILABLE:
             raise ImportError("alpaca-trade-api not installed. Install with: pip install stratequeue[trading]")
         
         super().__init__(config, portfolio_manager)
+        
+        # Store statistics manager
+        self.statistics_manager = statistics_manager
         
         # Create Alpaca-specific config from broker config
         self.alpaca_config = self._create_alpaca_config(config)
@@ -649,15 +653,51 @@ class AlpacaBroker(BaseBroker):
                         estimated_quantity = notional_used / signal.price if signal.price else 0
                         self.portfolio_manager.record_buy(strategy_id, symbol, notional_used, estimated_quantity)
                         logger.info(f"📝 Portfolio: Recorded buy {strategy_id} - ${notional_used:.2f} (~{estimated_quantity:.6f} {symbol})")
+                        
+                        # Record in statistics tracker
+                        if self.statistics_manager:
+                            self.statistics_manager.record_trade(
+                                timestamp=datetime.now(),
+                                strategy_id=strategy_id,
+                                symbol=symbol,
+                                action="buy",
+                                quantity=estimated_quantity,
+                                price=signal.price,
+                                commission=0.0  # Alpaca is commission-free
+                            )
                     else:
                         quantity = getattr(order_request, 'qty', 0)
                         self.portfolio_manager.record_buy(strategy_id, symbol, position_size, quantity)
                         logger.info(f"📝 Portfolio: Recorded buy {strategy_id} - ${position_size:.2f} ({quantity:.6f} {symbol})")
+                        
+                        # Record in statistics tracker
+                        if self.statistics_manager:
+                            self.statistics_manager.record_trade(
+                                timestamp=datetime.now(),
+                                strategy_id=strategy_id,
+                                symbol=symbol,
+                                action="buy",
+                                quantity=quantity,
+                                price=signal.price,
+                                commission=0.0  # Alpaca is commission-free
+                            )
                 else:
                     quantity = getattr(order_request, 'qty', 0)
                     sell_value = quantity * signal.price if signal.price else None
                     self.portfolio_manager.record_sell(strategy_id, symbol, sell_value, quantity)
                     logger.info(f"📝 Portfolio: Recorded sell {strategy_id} - {quantity:.6f} {symbol}")
+                    
+                    # Record in statistics tracker
+                    if self.statistics_manager:
+                        self.statistics_manager.record_trade(
+                            timestamp=datetime.now(),
+                            strategy_id=strategy_id,
+                            symbol=symbol,
+                            action="sell",
+                            quantity=quantity,
+                            price=signal.price,
+                            commission=0.0  # Alpaca is commission-free
+                        )
             
             return True, order.id
             
@@ -794,15 +834,16 @@ class AlpacaBroker(BaseBroker):
 
 
 # Factory function for backward compatibility with existing create_alpaca_executor_from_env
-def create_alpaca_broker_from_env(portfolio_manager=None) -> AlpacaBroker:
+def create_alpaca_broker_from_env(portfolio_manager=None, statistics_manager=None) -> AlpacaBroker:
     """
     Create AlpacaBroker from environment variables (backward compatibility)
     
     Args:
         portfolio_manager: Optional portfolio manager for multi-strategy support
+        statistics_manager: Optional statistics manager for trade tracking
     
     Returns:
         Configured AlpacaBroker instance
     """
     from .broker_factory import auto_create_broker
-    return auto_create_broker(portfolio_manager) 
+    return auto_create_broker(portfolio_manager, statistics_manager) 

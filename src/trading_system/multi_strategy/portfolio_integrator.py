@@ -10,6 +10,7 @@ Handles portfolio management integration for multi-strategy trading:
 
 import logging
 from typing import Dict, Optional
+from datetime import datetime
 
 from ..core.portfolio_manager import SimplePortfolioManager
 from ..core.signal_extractor import TradingSignal, SignalType
@@ -19,14 +20,16 @@ logger = logging.getLogger(__name__)
 class PortfolioIntegrator:
     """Integrates multi-strategy trading with portfolio management"""
     
-    def __init__(self, strategy_allocations: Dict[str, float]):
+    def __init__(self, strategy_allocations: Dict[str, float], statistics_manager=None):
         """
         Initialize PortfolioIntegrator
         
         Args:
             strategy_allocations: Dictionary mapping strategy_id to allocation percentage
+            statistics_manager: Optional statistics manager for trade tracking
         """
         self.strategy_allocations = strategy_allocations
+        self.statistics_manager = statistics_manager
         self.portfolio_manager: Optional[SimplePortfolioManager] = None
         
         # Initialize portfolio manager with allocations
@@ -122,11 +125,39 @@ class PortfolioIntegrator:
             self.portfolio_manager.record_buy(strategy_id, symbol, execution_amount)
             logger.info(f"Recorded buy execution: {strategy_id} {symbol} ${execution_amount:.2f}")
             
+            # Record in statistics manager
+            if self.statistics_manager:
+                # Estimate quantity from execution amount and signal price
+                estimated_quantity = execution_amount / signal.price if signal.price else 0
+                self.statistics_manager.record_trade(
+                    timestamp=signal.timestamp,
+                    strategy_id=strategy_id,
+                    symbol=symbol,
+                    action="buy",
+                    quantity=estimated_quantity,
+                    price=signal.price,
+                    commission=0.0
+                )
+            
         elif signal.signal in [SignalType.SELL, SignalType.CLOSE, SignalType.LIMIT_SELL,
                              SignalType.STOP_SELL, SignalType.STOP_LIMIT_SELL, 
                              SignalType.TRAILING_STOP_SELL]:
             self.portfolio_manager.record_sell(strategy_id, symbol, execution_amount)
             logger.info(f"Recorded sell execution: {strategy_id} {symbol} ${execution_amount:.2f}")
+            
+            # Record in statistics manager
+            if self.statistics_manager:
+                # Estimate quantity from execution amount and signal price
+                estimated_quantity = execution_amount / signal.price if signal.price else 0
+                self.statistics_manager.record_trade(
+                    timestamp=signal.timestamp,
+                    strategy_id=strategy_id,
+                    symbol=symbol,
+                    action="sell",
+                    quantity=estimated_quantity,
+                    price=signal.price,
+                    commission=0.0
+                )
     
     def get_strategy_status_summary(self) -> str:
         """

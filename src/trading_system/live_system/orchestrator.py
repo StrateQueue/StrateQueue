@@ -20,6 +20,7 @@ from ..core.granularity import parse_granularity
 from .data_manager import DataManager
 from .trading_processor import TradingProcessor
 from .display_manager import DisplayManager
+from ..statistics import StatisticsManager
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,9 @@ class LiveTradingSystem:
         # Load configuration
         self.data_config, self.trading_config = load_config()
         
+        # Initialize statistics manager
+        self.statistics_manager = StatisticsManager()
+        
         # Initialize strategy components
         self._initialize_strategies(strategy_path, multi_strategy_config)
         
@@ -77,7 +81,7 @@ class LiveTradingSystem:
             getattr(self, 'multi_strategy_runner', None)
         )
         
-        self.display_manager = DisplayManager(self.is_multi_strategy)
+        self.display_manager = DisplayManager(self.is_multi_strategy, self.statistics_manager)
         
         # Initialize data ingestion
         self.data_ingester = self.data_manager.setup_data_ingestion()
@@ -93,7 +97,8 @@ class LiveTradingSystem:
             self.multi_strategy_runner = MultiStrategyRunner(
                 multi_strategy_config, 
                 self.symbols,
-                self.lookback_override
+                self.lookback_override,
+                self.statistics_manager
             )
             self.multi_strategy_runner.initialize_strategies()
             
@@ -145,12 +150,12 @@ class LiveTradingSystem:
                         broker_type=self.broker_type,
                         paper_trading=self.paper_trading
                     )
-                    broker_executor = BrokerFactory.create_broker(self.broker_type, config=config, portfolio_manager=portfolio_manager)
+                    broker_executor = BrokerFactory.create_broker(self.broker_type, config=config, portfolio_manager=portfolio_manager, statistics_manager=self.statistics_manager)
                     trading_mode = "paper" if self.paper_trading else "live"
                     logger.info(f"✅ Using specified broker: {self.broker_type} ({trading_mode} trading)")
                 else:
                     # Auto-detect broker
-                    broker_executor = auto_create_broker(portfolio_manager=portfolio_manager)
+                    broker_executor = auto_create_broker(portfolio_manager=portfolio_manager, statistics_manager=self.statistics_manager)
                     # Update the auto-created broker's paper trading setting
                     broker_executor.config.paper_trading = self.paper_trading
                     trading_mode = "paper" if self.paper_trading else "live"
@@ -237,9 +242,12 @@ class LiveTradingSystem:
                     signal_count += 1
                     self.display_manager.display_signals_summary(signals, signal_count)
                     
-                    # Execute trades if enabled
+                    # Execute trades if enabled, otherwise record hypothetical trades
                     if self.enable_trading and self.broker_executor:
                         await self._execute_signals(signals)
+                    else:
+                        # Record hypothetical trades for statistics tracking in signals-only mode
+                        self._record_hypothetical_signals(signals)
                 
                 # Wait before next cycle (respecting granularity)
                 await asyncio.sleep(cycle_interval)
@@ -253,6 +261,19 @@ class LiveTradingSystem:
             active_signals = self.trading_processor.get_active_signals()
             self.display_manager.display_session_summary(active_signals, self.broker_executor)
     
+    def _record_hypothetical_signals(self, signals):
+        """Record hypothetical trades from signals for statistics tracking"""
+        if self.is_multi_strategy:
+            # Multi-strategy signals: Dict[symbol, Dict[strategy_id, signal]]
+            for symbol, strategy_signals in signals.items():
+                if isinstance(strategy_signals, dict):
+                    for strategy_id, signal in strategy_signals.items():
+                        self.statistics_manager.record_hypothetical_trade(signal, symbol)
+        else:
+            # Single strategy signals: Dict[symbol, signal]
+            for symbol, signal in signals.items():
+                self.statistics_manager.record_hypothetical_trade(signal, symbol)
+
     async def _execute_signals(self, signals):
         """Execute trading signals via broker"""
         if self.is_multi_strategy:

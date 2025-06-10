@@ -19,14 +19,16 @@ logger = logging.getLogger(__name__)
 class DisplayManager:
     """Manages display output and logging for live trading"""
     
-    def __init__(self, is_multi_strategy: bool = False):
+    def __init__(self, is_multi_strategy: bool = False, statistics_manager=None):
         """
         Initialize DisplayManager
         
         Args:
             is_multi_strategy: Whether running in multi-strategy mode
+            statistics_manager: Optional statistics manager for showing stats
         """
         self.is_multi_strategy = is_multi_strategy
+        self.statistics_manager = statistics_manager
         self.trade_log = []
         
     def display_startup_banner(self, symbols: List[str], data_source: str, 
@@ -153,6 +155,10 @@ class DisplayManager:
         # Show trading summary if enabled
         if alpaca_executor:
             self._display_trading_summary(alpaca_executor)
+        
+        # Show statistics summary if available
+        if self.statistics_manager:
+            print(f"\n{self.statistics_manager.display_summary()}")
         
         print(f"\nTrade log saved to trading_system.log")
         print(f"{'='*60}")

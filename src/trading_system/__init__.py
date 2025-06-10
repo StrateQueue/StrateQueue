@@ -52,6 +52,9 @@ from .engines import (
 from .core.signal_extractor import LiveSignalExtractor, SignalExtractorStrategy, TradingSignal, SignalType
 from .utils.config import load_config, DataConfig, TradingConfig
 
+# Statistics tracking
+from .statistics import StatisticsManager, PnLTracker, BaseTracker
+
 # Broker Factory imports - unified broker interface
 try:
     from .brokers import (
@@ -155,6 +158,11 @@ __all__ = [
     "load_config",
     "DataConfig",
     "TradingConfig",
+    
+    # Statistics tracking
+    "StatisticsManager",
+    "PnLTracker",
+    "BaseTracker",
     
     # Broker factory interface
     "BaseBroker",

@@ -56,7 +56,7 @@ class BrokerFactory:
     
     @classmethod
     def create_broker(cls, broker_type: str, config: Optional[BrokerConfig] = None, 
-                     portfolio_manager=None) -> BaseBroker:
+                     portfolio_manager=None, statistics_manager=None) -> BaseBroker:
         """
         Create a trading broker instance
         
@@ -64,6 +64,7 @@ class BrokerFactory:
             broker_type: Type of broker ('alpaca', 'interactive_brokers', etc.)
             config: Optional broker configuration (will auto-detect from env if None)
             portfolio_manager: Optional portfolio manager for multi-strategy support
+            statistics_manager: Optional statistics manager for trade tracking
             
         Returns:
             BaseBroker instance
@@ -104,7 +105,7 @@ class BrokerFactory:
                 logger.error(f"Failed to get Alpaca credentials for {'paper' if config.paper_trading else 'live'} trading: {e}")
                 raise ValueError(f"Failed to configure Alpaca for {'paper' if config.paper_trading else 'live'} trading: {e}")
         
-        return broker_class(config, portfolio_manager)
+        return broker_class(config, portfolio_manager, statistics_manager)
     
     @classmethod
     def get_supported_brokers(cls) -> List[str]:
@@ -195,12 +196,13 @@ def detect_broker_type() -> str:
         return 'unknown'
 
 
-def auto_create_broker(portfolio_manager=None) -> BaseBroker:
+def auto_create_broker(portfolio_manager=None, statistics_manager=None) -> BaseBroker:
     """
     Automatically detect broker type and create appropriate broker instance
     
     Args:
         portfolio_manager: Optional portfolio manager for multi-strategy support
+        statistics_manager: Optional statistics manager for trade tracking
         
     Returns:
         BaseBroker instance
@@ -217,7 +219,7 @@ def auto_create_broker(portfolio_manager=None) -> BaseBroker:
         supported = BrokerFactory.get_supported_brokers()
         raise ValueError(f"Detected broker '{broker_type}' is not supported. Available: {supported}")
     
-    return BrokerFactory.create_broker(broker_type, portfolio_manager=portfolio_manager)
+    return BrokerFactory.create_broker(broker_type, portfolio_manager=portfolio_manager, statistics_manager=statistics_manager)
 
 
 def get_supported_brokers() -> List[str]:
