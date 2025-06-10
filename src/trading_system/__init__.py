@@ -14,8 +14,10 @@ Features:
 Components:
 - LiveTradingSystem: Main orchestrator
 - MultiStrategyRunner: Manages multiple trading strategies
-- Data Sources: Polygon, CoinMarketCap, Demo data
+- Data Sources: Polygon, CoinMarketCap, Demo data (with factory pattern)
 - Broker Factory: Unified broker interface supporting multiple platforms
+- Engine Factory: Unified engine interface supporting multiple trading frameworks
+- Data Provider Factory: Standardized data provider interface
 - SignalExtractor: Strategy signal processing
 - CLI: Command-line interface
 
@@ -32,8 +34,21 @@ Usage:
 __version__ = "1.0.0"
 __author__ = "Trading System Contributors"
 
-from .data.ingestion import setup_data_ingestion
-from .data.sources import PolygonDataIngestion, CoinMarketCapDataIngestion, TestDataIngestion, MarketData
+# Data Provider Factory imports - new standardized interface
+from .data import (
+    DataProviderFactory, DataProviderConfig, DataProviderInfo,
+    detect_provider_type, auto_create_provider, get_supported_providers,
+    validate_provider_credentials, list_provider_features,
+    setup_data_ingestion, create_data_source, BaseDataIngestion,
+    PolygonDataIngestion, CoinMarketCapDataIngestion, TestDataIngestion, MarketData
+)
+
+# Engine Factory imports - standardized engine interface
+from .engines import (
+    TradingEngine, EngineFactory, detect_engine_type, auto_create_engine,
+    get_supported_engines, validate_strategy_compatibility
+)
+
 from .core.signal_extractor import LiveSignalExtractor, SignalExtractorStrategy, TradingSignal, SignalType
 from .utils.config import load_config, DataConfig, TradingConfig
 
@@ -103,18 +118,44 @@ from .utils.mocks import Order
 from .cli.cli import main as cli_main
 
 __all__ = [
+    # Data Provider Factory - new standardized interface
+    "DataProviderFactory",
+    "DataProviderConfig", 
+    "DataProviderInfo",
+    "detect_provider_type",
+    "auto_create_provider",
+    "get_supported_providers",
+    "validate_provider_credentials",
+    "list_provider_features",
+    
+    # Backward compatibility data functions
     "setup_data_ingestion",
+    "create_data_source",
+    "BaseDataIngestion",
     "PolygonDataIngestion", 
     "CoinMarketCapDataIngestion",
     "TestDataIngestion",
     "MarketData",
+    
+    # Engine Factory interface
+    "TradingEngine",
+    "EngineFactory",
+    "detect_engine_type",
+    "auto_create_engine",
+    "get_supported_engines",
+    "validate_strategy_compatibility",
+    
+    # Signal processing
     "LiveSignalExtractor",
     "SignalExtractorStrategy",
     "TradingSignal",
     "SignalType",
+    
+    # Configuration
     "load_config",
     "DataConfig",
     "TradingConfig",
+    
     # Broker factory interface
     "BaseBroker",
     "BrokerConfig", 
@@ -128,6 +169,7 @@ __all__ = [
     "auto_create_broker",
     "validate_broker_credentials",
     "AlpacaBroker",
+    
     # Core components
     "StrategyLoader",
     "LiveTradingSystem",

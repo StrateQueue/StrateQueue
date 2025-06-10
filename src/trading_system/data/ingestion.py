@@ -2,6 +2,7 @@
 Data Ingestion Factory and Utilities
 
 Factory functions to create and configure data sources.
+This module now delegates to the standardized DataProviderFactory for consistency.
 """
 
 import os
@@ -20,6 +21,15 @@ from .sources import (
 )
 from ..core.granularity import validate_granularity, GranularityParser
 
+# Import the new factory system
+from .provider_factory import (
+    DataProviderFactory,
+    DataProviderConfig,
+    create_data_source as factory_create_data_source,
+    list_supported_granularities as factory_list_supported_granularities,
+    get_default_granularity as factory_get_default_granularity
+)
+
 # Load environment variables from .env file  
 from dotenv import load_dotenv
 load_dotenv()
@@ -33,6 +43,9 @@ def create_data_source(data_source: str, api_key: Optional[str] = None,
     """
     Factory function to create the appropriate data ingestion source
     
+    This function now delegates to the standardized DataProviderFactory
+    for consistency with brokers and engines.
+    
     Args:
         data_source: Type of data source ('polygon', 'coinmarketcap', 'demo')
         api_key: API key for external data sources (not needed for demo)
@@ -44,54 +57,23 @@ def create_data_source(data_source: str, api_key: Optional[str] = None,
     Raises:
         ValueError: If data source is invalid or granularity is not supported
     """
+    logger.info(f"Creating data source '{data_source}' with granularity '{granularity}' using factory pattern")
     
-    # Validate granularity for the specified data source
-    is_valid, error_msg = validate_granularity(granularity, data_source)
-    if not is_valid:
-        raise ValueError(error_msg)
-    
-    # Create the appropriate data source
-    if data_source == "polygon":
-        if not api_key:
-            raise ValueError("Polygon data source requires an API key")
-        
-        data_ingestion = PolygonDataIngestion(api_key)
-        logger.info(f"Created Polygon data source with granularity {granularity}")
-        
-    elif data_source == "coinmarketcap":
-        if not api_key:
-            api_key = os.getenv('CMC_API_KEY')
-            if not api_key:
-                raise ValueError("CoinMarketCap data source requires an API key. Set CMC_API_KEY environment variable.")
-        
-        data_ingestion = CoinMarketCapDataIngestion(api_key, granularity)
-        logger.info(f"Created CoinMarketCap data source with granularity {granularity}")
-        
-    elif data_source == "demo":
-        data_ingestion = TestDataIngestion()
-        
-        # Set update interval based on granularity for demo simulation
-        data_ingestion.set_update_interval_from_granularity(granularity)
-        logger.info(f"Created demo data source with granularity {granularity}")
-        
-    else:
-        supported_sources = ["polygon", "coinmarketcap", "demo"]
-        raise ValueError(f"Unsupported data source: {data_source}. Supported sources: {supported_sources}")
-    
-    return data_ingestion
+    # Use the new factory system
+    return factory_create_data_source(data_source, api_key, granularity)
 
 
 def list_supported_granularities(data_source: str) -> List[str]:
     """
     Get list of supported granularities for a data source
         
-        Args:
+    Args:
         data_source: Data source name
             
-        Returns:
+    Returns:
         List of supported granularity strings
     """
-    return GranularityParser.get_supported_granularities(data_source)
+    return factory_list_supported_granularities(data_source)
 
 
 def get_default_granularity(data_source: str) -> str:
@@ -104,12 +86,7 @@ def get_default_granularity(data_source: str) -> str:
     Returns:
         Default granularity string
     """
-    defaults = {
-        "polygon": "1m",
-        "coinmarketcap": "1d",  # Daily historical, but can do intraday real-time
-        "demo": "1m"
-    }
-    return defaults.get(data_source, "1m")
+    return factory_get_default_granularity(data_source)
 
 
 def setup_data_ingestion(data_source: str, symbols: List[str], days_back: int = 30,
@@ -128,7 +105,7 @@ def setup_data_ingestion(data_source: str, symbols: List[str], days_back: int = 
         Configured and initialized data ingestion instance
     """
     
-    # Create data source
+    # Create data source using the new factory
     data_ingestion = create_data_source(data_source, api_key, granularity)
     
     # Fetch historical data for all symbols
