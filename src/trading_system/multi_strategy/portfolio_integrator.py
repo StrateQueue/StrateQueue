@@ -88,7 +88,8 @@ class PortfolioIntegrator:
                              SignalType.STOP_SELL, SignalType.STOP_LIMIT_SELL, 
                              SignalType.TRAILING_STOP_SELL]:
             
-            return self.portfolio_manager.can_sell(strategy_id, symbol)
+            # Use None for quantity to check full position sell capability
+            return self.portfolio_manager.can_sell(strategy_id, symbol, None)
         
         # Hold signals are always valid
         elif signal.signal == SignalType.HOLD:
@@ -144,7 +145,7 @@ class PortfolioIntegrator:
         lines.append("MULTI-STRATEGY PORTFOLIO STATUS")
         lines.append("=" * 60)
         lines.append(f"Total Account Value: ${status['total_account_value']:,.2f}")
-        lines.append(f"Active Positions: {status['total_symbols_owned']}")
+        lines.append(f"Active Positions: {status['total_unique_symbols']}")
         lines.append("")
         
         for strategy_id, strategy_info in status['strategies'].items():
@@ -152,7 +153,7 @@ class PortfolioIntegrator:
             lines.append(f"Strategy: {strategy_id} ({allocation_pct:.1f}%)")
             lines.append(f"  Allocated: ${strategy_info['total_allocated']:,.2f}")
             lines.append(f"  Available: ${strategy_info['available_capital']:,.2f}")
-            lines.append(f"  Positions: {strategy_info['position_count']} ({', '.join(strategy_info['owned_symbols'])})")
+            lines.append(f"  Positions: {strategy_info['position_count']} ({', '.join(strategy_info['held_symbols'])})")
             lines.append("")
         
         return "\n".join(lines)
@@ -217,7 +218,7 @@ class PortfolioIntegrator:
         try:
             status = self.portfolio_manager.get_strategy_status(strategy_id)
             return {
-                'owned_symbols': status.get('owned_symbols', []),
+                'owned_symbols': status.get('held_symbols', []),
                 'position_count': status.get('position_count', 0)
             }
         except Exception as e:

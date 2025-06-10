@@ -12,9 +12,9 @@ class RandomStrategy(Strategy):
     """
     
     # Strategy parameters
-    buy_probability = 0.33      # 15% chance to buy
-    sell_probability = 0.33     # 15% chance to sell  
-    hold_probability = 0.34     # 70% chance to hold
+    buy_probability = 1      # 15% chance to buy
+    sell_probability = 0     # 15% chance to sell  
+    hold_probability = 0     # 70% chance to hold
     
     def init(self):
         """Initialize the strategy - no indicators needed for random strategy"""
@@ -28,7 +28,7 @@ class RandomStrategy(Strategy):
         
         if decision < self.buy_probability:
             # Buy signal
-            self.buy(size=0.1)
+            self.buy(size=1)
             
         elif decision < self.buy_probability + self.sell_probability:
             # Sell signal

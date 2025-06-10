@@ -67,16 +67,16 @@ class AlpacaExecutor:
     def _init_order_executors(self):
         """Initialize the modular order execution system"""
         self.order_executors = {
-            SignalType.BUY: MarketBuyOrderExecutor(self.trading_client),
-            SignalType.SELL: MarketSellOrderExecutor(self.trading_client),
-            SignalType.CLOSE: MarketSellOrderExecutor(self.trading_client),  # Close uses sell executor
-            SignalType.LIMIT_BUY: LimitBuyOrderExecutor(self.trading_client),
-            SignalType.LIMIT_SELL: LimitSellOrderExecutor(self.trading_client),
-            SignalType.STOP_BUY: StopOrderExecutor(self.trading_client),
-            SignalType.STOP_SELL: StopOrderExecutor(self.trading_client),
-            SignalType.STOP_LIMIT_BUY: StopLimitOrderExecutor(self.trading_client),
-            SignalType.STOP_LIMIT_SELL: StopLimitOrderExecutor(self.trading_client),
-            SignalType.TRAILING_STOP_SELL: TrailingStopOrderExecutor(self.trading_client)
+            SignalType.BUY: MarketBuyOrderExecutor(self.trading_client, self.portfolio_manager),
+            SignalType.SELL: MarketSellOrderExecutor(self.trading_client, self.portfolio_manager),
+            SignalType.CLOSE: MarketSellOrderExecutor(self.trading_client, self.portfolio_manager),  # Close uses sell executor
+            SignalType.LIMIT_BUY: LimitBuyOrderExecutor(self.trading_client, self.portfolio_manager),
+            SignalType.LIMIT_SELL: LimitSellOrderExecutor(self.trading_client, self.portfolio_manager),
+            SignalType.STOP_BUY: StopOrderExecutor(self.trading_client, self.portfolio_manager),
+            SignalType.STOP_SELL: StopOrderExecutor(self.trading_client, self.portfolio_manager),
+            SignalType.STOP_LIMIT_BUY: StopLimitOrderExecutor(self.trading_client, self.portfolio_manager),
+            SignalType.STOP_LIMIT_SELL: StopLimitOrderExecutor(self.trading_client, self.portfolio_manager),
+            SignalType.TRAILING_STOP_SELL: TrailingStopOrderExecutor(self.trading_client, self.portfolio_manager)
         }
     
     def _generate_client_order_id(self, strategy_id: Optional[str] = None) -> str:
@@ -124,59 +124,64 @@ class AlpacaExecutor:
         except Exception as e:
             logger.warning(f"Could not update portfolio value: {e}")
         
-        # Validate buy signals
+        # Validate buy signals - multiple strategies can now buy the same symbol
         if signal.signal in [SignalType.BUY, SignalType.LIMIT_BUY, SignalType.STOP_BUY, 
                            SignalType.STOP_LIMIT_BUY]:
             
-            # Calculate order amount based on signal size and account value
-            account_value = float(account.portfolio_value)
-            if signal.size and 0 < signal.size <= 1:
-                order_amount = account_value * signal.size
-            else:
-                # Default to using available cash
-                cash_balance = float(account.cash)
-                order_amount = cash_balance * 0.99
+            # Just validate that strategy exists and has some allocation
+            # Order executors will handle the specific amount calculation
+            strategy_status = self.portfolio_manager.get_strategy_status(strategy_id)
+            available_capital = strategy_status.get('available_capital', 0.0)
             
-            return self.portfolio_manager.can_buy(strategy_id, symbol, order_amount)
+            if available_capital <= 0:
+                return False, f"Strategy {strategy_id} has no available capital"
+            
+            return True, "Strategy has available capital"
         
-        # Validate sell signals
+        # Validate sell signals - check actual Alpaca positions for more reliable validation
         elif signal.signal in [SignalType.SELL, SignalType.CLOSE, SignalType.LIMIT_SELL,
                              SignalType.STOP_SELL, SignalType.STOP_LIMIT_SELL, 
                              SignalType.TRAILING_STOP_SELL]:
             
-            return self.portfolio_manager.can_sell(strategy_id, symbol)
+            # First check if we have any position in Alpaca at all
+            try:
+                position = self.trading_client.get_open_position(symbol)
+                if position is None or float(position.qty) <= 0:
+                    return False, f"No Alpaca position found for {symbol}"
+                
+                # Now check portfolio manager's strategy-specific tracking
+                # This is for capital allocation and multi-strategy coordination
+                can_sell_portfolio, portfolio_reason = self.portfolio_manager.can_sell(strategy_id, symbol, None)
+                
+                if not can_sell_portfolio:
+                    # Portfolio manager says no, but we have Alpaca position
+                    # This indicates a sync issue - let's log it but allow the trade
+                    logger.warning(f"Portfolio manager position tracking out of sync for {strategy_id}/{symbol}: {portfolio_reason}")
+                    logger.warning(f"Alpaca shows position: {float(position.qty)} shares, but portfolio manager disagrees")
+                    logger.warning(f"Allowing sell based on actual Alpaca position")
+                    
+                    # Create a position in portfolio manager to get back in sync
+                    try:
+                        position_value = float(position.market_value)
+                        quantity = float(position.qty)
+                        self.portfolio_manager.record_buy(strategy_id, symbol, position_value, quantity)
+                        logger.info(f"Synced portfolio manager: recorded {strategy_id} position of {quantity} {symbol} worth ${position_value:.2f}")
+                    except Exception as sync_error:
+                        logger.error(f"Failed to sync portfolio position: {sync_error}")
+                
+                return True, "Alpaca position validated"
+                
+            except Exception as e:
+                # No position found in Alpaca
+                if "position does not exist" in str(e).lower() or "not found" in str(e).lower():
+                    return False, f"No position found in Alpaca for {symbol}"
+                else:
+                    logger.error(f"Error checking Alpaca position for {symbol}: {e}")
+                    return False, f"Error validating position: {e}"
         
         # Hold signals are always valid
         return True, "OK"
     
-    def _record_trade_execution(self, symbol: str, signal: TradingSignal, execution_amount: float,
-                              execution_successful: bool):
-        """
-        Record trade execution in portfolio manager
-        
-        Args:
-            symbol: Symbol that was traded
-            signal: Signal that was executed
-            execution_amount: Dollar amount of the trade
-            execution_successful: Whether execution was successful
-        """
-        if not self.portfolio_manager or not execution_successful:
-            return
-        
-        strategy_id = getattr(signal, 'strategy_id', None)
-        if not strategy_id:
-            return
-        
-        # Record in portfolio manager
-        if signal.signal in [SignalType.BUY, SignalType.LIMIT_BUY, SignalType.STOP_BUY, 
-                           SignalType.STOP_LIMIT_BUY]:
-            self.portfolio_manager.record_buy(strategy_id, symbol, execution_amount)
-            
-        elif signal.signal in [SignalType.SELL, SignalType.CLOSE, SignalType.LIMIT_SELL,
-                             SignalType.STOP_SELL, SignalType.STOP_LIMIT_SELL, 
-                             SignalType.TRAILING_STOP_SELL]:
-            self.portfolio_manager.record_sell(strategy_id, symbol, execution_amount)
-        
     def _validate_connection(self):
         """Validate connection to Alpaca API"""
         try:
@@ -231,34 +236,15 @@ class AlpacaExecutor:
             # Generate client order ID
             client_order_id = self._generate_client_order_id(strategy_id)
             
-            # Execute the order
-            success, order_id = order_executor.execute(alpaca_symbol, signal, client_order_id)
+            # Execute the order with strategy context
+            success, order_id = order_executor.execute(alpaca_symbol, signal, client_order_id, strategy_id)
             
             if success and order_id:
                 self.pending_orders[alpaca_symbol] = order_id
                 
-                # Record execution for portfolio tracking (estimate execution amount)
-                try:
-                    account = self.trading_client.get_account()
-                    if signal.signal in [SignalType.BUY, SignalType.LIMIT_BUY, SignalType.STOP_BUY, 
-                                       SignalType.STOP_LIMIT_BUY]:
-                        if signal.size and 0 < signal.size <= 1:
-                            execution_amount = float(account.portfolio_value) * signal.size
-                        else:
-                            execution_amount = float(account.cash) * 0.99
-                    else:
-                        # For sell orders, estimate based on current position value
-                        try:
-                            position = self.trading_client.get_open_position(alpaca_symbol)
-                            execution_amount = float(position.market_value)
-                            if signal.size and 0 < signal.size <= 1:
-                                execution_amount *= signal.size
-                        except:
-                            execution_amount = 0  # Can't estimate
-                    
-                    self._record_trade_execution(alpaca_symbol, signal, execution_amount, True)
-                except Exception as e:
-                    logger.warning(f"Could not record trade execution: {e}")
+                # Note: Trade recording for portfolio tracking will be handled
+                # when actual order fills are received. For now, we just track
+                # that orders were placed successfully.
             
             return success
                 

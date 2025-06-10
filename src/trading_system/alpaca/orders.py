@@ -31,11 +31,12 @@ class BaseOrderExecutor(ABC):
     Each order type inherits from this and implements its specific execution logic.
     """
     
-    def __init__(self, trading_client: TradingClient):
+    def __init__(self, trading_client: TradingClient, portfolio_manager=None):
         self.trading_client = trading_client
+        self.portfolio_manager = portfolio_manager
     
     @abstractmethod
-    def execute(self, symbol: str, signal: TradingSignal, client_order_id: str) -> tuple[bool, Optional[str]]:
+    def execute(self, symbol: str, signal: TradingSignal, client_order_id: str, strategy_id: Optional[str] = None) -> tuple[bool, Optional[str]]:
         """
         Execute the order for this signal type.
         
@@ -43,6 +44,7 @@ class BaseOrderExecutor(ABC):
             symbol: Symbol to trade
             signal: Trading signal
             client_order_id: Unique client order ID
+            strategy_id: Strategy identifier for portfolio allocation (optional)
             
         Returns:
             Tuple of (success: bool, order_id: Optional[str])
@@ -71,13 +73,32 @@ class BaseOrderExecutor(ABC):
                 raise e
         return self.trading_client.get_open_position(symbol), symbol
     
-    def _calculate_notional_amount(self, signal: TradingSignal, account) -> float:
-        """Calculate notional amount based on signal size"""
-        if signal.size and 0 < signal.size <= 1:
-            notional_amount = float(account.portfolio_value) * signal.size
+    def _calculate_notional_amount(self, signal: TradingSignal, account, strategy_id: Optional[str] = None) -> float:
+        """Calculate notional amount based on signal size and strategy allocation"""
+        
+        # If we have portfolio manager and strategy context, use strategy allocation
+        if self.portfolio_manager and strategy_id:
+            strategy_status = self.portfolio_manager.get_strategy_status(strategy_id)
+            
+            if signal.size and 0 < signal.size <= 1:
+                # Use signal size as percentage of strategy's allocated capital
+                strategy_allocation = strategy_status.get('total_allocated', 0.0)
+                notional_amount = strategy_allocation * signal.size
+            else:
+                # Use most of strategy's available capital
+                available_capital = strategy_status.get('available_capital', 0.0)
+                notional_amount = available_capital * 0.99
+                
+            logger.debug(f"Strategy {strategy_id} notional calculation: ${notional_amount:.2f} "
+                        f"(allocation: ${strategy_status.get('total_allocated', 0.0):.2f}, "
+                        f"available: ${strategy_status.get('available_capital', 0.0):.2f})")
         else:
-            cash_balance = float(account.cash)
-            notional_amount = cash_balance * 0.99  # Use 99% of cash balance
+            # Fallback to original logic for backward compatibility
+            if signal.size and 0 < signal.size <= 1:
+                notional_amount = float(account.portfolio_value) * signal.size
+            else:
+                cash_balance = float(account.cash)
+                notional_amount = cash_balance * 0.99  # Use 99% of cash balance
         
         return round(notional_amount, 2)
     
@@ -99,10 +120,10 @@ class BaseOrderExecutor(ABC):
 class MarketBuyOrderExecutor(BaseOrderExecutor):
     """Executor for market buy orders"""
     
-    def execute(self, symbol: str, signal: TradingSignal, client_order_id: str) -> tuple[bool, Optional[str]]:
+    def execute(self, symbol: str, signal: TradingSignal, client_order_id: str, strategy_id: Optional[str] = None) -> tuple[bool, Optional[str]]:
         try:
             account = self._get_account()
-            notional_amount = self._calculate_notional_amount(signal, account)
+            notional_amount = self._calculate_notional_amount(signal, account, strategy_id)
             
             logger.info(f"Market BUY: ${notional_amount:.2f} of {symbol}")
             
@@ -128,7 +149,7 @@ class MarketBuyOrderExecutor(BaseOrderExecutor):
 class MarketSellOrderExecutor(BaseOrderExecutor):
     """Executor for market sell orders"""
     
-    def execute(self, symbol: str, signal: TradingSignal, client_order_id: str) -> tuple[bool, Optional[str]]:
+    def execute(self, symbol: str, signal: TradingSignal, client_order_id: str, strategy_id: Optional[str] = None) -> tuple[bool, Optional[str]]:
         try:
             position, actual_symbol = self._get_position(symbol)
             
@@ -169,14 +190,14 @@ class MarketSellOrderExecutor(BaseOrderExecutor):
 class LimitBuyOrderExecutor(BaseOrderExecutor):
     """Executor for limit buy orders"""
     
-    def execute(self, symbol: str, signal: TradingSignal, client_order_id: str) -> tuple[bool, Optional[str]]:
+    def execute(self, symbol: str, signal: TradingSignal, client_order_id: str, strategy_id: Optional[str] = None) -> tuple[bool, Optional[str]]:
         try:
             if not signal.limit_price:
                 logger.error(f"LIMIT_BUY signal for {symbol} missing limit_price")
                 return False, None
             
             account = self._get_account()
-            notional_amount = self._calculate_notional_amount(signal, account)
+            notional_amount = self._calculate_notional_amount(signal, account, strategy_id)
             
             logger.info(f"Limit BUY: ${notional_amount:.2f} of {symbol} @ ${signal.limit_price:.2f}")
             
@@ -203,7 +224,7 @@ class LimitBuyOrderExecutor(BaseOrderExecutor):
 class LimitSellOrderExecutor(BaseOrderExecutor):
     """Executor for limit sell orders"""
     
-    def execute(self, symbol: str, signal: TradingSignal, client_order_id: str) -> tuple[bool, Optional[str]]:
+    def execute(self, symbol: str, signal: TradingSignal, client_order_id: str, strategy_id: Optional[str] = None) -> tuple[bool, Optional[str]]:
         try:
             if not signal.limit_price:
                 logger.error(f"LIMIT_SELL signal for {symbol} missing limit_price")
@@ -242,16 +263,16 @@ class LimitSellOrderExecutor(BaseOrderExecutor):
 class StopOrderExecutor(BaseOrderExecutor):
     """Executor for stop orders (both buy and sell)"""
     
-    def execute(self, symbol: str, signal: TradingSignal, client_order_id: str) -> tuple[bool, Optional[str]]:
+    def execute(self, symbol: str, signal: TradingSignal, client_order_id: str, strategy_id: Optional[str] = None) -> tuple[bool, Optional[str]]:
         try:
             if not signal.stop_price:
                 logger.error(f"STOP order signal for {symbol} missing stop_price")
                 return False, None
             
             if signal.signal == SignalType.STOP_BUY:
-                return self._execute_stop_buy(symbol, signal, client_order_id)
+                return self._execute_stop_buy(symbol, signal, client_order_id, strategy_id)
             elif signal.signal == SignalType.STOP_SELL:
-                return self._execute_stop_sell(symbol, signal, client_order_id)
+                return self._execute_stop_sell(symbol, signal, client_order_id, strategy_id)
             else:
                 logger.error(f"Invalid signal type for StopOrderExecutor: {signal.signal}")
                 return False, None
@@ -260,9 +281,9 @@ class StopOrderExecutor(BaseOrderExecutor):
             logger.error(f"Unexpected error placing stop order for {symbol}: {e}", exc_info=True)
             return False, None
     
-    def _execute_stop_buy(self, symbol: str, signal: TradingSignal, client_order_id: str) -> tuple[bool, Optional[str]]:
+    def _execute_stop_buy(self, symbol: str, signal: TradingSignal, client_order_id: str, strategy_id: Optional[str] = None) -> tuple[bool, Optional[str]]:
         account = self._get_account()
-        notional_amount = self._calculate_notional_amount(signal, account)
+        notional_amount = self._calculate_notional_amount(signal, account, strategy_id)
         
         logger.info(f"Stop BUY: ${notional_amount:.2f} of {symbol} @ stop ${signal.stop_price:.2f}")
         
@@ -279,7 +300,7 @@ class StopOrderExecutor(BaseOrderExecutor):
         logger.info(f"✅ Stop BUY order placed for {symbol}: ${notional_amount:.2f} @ stop ${signal.stop_price:.2f}, Order ID: {order.id}")
         return True, order.id
     
-    def _execute_stop_sell(self, symbol: str, signal: TradingSignal, client_order_id: str) -> tuple[bool, Optional[str]]:
+    def _execute_stop_sell(self, symbol: str, signal: TradingSignal, client_order_id: str, strategy_id: Optional[str] = None) -> tuple[bool, Optional[str]]:
         position, actual_symbol = self._get_position(symbol)
         
         if position is None:
@@ -306,16 +327,16 @@ class StopOrderExecutor(BaseOrderExecutor):
 class StopLimitOrderExecutor(BaseOrderExecutor):
     """Executor for stop-limit orders (both buy and sell)"""
     
-    def execute(self, symbol: str, signal: TradingSignal, client_order_id: str) -> tuple[bool, Optional[str]]:
+    def execute(self, symbol: str, signal: TradingSignal, client_order_id: str, strategy_id: Optional[str] = None) -> tuple[bool, Optional[str]]:
         try:
             if not signal.stop_price or not signal.limit_price:
                 logger.error(f"STOP_LIMIT order signal for {symbol} missing stop_price or limit_price")
                 return False, None
             
             if signal.signal == SignalType.STOP_LIMIT_BUY:
-                return self._execute_stop_limit_buy(symbol, signal, client_order_id)
+                return self._execute_stop_limit_buy(symbol, signal, client_order_id, strategy_id)
             elif signal.signal == SignalType.STOP_LIMIT_SELL:
-                return self._execute_stop_limit_sell(symbol, signal, client_order_id)
+                return self._execute_stop_limit_sell(symbol, signal, client_order_id, strategy_id)
             else:
                 logger.error(f"Invalid signal type for StopLimitOrderExecutor: {signal.signal}")
                 return False, None
@@ -324,9 +345,9 @@ class StopLimitOrderExecutor(BaseOrderExecutor):
             logger.error(f"Unexpected error placing stop-limit order for {symbol}: {e}", exc_info=True)
             return False, None
     
-    def _execute_stop_limit_buy(self, symbol: str, signal: TradingSignal, client_order_id: str) -> tuple[bool, Optional[str]]:
+    def _execute_stop_limit_buy(self, symbol: str, signal: TradingSignal, client_order_id: str, strategy_id: Optional[str] = None) -> tuple[bool, Optional[str]]:
         account = self._get_account()
-        notional_amount = self._calculate_notional_amount(signal, account)
+        notional_amount = self._calculate_notional_amount(signal, account, strategy_id)
         
         logger.info(f"Stop-Limit BUY: ${notional_amount:.2f} of {symbol} @ stop ${signal.stop_price:.2f}, limit ${signal.limit_price:.2f}")
         
@@ -344,7 +365,7 @@ class StopLimitOrderExecutor(BaseOrderExecutor):
         logger.info(f"✅ Stop-Limit BUY order placed for {symbol}: ${notional_amount:.2f} @ stop ${signal.stop_price:.2f}, limit ${signal.limit_price:.2f}, Order ID: {order.id}")
         return True, order.id
     
-    def _execute_stop_limit_sell(self, symbol: str, signal: TradingSignal, client_order_id: str) -> tuple[bool, Optional[str]]:
+    def _execute_stop_limit_sell(self, symbol: str, signal: TradingSignal, client_order_id: str, strategy_id: Optional[str] = None) -> tuple[bool, Optional[str]]:
         position, actual_symbol = self._get_position(symbol)
         
         if position is None:
@@ -372,7 +393,7 @@ class StopLimitOrderExecutor(BaseOrderExecutor):
 class TrailingStopOrderExecutor(BaseOrderExecutor):
     """Executor for trailing stop orders"""
     
-    def execute(self, symbol: str, signal: TradingSignal, client_order_id: str) -> tuple[bool, Optional[str]]:
+    def execute(self, symbol: str, signal: TradingSignal, client_order_id: str, strategy_id: Optional[str] = None) -> tuple[bool, Optional[str]]:
         try:
             if not signal.trail_percent and not signal.trail_price:
                 logger.error(f"TRAILING_STOP_SELL signal for {symbol} missing trail_percent or trail_price")

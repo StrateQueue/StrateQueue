@@ -151,7 +151,8 @@ class SignalCoordinator:
                              SignalType.STOP_SELL, SignalType.STOP_LIMIT_SELL, 
                              SignalType.TRAILING_STOP_SELL]:
             
-            return portfolio_manager.can_sell(strategy_id, symbol)
+            # Use None for quantity to check full position sell capability
+            return portfolio_manager.can_sell(strategy_id, symbol, None)
         
         # Hold signals are always valid
         elif signal.signal == SignalType.HOLD:

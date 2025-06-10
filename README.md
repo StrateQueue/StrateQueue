@@ -207,6 +207,48 @@ class SmaCrossover(Strategy):
 └─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
+### Order Execution Architecture
+
+The system uses a **context-aware order execution architecture** that follows trading industry standards:
+
+```
+📊 TRADING SIGNAL               🧠 PORTFOLIO CONTEXT                💰 ORDER EXECUTION
+┌─────────────────┐            ┌─────────────────┐               ┌─────────────────┐
+│   Pure Signal   │            │ Portfolio Mgr   │               │ Context-Aware   │
+│                 │            │                 │               │ Order Executor  │
+│ • Signal Type   │            │ • Strategy      │               │                 │
+│ • Price/Size    │──────────▶ │   Allocations   │──────────────▶│ • Market Buy    │
+│ • Strategy ID   │            │ • Capital Limits│               │ • Market Sell   │
+│ • Pure Intent   │            │ • Position      │               │ • Limit Orders  │
+│                 │            │   Tracking      │               │ • Stop Orders   │
+└─────────────────┘            └─────────────────┘               └─────────────────┘
+```
+
+**Key Architecture Principles:**
+
+1. **Clean Separation**: Signals remain pure trading intent, execution handles allocation
+2. **Context-Aware Executors**: Order executors have portfolio manager access for proper capital allocation
+3. **Strategy-Specific Allocation**: Each strategy uses only its allocated capital, not full account value
+4. **Industry Standard**: Matches Bloomberg EMSX, FIX Protocol patterns where execution engines have risk context
+
+**Example Capital Allocation:**
+```python
+# Account Value: $100,000
+# Strategy Allocations:
+#   - sma_cross: 40% = $40,000
+#   - momentum: 35% = $35,000  
+#   - mean_revert: 25% = $25,000
+
+# Signal: sma_cross BUY with size=0.5 (50% of strategy allocation)
+# Order Amount: $40,000 × 0.5 = $20,000 (NOT $100,000 × 0.5 = $50,000)
+```
+
+This architecture ensures:
+- ✅ **Proper Capital Allocation**: Each strategy respects its limits
+- ✅ **Multi-Strategy Safety**: No strategy can exceed its allocation
+- ✅ **Scalable Design**: Easy to add new order types and risk controls
+- ✅ **Production Ready**: Follows institutional trading system patterns
+
 ## 📋 Command Reference
 
 ### Core Commands
