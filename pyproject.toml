@@ -3,16 +3,16 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "stratequeue"
-version = "0.01"
-description = "A comprehensive live trading system that converts backtesting.py strategies into real-time signal generators"
+name = "StrateQueue"
+version = "0.0.1"
+description = "Deploy any backtested strategy in seconds."
 readme = "README.md"
 license = {text = "AGPL-3.0"}
 authors = [
-    {name = "Trading System Contributors", email = "your-email@example.com"}
+    {name = "Trading System Contributors", email = "samuel.tinnerholm@gmail.com"}
 ]
 maintainers = [
-    {name = "Trading System Contributors", email = "your-email@example.com"}
+    {name = "Trading System Contributors", email = "samuel.tinnerholm@gmail.com"}
 ]
 keywords = [
     "trading", 
