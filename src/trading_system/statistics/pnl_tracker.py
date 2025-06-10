@@ -183,10 +183,17 @@ class PnLTracker(BaseTracker):
     
     def update_market_prices(self, prices: Dict[str, float]):
         """Update current market prices for unrealized PnL calculation"""
+        updated_count = 0
         for strategy_id, strategy_positions in self.positions.items():
             for symbol, position in strategy_positions.items():
                 if symbol in prices:
+                    old_price = position.last_price
                     position.last_price = prices[symbol]
+                    updated_count += 1
+                    logger.info(f"📊 Updated {symbol} price for {strategy_id}: ${old_price:.2f} -> ${prices[symbol]:.2f}")
+        
+        if updated_count == 0 and prices:
+            logger.warning(f"No positions matched for price update. Available prices: {list(prices.keys())}, Positions: {[(sid, list(pos.keys())) for sid, pos in self.positions.items()]}")
     
     def get_current_stats(self, strategy_id: Optional[str] = None) -> Dict[str, Any]:
         """Get current PnL statistics"""

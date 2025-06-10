@@ -78,7 +78,8 @@ class LiveTradingSystem:
             self.lookback_period,
             self.is_multi_strategy,
             getattr(self, 'strategy_class', None),
-            getattr(self, 'multi_strategy_runner', None)
+            getattr(self, 'multi_strategy_runner', None),
+            self.statistics_manager
         )
         
         self.display_manager = DisplayManager(self.is_multi_strategy, self.statistics_manager)
@@ -248,6 +249,9 @@ class LiveTradingSystem:
                     else:
                         # Record hypothetical trades for statistics tracking in signals-only mode
                         self._record_hypothetical_signals(signals)
+                    
+                    # Update market prices again after trade execution for accurate P&L calculations
+                    await self._update_post_trade_prices()
                 
                 # Wait before next cycle (respecting granularity)
                 await asyncio.sleep(cycle_interval)
@@ -273,6 +277,33 @@ class LiveTradingSystem:
             # Single strategy signals: Dict[symbol, signal]
             for symbol, signal in signals.items():
                 self.statistics_manager.record_hypothetical_trade(signal, symbol)
+    
+    async def _update_post_trade_prices(self):
+        """Update market prices after trade execution for accurate unrealized P&L"""
+        current_prices = {}
+        
+        # Get current market prices for all symbols
+        for symbol in self.symbols:
+            try:
+                # Get latest data
+                await self.data_manager.update_symbol_data(symbol)
+                current_data_df = self.data_manager.get_symbol_data(symbol)
+                
+                if len(current_data_df) > 0:
+                    current_price = current_data_df['Close'].iloc[-1]
+                    current_prices[symbol] = current_price
+                    
+                    # Also store crypto pair format for Alpaca compatibility
+                    if symbol in ['BTC', 'ETH', 'LTC', 'BCH', 'DOGE', 'SHIB', 'AVAX', 'UNI', 'LINK', 'MATIC']:
+                        crypto_pair = f"{symbol}/USD"
+                        current_prices[crypto_pair] = current_price
+                        
+            except Exception as e:
+                logger.error(f"Error updating post-trade price for {symbol}: {e}")
+        
+        # Update statistics manager with current prices
+        if current_prices:
+            self.statistics_manager.update_market_prices(current_prices)
 
     async def _execute_signals(self, signals):
         """Execute trading signals via broker"""

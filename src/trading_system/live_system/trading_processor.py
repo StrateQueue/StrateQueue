@@ -22,7 +22,8 @@ class TradingProcessor:
     def __init__(self, symbols: List[str], lookback_period: int, 
                  is_multi_strategy: bool = False,
                  strategy_class = None,
-                 multi_strategy_runner = None):
+                 multi_strategy_runner = None,
+                 statistics_manager = None):
         """
         Initialize TradingProcessor
         
@@ -32,12 +33,14 @@ class TradingProcessor:
             is_multi_strategy: Whether running in multi-strategy mode
             strategy_class: Strategy class for single-strategy mode
             multi_strategy_runner: MultiStrategyRunner for multi-strategy mode
+            statistics_manager: Statistics manager for price updates
         """
         self.symbols = symbols
         self.lookback_period = lookback_period
         self.is_multi_strategy = is_multi_strategy
         self.strategy_class = strategy_class
         self.multi_strategy_runner = multi_strategy_runner
+        self.statistics_manager = statistics_manager
         
         # Initialize signal extractors for single-strategy mode
         if not is_multi_strategy and strategy_class:
@@ -63,6 +66,7 @@ class TradingProcessor:
     async def _process_single_strategy_cycle(self, data_manager) -> Dict[str, TradingSignal]:
         """Process trading cycle for single strategy mode"""
         signals = {}
+        current_prices = {}
         
         for symbol in self.symbols:
             try:
@@ -73,6 +77,17 @@ class TradingProcessor:
                 current_data_df = data_manager.get_symbol_data(symbol)
                 
                 if len(current_data_df) >= self.lookback_period:
+                    # Get current price for statistics update
+                    current_price = current_data_df['Close'].iloc[-1]
+                    
+                    # For statistics tracking, we need to match the symbol format used in trades
+                    current_prices[symbol] = current_price
+                    
+                    # Also store crypto pair format for Alpaca compatibility  
+                    if symbol in ['BTC', 'ETH', 'LTC', 'BCH', 'DOGE', 'SHIB', 'AVAX', 'UNI', 'LINK', 'MATIC']:
+                        crypto_pair = f"{symbol}/USD"
+                        current_prices[crypto_pair] = current_price
+                    
                     # Extract signal from cumulative data
                     signal = self.signal_extractors[symbol].extract_signal(current_data_df)
                     signals[symbol] = signal
@@ -95,17 +110,31 @@ class TradingProcessor:
                         # Show progress towards having enough data
                         current_bars, required_bars, progress_pct = data_manager.get_data_progress(symbol)
                         logger.info(f"Building {symbol} data: {current_bars}/{required_bars} bars ({progress_pct:.1f}% complete)")
+                elif len(current_data_df) > 0:
+                    # Even if we don't have enough data for signals, update prices for statistics
+                    current_price = current_data_df['Close'].iloc[-1]
+                    current_prices[symbol] = current_price
+                    
+                    # Also store crypto pair format for Alpaca compatibility
+                    if symbol in ['BTC', 'ETH', 'LTC', 'BCH', 'DOGE', 'SHIB', 'AVAX', 'UNI', 'LINK', 'MATIC']:
+                        crypto_pair = f"{symbol}/USD"
+                        current_prices[crypto_pair] = current_price
                 else:
                     logger.warning(f"No data available for {symbol}")
                     
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
         
+        # Update statistics manager with current market prices for unrealized P&L calculations
+        if current_prices and self.statistics_manager:
+            self.statistics_manager.update_market_prices(current_prices)
+        
         return signals
     
     async def _process_multi_strategy_cycle(self, data_manager, alpaca_executor=None) -> Dict[str, Dict[str, TradingSignal]]:
         """Process trading cycle for multi-strategy mode"""
         all_signals = {}
+        current_prices = {}
         
         # Update portfolio value for all strategies
         if alpaca_executor:
@@ -125,6 +154,19 @@ class TradingProcessor:
                 current_data_df = data_manager.get_symbol_data(symbol)
                 
                 if len(current_data_df) > 0:
+                    # Get current price for statistics update
+                    current_price = current_data_df['Close'].iloc[-1]
+                    
+                    # For statistics tracking, we need to match the symbol format used in trades
+                    # Alpaca normalizes symbols to crypto pairs (e.g., ETH -> ETH/USD)
+                    # so we need to store prices for both formats to ensure matching
+                    current_prices[symbol] = current_price
+                    
+                    # Also store crypto pair format for Alpaca compatibility
+                    if symbol in ['BTC', 'ETH', 'LTC', 'BCH', 'DOGE', 'SHIB', 'AVAX', 'UNI', 'LINK', 'MATIC']:
+                        crypto_pair = f"{symbol}/USD"
+                        current_prices[crypto_pair] = current_price
+                    
                     # Always try to generate signals - let each strategy decide if it has enough data
                     strategy_signals = await self.multi_strategy_runner.generate_signals(symbol, current_data_df)
                     all_signals[symbol] = strategy_signals
@@ -146,6 +188,10 @@ class TradingProcessor:
                     
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
+        
+        # Update statistics manager with current market prices for unrealized P&L calculations
+        if current_prices and hasattr(self.multi_strategy_runner, 'statistics_manager') and self.multi_strategy_runner.statistics_manager:
+            self.multi_strategy_runner.statistics_manager.update_market_prices(current_prices)
         
         return all_signals
     
