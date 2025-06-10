@@ -17,6 +17,7 @@ The trading system uses consistent factory patterns across all major sub-modules
 ### 1. Data Provider Factory
 
 **Location**: `src/trading_system/data/provider_factory.py`
+**Advanced Documentation**: See [Data Provider Guide](data/data_provider_guide.md) and [Integration Examples](data/data_provider_examples.md)
 
 #### Classes
 - `DataProviderFactory`: Main factory class
@@ -111,6 +112,7 @@ print(f"Paper Trading: {info.paper_trading}")
 ### 3. Engine Factory
 
 **Location**: `src/trading_system/engines/engine_factory.py`
+**Advanced Documentation**: See [Engine Factory Guide](engines/engine_factory_guide.md) and [Integration Examples](engines/engine_integration_examples.md)
 
 #### Classes
 - `EngineFactory`: Main factory class
