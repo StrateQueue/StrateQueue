@@ -143,11 +143,26 @@ def create_argument_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Single strategy mode (paper trading by default)
+  # Single strategy mode
   python3 main.py --strategy sma.py --symbols AAPL,MSFT --data-source demo
   
-  # Multi-strategy mode
-  python3 main.py --strategies strategies.txt --symbols AAPL,MSFT --data-source demo
+  # Multi-strategy mode (comma-separated values)
+  python3 main.py --strategy sma.py,momentum.py,random.py --allocation 0.4,0.35,0.25 --symbols AAPL,MSFT --data-source demo
+  
+  # Multi-strategy with custom strategy IDs
+  python3 main.py --strategy sma.py,momentum.py --strategy-id sma_cross,momentum_trend --allocation 0.6,0.4 --symbols AAPL
+  
+  # Multi-strategy with dollar allocations
+  python3 main.py --strategy sma.py,momentum.py --allocation 1000,500 --symbols AAPL --broker alpaca --paper
+  
+  # Multi-strategy with different granularities per strategy
+  python3 main.py --strategy sma.py,momentum.py --allocation 0.6,0.4 --granularity 1m,5m --symbols ETH,BTC
+  
+  # Multi-strategy with different data sources per strategy  
+  python3 main.py --strategy sma.py,momentum.py --allocation 0.6,0.4 --data-source polygon,coinmarketcap --symbols AAPL,ETH
+  
+  # Single value applies to all strategies
+  python3 main.py --strategy sma.py,momentum.py --allocation 0.5,0.5 --granularity 1m --broker alpaca --symbols ETH
   
   # Run with real Polygon data
   python3 main.py --strategy sma.py --symbols AAPL --data-source polygon --lookback 50
@@ -161,11 +176,8 @@ Examples:
   # Disable trading execution (signals only)
   python3 main.py --strategy sma.py --symbols AAPL --no-trading
   
-  # Specify broker explicitly
-  python3 main.py --strategy sma.py --symbols AAPL --broker alpaca --paper
-  
   # Multi-strategy with live trading
-  python3 main.py --strategies strategies.txt --symbols AAPL,MSFT --live
+  python3 main.py --strategy sma.py,momentum.py --allocation 0.6,0.4 --symbols AAPL,MSFT --live
   
   # Information commands
   python3 main.py --list-granularities
@@ -176,23 +188,30 @@ Examples:
     )
     
     # Strategy configuration
-    parser.add_argument('--strategy', 
-                       help='Path to strategy file for single-strategy mode (e.g., sma.py)')
-    
-    parser.add_argument('--strategies', 
-                       help='Path to multi-strategy configuration file (e.g., strategies.txt)')
-    
-    # Trading configuration
+    strategy_group = parser.add_argument_group('Strategy Configuration')
+
+    # All arguments now use comma-separated values for consistency
+    strategy_group.add_argument('--strategy', required=True,
+                       help='Strategy file(s). Single or comma-separated list (e.g., sma.py or sma.py,momentum.py,random.py)')
+
+    strategy_group.add_argument('--strategy-id',
+                       help='Strategy identifier(s). Optional - defaults to strategy filename(s). Single value or comma-separated list matching strategies.')
+
+    strategy_group.add_argument('--allocation',
+                       help='Strategy allocation(s) as percentage (0-1) or dollar amount. Single value or comma-separated list (e.g., 0.4 or 0.4,0.35,0.25). Required for multi-strategy mode.')
+
+    # Trading configuration - now supports multiple values with smart defaulting
     parser.add_argument('--symbols', default='AAPL', 
-                       help='Comma-separated list of symbols (e.g., AAPL,MSFT)')
+                       help='Symbol(s) to trade. Single or comma-separated list (e.g., AAPL or ETH,BTC,AAPL)')
     
-    parser.add_argument('--data-source', 
-                       choices=['demo', 'polygon', 'coinmarketcap'], 
-                       default='demo', 
-                       help='Data source to use')
+    parser.add_argument('--data-source', default='demo',
+                       help='Data source(s). Single value applies to all, or comma-separated list matching strategies (e.g., demo or polygon,coinmarketcap)')
     
-    parser.add_argument('--granularity', type=str, 
-                       help='Data granularity (e.g., 1s, 1m, 5m, 1h, 1d)')
+    parser.add_argument('--granularity', 
+                       help='Data granularity/granularities. Single value applies to all, or comma-separated list matching strategies (e.g., 1m or 1m,5m,1h)')
+    
+    parser.add_argument('--broker',
+                       help='Broker(s) for trading. Single value applies to all, or comma-separated list matching strategies (e.g., alpaca or alpaca,kraken)')
     
     parser.add_argument('--lookback', type=int, 
                        help='Override calculated lookback period')
@@ -208,10 +227,6 @@ Examples:
                               help='Use live trading (requires live credentials)')
     trading_group.add_argument('--no-trading', action='store_true',
                               help='Disable trading execution (signals only)')
-    
-    # Broker configuration
-    parser.add_argument('--broker', type=str,
-                       help='Broker to use for trading (auto-detected if not specified)')
     
     # Legacy support (deprecated but maintained for backward compatibility)
     parser.add_argument('--enable-trading', action='store_true',
@@ -263,33 +278,124 @@ def validate_arguments(args: argparse.Namespace) -> Tuple[bool, List[str]]:
     enable_trading = not args.no_trading
     paper_trading = args.paper or (not args.live and not args.no_trading)  # Default to paper
     
-    # Either strategy or strategies is required, but not both
-    if not args.strategy and not args.strategies:
-        errors.append("Either --strategy (single-strategy mode) or --strategies (multi-strategy mode) is required")
-    elif args.strategy and args.strategies:
-        errors.append("Cannot use both --strategy and --strategies. Choose single-strategy or multi-strategy mode.")
-    
-    # Validate strategy file exists (single-strategy mode)
+    # Validate strategy configuration
     if args.strategy:
         import os
-        if not os.path.exists(args.strategy):
-            errors.append(f"Strategy file not found: {args.strategy}")
+        
+        # Parse comma-separated strategies
+        strategies = parse_comma_separated(args.strategy)
+        if not strategies:
+            errors.append("At least one strategy is required")
+            return False, errors
+        
+        # Validate all strategy files exist
+        for strategy in strategies:
+            if not os.path.exists(strategy):
+                errors.append(f"Strategy file not found: {strategy}")
+        
+        # Parse other comma-separated arguments
+        strategy_ids = parse_comma_separated(args.strategy_id) if args.strategy_id else []
+        allocations = parse_comma_separated(args.allocation) if args.allocation else []
+        data_sources = parse_comma_separated(args.data_source) if args.data_source else ['demo']
+        granularities = parse_comma_separated(args.granularity) if args.granularity else []
+        brokers = parse_comma_separated(args.broker) if args.broker else []
+        
+        # Apply smart defaults for multi-value arguments
+        try:
+            if len(strategies) > 1:
+                # Multi-strategy validation
+                if not allocations:
+                    errors.append("--allocation is required for multi-strategy mode")
+                else:
+                    allocations = apply_smart_defaults(allocations, len(strategies), "--allocation")
+                
+                # Apply smart defaults for other arguments
+                data_sources = apply_smart_defaults(data_sources, len(strategies), "--data-source")
+                if granularities:
+                    granularities = apply_smart_defaults(granularities, len(strategies), "--granularity")
+                if brokers:
+                    brokers = apply_smart_defaults(brokers, len(strategies), "--broker")
+                if strategy_ids:
+                    strategy_ids = apply_smart_defaults(strategy_ids, len(strategies), "--strategy-id")
+            else:
+                # Single strategy - ensure single values
+                data_sources = data_sources[:1] if data_sources else ['demo']
+                granularities = granularities[:1] if granularities else []
+                brokers = brokers[:1] if brokers else []
+                if not allocations:
+                    allocations = ['1.0']
+                else:
+                    allocations = allocations[:1]
+                
+        except ValueError as e:
+            errors.append(str(e))
+        
+        # Validate allocation values if we have them
+        if allocations:
+            total_percentage_allocation = 0.0
+            total_dollar_allocation = 0.0
+            has_percentage = False
+            has_dollar = False
+            
+            for i, allocation_str in enumerate(allocations):
+                try:
+                    allocation_value = float(allocation_str)
+                    
+                    if allocation_value <= 0:
+                        errors.append(f"Allocation {i+1} must be positive, got {allocation_value}")
+                        continue
+                    
+                    # Determine if this is percentage (0-1) or dollar amount (>1)
+                    if allocation_value <= 1:
+                        # Percentage allocation
+                        has_percentage = True
+                        total_percentage_allocation += allocation_value
+                    else:
+                        # Dollar allocation
+                        has_dollar = True
+                        total_dollar_allocation += allocation_value
+                        
+                except ValueError:
+                    errors.append(f"Invalid allocation value: {allocation_str}. Must be a number.")
+            
+            # Check for mixing allocation types
+            if has_percentage and has_dollar:
+                errors.append("Cannot mix percentage (0-1) and dollar (>1) allocations. Use one type consistently.")
+            
+            # Validate percentage allocations sum to reasonable amount
+            if has_percentage and total_percentage_allocation > 1.01:  # Allow small rounding errors
+                errors.append(f"Total percentage allocation is {total_percentage_allocation:.1%}, which exceeds 100%")
+            elif has_percentage and total_percentage_allocation < 0.01:
+                errors.append(f"Total percentage allocation is {total_percentage_allocation:.1%}, which is too small")
+        
+        # Generate strategy IDs if not provided
+        if not strategy_ids:
+            strategy_ids = []
+            for strategy_path in strategies:
+                # Use filename without extension as default strategy ID
+                strategy_filename = os.path.basename(strategy_path)
+                strategy_id = os.path.splitext(strategy_filename)[0]
+                strategy_ids.append(strategy_id)
+        
+        # Store parsed values back to args for later use
+        args._strategies = strategies
+        args._strategy_ids = strategy_ids
+        args._allocations = allocations
+        args._data_sources = data_sources
+        args._granularities = granularities
+        args._brokers = brokers
     
-    # Validate strategies config file exists (multi-strategy mode)
-    if args.strategies:
-        import os
-        if not os.path.exists(args.strategies):
-            errors.append(f"Multi-strategy config file not found: {args.strategies}")
-    
-    # Validate granularity for the chosen data source
-    if args.granularity:
-        is_valid, error_msg = validate_granularity(args.granularity, args.data_source)
-        if not is_valid:
-            errors.append(f"Invalid granularity: {error_msg}")
+    # Validate granularity for the chosen data source(s)
+    if hasattr(args, '_granularities') and args._granularities:
+        for i, granularity in enumerate(args._granularities):
+            data_source = args._data_sources[i] if i < len(args._data_sources) else args._data_sources[0]
+            is_valid, error_msg = validate_granularity(granularity, data_source)
+            if not is_valid:
+                errors.append(f"Invalid granularity '{granularity}' for data source '{data_source}': {error_msg}")
     
     # Validate symbols format
     try:
-        symbols = [s.strip().upper() for s in args.symbols.split(',')]
+        symbols = parse_symbols(args.symbols)
         if not symbols or any(not s for s in symbols):
             errors.append("Invalid symbols format. Use comma-separated list like 'AAPL,MSFT'")
     except Exception:
@@ -303,13 +409,14 @@ def validate_arguments(args: argparse.Namespace) -> Tuple[bool, List[str]]:
     if args.lookback is not None and args.lookback <= 0:
         errors.append("Lookback period must be a positive number")
     
-    # Validate broker if specified
-    if args.broker:
+    # Validate broker(s) if specified
+    if hasattr(args, '_brokers') and args._brokers and args._brokers[0]:  # Check if first broker is not empty
         try:
             from ..brokers import get_supported_brokers
             supported = get_supported_brokers()
-            if args.broker not in supported:
-                errors.append(f"Unsupported broker '{args.broker}'. Supported: {', '.join(supported)}")
+            for broker in args._brokers:
+                if broker and broker not in supported:
+                    errors.append(f"Unsupported broker '{broker}'. Supported: {', '.join(supported)}")
         except ImportError:
             errors.append("Broker functionality not available (missing dependencies)")
     
@@ -348,44 +455,50 @@ def validate_arguments(args: argparse.Namespace) -> Tuple[bool, List[str]]:
     
     return len(errors) == 0, errors
 
-def determine_granularity(args: argparse.Namespace) -> str:
+def determine_granularity(args: argparse.Namespace, strategy_index: int = 0) -> str:
     """
-    Determine the granularity to use based on args and defaults
+    Determine the granularity to use for a specific strategy
     
     Args:
         args: Parsed arguments
+        strategy_index: Index of the strategy (for multi-strategy mode)
         
     Returns:
         Granularity string to use
     """
-    if args.granularity:
-        return args.granularity
+    # Use parsed granularities if available
+    if hasattr(args, '_granularities') and args._granularities:
+        return args._granularities[strategy_index]
     
     # Use defaults based on data source
+    data_source = args._data_sources[strategy_index] if hasattr(args, '_data_sources') and args._data_sources else args.data_source
     defaults = {
         "polygon": "1m",
         "coinmarketcap": "1d", 
         "demo": "1m"
     }
     
-    granularity = defaults.get(args.data_source, "1m")
-    logger.info(f"Using default granularity {granularity} for {args.data_source}")
+    granularity = defaults.get(data_source, "1m")
+    logger.info(f"Using default granularity {granularity} for {data_source}")
     
     return granularity
 
-def determine_broker(args: argparse.Namespace) -> str:
+def determine_broker(args: argparse.Namespace, strategy_index: int = 0) -> str:
     """
-    Determine the broker to use based on args and auto-detection
+    Determine the broker to use for a specific strategy
     
     Args:
         args: Parsed arguments
+        strategy_index: Index of the strategy (for multi-strategy mode)
         
     Returns:
         Broker type string
     """
-    if args.broker:
-        logger.info(f"Using specified broker: {args.broker}")
-        return args.broker
+    # Use parsed brokers if available
+    if hasattr(args, '_brokers') and args._brokers and args._brokers[strategy_index]:
+        broker = args._brokers[strategy_index]
+        logger.info(f"Using specified broker: {broker}")
+        return broker
     
     # Auto-detect broker based on trading mode
     try:
@@ -403,6 +516,48 @@ def determine_broker(args: argparse.Namespace) -> str:
         logger.error("Broker detection not available (missing dependencies)")
         return 'unknown'
 
+def parse_comma_separated(value: str) -> List[str]:
+    """
+    Parse comma-separated string into list of strings
+    
+    Args:
+        value: Comma-separated string
+        
+    Returns:
+        List of strings with whitespace stripped
+    """
+    if not value:
+        return []
+    return [s.strip() for s in value.split(',') if s.strip()]
+
+def apply_smart_defaults(values: List[str], target_count: int, arg_name: str) -> List[str]:
+    """
+    Apply smart defaulting logic: single value applies to all, multiple values must match count
+    
+    Args:
+        values: List of values
+        target_count: Target count (usually number of strategies)
+        arg_name: Argument name for error messages
+        
+    Returns:
+        List with proper count
+        
+    Raises:
+        ValueError: If count doesn't match and isn't 1
+    """
+    if not values:
+        return []
+    
+    if len(values) == 1:
+        # Single value applies to all
+        return values * target_count
+    elif len(values) == target_count:
+        # Perfect match
+        return values
+    else:
+        # Mismatch
+        raise ValueError(f"{arg_name}: expected 1 value (applies to all) or {target_count} values (one per strategy), got {len(values)}")
+
 def parse_symbols(symbols_str: str) -> List[str]:
     """
     Parse symbols string into list
@@ -413,7 +568,7 @@ def parse_symbols(symbols_str: str) -> List[str]:
     Returns:
         List of symbol strings
     """
-    return [s.strip().upper() for s in symbols_str.split(',')]
+    return [s.strip().upper() for s in symbols_str.split(',') if s.strip()]
 
 def setup_logging(verbose: bool = False):
     """
@@ -433,6 +588,33 @@ def setup_logging(verbose: bool = False):
         ]
     )
 
+def create_inline_strategy_config(args: argparse.Namespace) -> str:
+    """
+    Create a temporary multi-strategy configuration from inline arguments
+    
+    Args:
+        args: Parsed arguments with inline strategy configuration
+        
+    Returns:
+        Temporary config content as string
+    """
+    if not hasattr(args, '_strategies') or len(args._strategies) <= 1:
+        return None
+    
+    config_lines = [
+        "# Auto-generated multi-strategy configuration from CLI arguments",
+        "# Format: filename,strategy_id,allocation_percentage",
+        ""
+    ]
+    
+    for i, strategy_path in enumerate(args._strategies):
+        strategy_id = args._strategy_ids[i]
+        allocation = args._allocations[i]
+        
+        config_lines.append(f"{strategy_path},{strategy_id},{allocation}")
+    
+    return "\n".join(config_lines)
+
 async def run_trading_system(args: argparse.Namespace) -> int:
     """
     Run the trading system with parsed arguments
@@ -444,49 +626,96 @@ async def run_trading_system(args: argparse.Namespace) -> int:
         Exit code (0 for success, 1 for error)
     """
     try:
-        # Determine granularity and parse symbols
-        granularity = determine_granularity(args)
+        # Parse symbols
         symbols = parse_symbols(args.symbols)
         
         # Get trading configuration
         enable_trading = args._enable_trading
         paper_trading = args._paper_trading
         
-        # Determine broker if trading is enabled
-        broker_type = None
-        if enable_trading:
-            broker_type = determine_broker(args)
-            if broker_type == 'unknown':
-                trading_mode = "paper" if paper_trading else "live"
-                logger.error(f"No valid broker found for {trading_mode} trading")
-                return 1
+        # Determine if this is multi-strategy mode
+        is_multi_strategy = hasattr(args, '_strategies') and len(args._strategies) > 1
         
-        # Log trading configuration
-        if enable_trading:
-            trading_mode = "paper" if paper_trading else "live"
-            logger.info(f"Trading enabled: {trading_mode.upper()} mode via {broker_type}")
-        else:
-            logger.info("Trading disabled: signals only mode")
-        
-        # Determine mode and create trading system
-        if args.strategies:
+        if is_multi_strategy:
             # Multi-strategy mode
-            system = LiveTradingSystem(
-                symbols=symbols,
-                data_source=args.data_source,
-                granularity=granularity,
-                lookback_override=args.lookback,
-                enable_trading=enable_trading,
-                multi_strategy_config=args.strategies,
-                broker_type=broker_type,
-                paper_trading=paper_trading
-            )
+            import tempfile
+            import os
+            
+            # For multi-strategy, we need to determine primary broker for trading system setup
+            broker_type = None
+            if enable_trading:
+                # Use first broker as primary (or auto-detect if none specified)
+                broker_type = determine_broker(args, 0)
+                if broker_type == 'unknown':
+                    trading_mode = "paper" if paper_trading else "live"
+                    logger.error(f"No valid broker found for {trading_mode} trading")
+                    return 1
+            
+            # Log trading configuration
+            if enable_trading:
+                trading_mode = "paper" if paper_trading else "live"
+                logger.info(f"Trading enabled: {trading_mode.upper()} mode via {broker_type}")
+            else:
+                logger.info("Trading disabled: signals only mode")
+            
+            # Create temporary config file from inline arguments
+            config_content = create_inline_strategy_config(args)
+            
+            # Write to temporary file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as temp_file:
+                temp_file.write(config_content)
+                temp_config_path = temp_file.name
+            
+            try:
+                # For multi-strategy, use first data source and granularity as primary
+                data_source = args._data_sources[0]
+                granularity = determine_granularity(args, 0)
+                
+                system = LiveTradingSystem(
+                    symbols=symbols,
+                    data_source=data_source,
+                    granularity=granularity,
+                    lookback_override=args.lookback,
+                    enable_trading=enable_trading,
+                    multi_strategy_config=temp_config_path,
+                    broker_type=broker_type,
+                    paper_trading=paper_trading
+                )
+                
+                # Run the system
+                await system.run_live_system(duration_minutes=args.duration)
+                
+            finally:
+                # Clean up temporary file
+                os.unlink(temp_config_path)
+            
+            return 0
         else:
             # Single-strategy mode
+            strategy_path = args._strategies[0]
+            data_source = args._data_sources[0] 
+            granularity = determine_granularity(args, 0)
+            
+            # Determine broker if trading is enabled
+            broker_type = None
+            if enable_trading:
+                broker_type = determine_broker(args, 0)
+                if broker_type == 'unknown':
+                    trading_mode = "paper" if paper_trading else "live"
+                    logger.error(f"No valid broker found for {trading_mode} trading")
+                    return 1
+            
+            # Log trading configuration
+            if enable_trading:
+                trading_mode = "paper" if paper_trading else "live"
+                logger.info(f"Trading enabled: {trading_mode.upper()} mode via {broker_type}")
+            else:
+                logger.info("Trading disabled: signals only mode")
+            
             system = LiveTradingSystem(
-                strategy_path=args.strategy,
+                strategy_path=strategy_path,
                 symbols=symbols,
-                data_source=args.data_source,
+                data_source=data_source,
                 granularity=granularity,
                 lookback_override=args.lookback,
                 enable_trading=enable_trading,

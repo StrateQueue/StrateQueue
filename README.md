@@ -1,672 +1,345 @@
 # Stratequeue
 
-**Professional Multi-Strategy Live Trading Infrastructure**
+**Transform your backtesting.py strategies into live trading**
 
-Transform your backtesting.py strategies into a sophisticated multi-strategy live trading system with real-time signal generation, portfolio management, and multi-broker execution.
+Turn your strategy backtests into a professional live trading system with just one command. Run multiple strategies simultaneously, manage risk automatically, and trade on real markets.
 
-## 🚀 Key Features
+## 🚀 What does this do?
 
-### **Multi-Strategy Portfolio Management**
-- **Run multiple strategies simultaneously** with intelligent capital allocation
-- **Strategy isolation** - each strategy operates independently with dedicated capital
-- **Conflict resolution** - automatic handling of overlapping symbol trades
-- **Performance tracking** per strategy and overall portfolio
+**You have a trading strategy in backtesting.py → Stratequeue makes it trade live**
 
-### **Multi-Broker Trading Infrastructure** 
-- **Extensible broker factory** - easily add new trading platforms
-- **Multiple broker support** - Alpaca (implemented), Interactive Brokers, TD Ameritrade (ready for implementation)
-- **Unified trading interface** - consistent API across all brokers
-- **Auto-detection** - automatically detects available broker credentials
+```python
+# Your strategy (examples/strategies/sma.py)
+class SmaCross(Strategy):
+    def init(self):
+        self.sma1 = self.I(SMA, self.data.Close, 10)
+        self.sma2 = self.I(SMA, self.data.Close, 20)
+    
+    def next(self):
+        if crossover(self.sma1, self.sma2):
+            self.buy()
+        elif crossover(self.sma2, self.sma1):
+            self.sell()
+```
 
-### **Professional Trading Infrastructure** 
-- **Real-time signal generation** from backtesting.py strategies
-- **Multiple data sources**: Polygon.io, CoinMarketCap, and realistic demo data
-- **Flexible timeframes**: 1s to 1d granularities
-- **Paper & live trading** with explicit mode control
-- **Risk management** with position sizing and portfolio controls
+```bash
+# One command to start live trading
+stratequeue --strategy sma.py --symbols AAPL --paper
+```
 
-### **Easy Installation & Usage**
-- **Professional packaging** - install via pip like any Python package
-- **Intuitive CLI interface** with explicit trading mode controls
-- **Modular dependencies** - install only what you need
-- **Comprehensive documentation** and examples
+**That's it!** Your strategy is now running live, generating real-time signals and executing trades.
 
 ## 📦 Installation
 
-### Quick Start
 ```bash
-# Install core package
-pip install stratequeue
-
-# Or with trading capabilities
-pip install stratequeue[trading]
-
-# Or with everything
+# Install the complete package
 pip install stratequeue[all]
+
+# Or just the core (for testing strategies)
+pip install stratequeue
 ```
 
-### Development Installation
+## ⚡ Quick Start
+
+### 1. Test a Strategy (No Trading)
 ```bash
-git clone https://github.com/yourusername/Live-Trading-Infrastructure.git
-cd Live-Trading-Infrastructure
-pip install -e .[dev,all]
-```
-
-## 🎯 Quick Examples
-
-### Single Strategy
-```bash
-# Demo trading with one strategy (paper trading by default)
-stratequeue --strategy examples/strategies/sma.py --symbols AAPL --data-source demo
-
-# Paper trading with real data (safe)
-stratequeue --strategy examples/strategies/sma.py --symbols AAPL --data-source polygon --paper
-
-# Live trading with real money (use with caution!)
-stratequeue --strategy examples/strategies/sma.py --symbols AAPL --data-source polygon --live
-
-# Signals only (no trading execution)
+# See what signals your strategy generates (safe)
 stratequeue --strategy examples/strategies/sma.py --symbols AAPL --no-trading
 ```
 
-### Multi-Strategy Portfolio
+### 2. Paper Trading (Fake Money)
 ```bash
-# Run multiple strategies simultaneously (paper trading)
-stratequeue --strategies strategies.txt --symbols AAPL,MSFT,BTC --data-source demo --paper
-
-# Multi-strategy with live trading
-stratequeue --strategies strategies.txt --symbols AAPL,MSFT --live
-
-# Multi-strategy signals only
-stratequeue --strategies strategies.txt --symbols AAPL,MSFT --no-trading
+# Test with fake money on real market data (safe)
+stratequeue --strategy examples/strategies/sma.py --symbols AAPL --paper
 ```
 
-### Broker-Specific Examples
+### 3. Live Trading (Real Money)
 ```bash
-# Specify broker explicitly (paper trading)
-stratequeue --strategy sma.py --symbols AAPL --broker alpaca --paper
+# Trade with real money (requires broker setup)
+stratequeue --strategy examples/strategies/sma.py --symbols AAPL --live
+```
 
-# Auto-detect broker from environment
-stratequeue --strategy sma.py --symbols AAPL --live
+## 🎯 Core Features
 
-# Check available brokers
-stratequeue --list-brokers
+### **Multiple Strategies at Once**
+```bash
+# Run 3 strategies simultaneously with different allocations
+stratequeue --strategy sma.py,momentum.py,mean_revert.py --allocation 0.4,0.35,0.25 --symbols AAPL,MSFT
+```
 
-# Check broker environment status
+### **Any Time Frame**
+```bash
+# Different timeframes for different strategies
+stratequeue --strategy sma.py,scalper.py --allocation 0.6,0.4 --granularity 1h,1m --symbols ETH
+```
+
+### **Multiple Brokers** 
+```bash
+# Use different brokers for different strategies
+stratequeue --strategy stock_algo.py,crypto_algo.py --broker alpaca,kraken --symbols AAPL,BTC
+```
+
+### **Smart Defaults**
+```bash
+# Single values apply everywhere (easy!)
+stratequeue --strategy sma.py,momentum.py --allocation 0.5,0.5 --symbols AAPL --granularity 1m
+# Both strategies trade AAPL on 1m timeframes
+
+# Multiple values match by position (advanced!)
+stratequeue --strategy sma.py,momentum.py --allocation 0.6,0.4 --symbols AAPL,MSFT --granularity 1h,5m
+# sma.py trades AAPL on 1h, momentum.py trades MSFT on 5m
+```
+
+## 🏦 Supported Brokers
+
+| Broker | Status | Paper Trading | Live Trading |
+|--------|--------|---------------|--------------|
+| **Alpaca** | ✅ Ready | ✅ | ✅ |
+| **Interactive Brokers** | 🚧 Coming Soon | 🚧 | 🚧 |
+| **Kraken** | 🚧 Coming Soon | 🚧 | 🚧 |
+
+### Set Up Your Broker
+
+```bash
+# Check what brokers you have configured
 stratequeue --broker-status
 
-# Get broker setup instructions
+# Get setup instructions for a specific broker
 stratequeue --broker-setup alpaca
+
+# List all available brokers
+stratequeue --list-brokers
 ```
 
-### Short Command Alias
-```bash
-# Use 'sq' for quick access
-sq --strategy my_algo.py --symbols TSLA --paper --duration 30
-```
+## 📊 Data Sources
 
-## 🏦 Broker Factory Architecture
-
-### Supported Brokers
-
-| Broker | Status | Paper Trading | Live Trading | Asset Classes |
-|--------|--------|---------------|--------------|---------------|
-| **Alpaca** | ✅ Implemented | ✅ | ✅ | Stocks, ETFs, Crypto |
-| **Interactive Brokers** | 📋 Documented | 📋 | 📋 | Stocks, Options, Futures, Forex |
-| **TD Ameritrade** | 📋 Documented | 📋 | 📋 | Stocks, Options, ETFs |
-| **Coinbase Pro** | 📋 Documented | 📋 | 📋 | Cryptocurrency |
-
-### Adding New Brokers
-
-The system uses an extensible broker factory pattern that makes adding new brokers straightforward:
-
-```python
-# Example: Adding a new broker
-from stratequeue.brokers.base import BaseBroker, BrokerConfig
-
-class MyBroker(BaseBroker):
-    def connect(self) -> bool:
-        # Implement connection logic
-        pass
-    
-    def execute_order(self, signal, portfolio_manager):
-        # Implement order execution
-        pass
-    
-    def get_account_info(self):
-        # Implement account information retrieval
-        pass
-
-# Register with factory
-from stratequeue.brokers import BrokerFactory
-BrokerFactory.register_broker('mybroker', MyBroker)
-```
-
-### Broker Auto-Detection
-
-The system automatically detects available brokers from environment variables:
+| Source | Best For | Free? | Timeframes |
+|--------|----------|-------|------------|
+| `demo` | Testing strategies | ✅ | 1s to 1d |
+| `polygon` | US stocks, real data | 💰 | 1s to 1d |
+| `coinmarketcap` | Crypto prices | 💰 | 1m to 1d |
 
 ```bash
-# Check what brokers are detected
-stratequeue --broker-status
-
-# Example output:
-# ✅ Alpaca: Paper trading credentials detected
-# ❌ Interactive Brokers: No credentials found
-# ❌ TD Ameritrade: No credentials found
+# Use different data sources
+stratequeue --strategy crypto.py --symbols BTC,ETH --data-source coinmarketcap
+stratequeue --strategy stocks.py --symbols AAPL,MSFT --data-source polygon
 ```
 
-## 📋 Multi-Strategy Configuration
+## 🛡️ Safety Features
 
-Create a `strategies.txt` file to define your portfolio:
+### **Paper Trading by Default**
+- Everything starts in paper trading mode (fake money)
+- Must explicitly use `--live` for real money
+- Clear warnings when using real money
 
-```txt
-# filename,strategy_id,allocation
-examples/strategies/sma.py,sma_short,0.4
-examples/strategies/momentum.py,momentum_1h,0.3
-examples/strategies/mean_revert.py,mean_rev,0.3
-```
+### **Risk Management**
+- Each strategy gets its own allocated capital
+- No strategy can exceed its allocation
+- Automatic conflict resolution when strategies want the same stock
 
-**Powerful Portfolio Management:**
-- Each strategy gets dedicated capital allocation (40%, 30%, 30%)
-- Automatic conflict resolution when strategies target the same symbol
-- Independent performance tracking per strategy
-- Real-time capital rebalancing
-
-## 🛠️ Installation Options
-
-| Package | Dependencies | Use Case |
-|---------|-------------|----------|
-| `stratequeue` | Core only | Signal generation, demo trading |
-| `stratequeue[trading]` | + Broker APIs | Live/paper trading |
-| `stratequeue[backtesting]` | + backtesting.py | Strategy development |
-| `stratequeue[analytics]` | + scipy, ta-lib | Advanced analysis |
-| `stratequeue[all]` | Everything | Full featured setup |
-
-## 📊 Trading Mode Controls
-
-### Explicit Trading Mode Selection
-
-The CLI uses explicit flags for trading mode control:
-
+### **Easy Testing**
 ```bash
-# Paper trading (default - safe for testing)
-stratequeue --strategy sma.py --symbols AAPL --paper
+# Test strategy logic without any trading
+stratequeue --strategy my_new_idea.py --symbols AAPL --no-trading
 
-# Live trading (real money - shows warnings)
-stratequeue --strategy sma.py --symbols AAPL --live
+# Test with fake money
+stratequeue --strategy my_new_idea.py --symbols AAPL --paper
 
-# Signals only (no trading execution)
-stratequeue --strategy sma.py --symbols AAPL --no-trading
+# Only go live after thorough testing
+stratequeue --strategy my_tested_strategy.py --symbols AAPL --live
 ```
 
-### Trading Mode Examples
+## 📋 Example Commands
 
+### Single Strategy Examples
 ```bash
-# Strategy Development - signals only
-stratequeue --strategy my_new_algo.py --symbols AAPL --data-source demo --no-trading
+# Basic demo
+stratequeue --strategy sma.py --symbols AAPL
 
-# Testing - paper trading with real data
-stratequeue --strategy tested_algo.py --symbols AAPL --data-source polygon --paper
+# Real data, paper trading
+stratequeue --strategy sma.py --symbols AAPL --data-source polygon --paper
 
-# Production - live trading (after thorough testing)
-stratequeue --strategy proven_algo.py --symbols AAPL --data-source polygon --live
+# Crypto trading
+stratequeue --strategy crypto_momentum.py --symbols BTC,ETH --data-source coinmarketcap
+
+# High frequency (1 second intervals)
+stratequeue --strategy scalper.py --symbols SPY --granularity 1s
+
+# Long term (daily signals)
+stratequeue --strategy swing_trade.py --symbols AAPL,MSFT --granularity 1d
 ```
 
-### Safety Features
+### Multi-Strategy Examples
+```bash
+# Simple portfolio
+stratequeue --strategy sma.py,momentum.py --allocation 0.6,0.4 --symbols AAPL
 
-- **Paper trading by default** - safer for new users
-- **Live trading warnings** - clear alerts when using real money
-- **Broker credential validation** - ensures proper setup before trading
-- **Mode-specific error messages** - clear guidance for credential issues
+# Different timeframes per strategy
+stratequeue --strategy day_trade.py,swing_trade.py --allocation 0.3,0.7 --granularity 1m,1d --symbols SPY
+
+# Different assets per strategy
+stratequeue --strategy stock_algo.py,crypto_algo.py --allocation 0.8,0.2 --symbols AAPL,BTC --data-source polygon,coinmarketcap
+
+# Complex portfolio
+stratequeue \
+  --strategy sma.py,momentum.py,mean_revert.py \
+  --allocation 0.4,0.35,0.25 \
+  --symbols AAPL,MSFT,GOOGL \
+  --granularity 1h,15m,1d \
+  --paper
+```
 
 ## 🔧 Configuration
 
-### Environment Setup (.env)
-
-#### Data Sources
+### Environment Variables (.env file)
 ```env
-# Data Sources
+# Alpaca Trading (recommended for beginners)
+PAPER_KEY=your_alpaca_paper_key
+PAPER_SECRET=your_alpaca_paper_secret
+
+# For live trading (after testing!)
+ALPACA_API_KEY=your_alpaca_live_key  
+ALPACA_SECRET_KEY=your_alpaca_live_secret
+
+# Data Sources (optional)
 POLYGON_API_KEY=your_polygon_key
 CMC_API_KEY=your_coinmarketcap_key
 ```
 
-#### Broker Credentials
-
-**Alpaca Trading:**
-```env
-# Paper Trading Credentials (recommended for testing)
-PAPER_KEY=your_alpaca_paper_key
-PAPER_SECRET=your_alpaca_paper_secret
-PAPER_ENDPOINT=https://paper-api.alpaca.markets
-
-# Live Trading Credentials (use with caution)
-ALPACA_API_KEY=your_alpaca_live_key
-ALPACA_SECRET_KEY=your_alpaca_live_secret
-ALPACA_BASE_URL=https://api.alpaca.markets
-```
-
-**Interactive Brokers (future implementation):**
-```env
-# IB Credentials
-IB_HOST=127.0.0.1
-IB_PORT=7497  # Paper: 7497, Live: 7496
-IB_CLIENT_ID=1
-IB_ACCOUNT=your_ib_account
-```
-
-**TD Ameritrade (future implementation):**
-```env
-# TD Ameritrade Credentials
-TDA_CLIENT_ID=your_client_id
-TDA_REFRESH_TOKEN=your_refresh_token
-TDA_ACCOUNT_ID=your_account_id
-```
-
-### Credential Priority
-
-The system intelligently selects credentials:
-
-1. **Paper Trading Mode (`--paper`)**:
-   - Prefers: `PAPER_KEY`, `PAPER_SECRET`, `PAPER_ENDPOINT`
-   - Fallback: Live credentials with paper endpoint override
-
-2. **Live Trading Mode (`--live`)**:
-   - Requires: `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`, `ALPACA_BASE_URL`
-   - No fallback for safety
-
-### Data Sources
-| Source | Purpose | Granularities | Requirements |
-|--------|---------|---------------|--------------|
-| `demo` | Testing & development | 1s, 1m, 5m, 1h, 1d | None |
-| `polygon` | Real market data | 1s, 1m, 5m, 15m, 1h, 1d | API key |
-| `coinmarketcap` | Cryptocurrency | 1m, 5m, 15m, 30m, 1h, 1d | API key |
-
-## 📈 Strategy Development
-
-### Simple Strategy Example
+### Create Your Strategy
 ```python
-# examples/strategies/sma_crossover.py
-LOOKBACK = 20  # Required historical bars
+# my_strategy.py
+LOOKBACK = 20  # How many historical bars you need
 
 from backtesting import Strategy
 from backtesting.lib import crossover
 from backtesting.test import SMA
 
-class SmaCrossover(Strategy):
-    fast = 10
-    slow = 20
-    
+class MyStrategy(Strategy):
     def init(self):
-        self.sma_fast = self.I(SMA, self.data.Close, self.fast)
-        self.sma_slow = self.I(SMA, self.data.Close, self.slow)
+        # Set up your indicators
+        self.sma = self.I(SMA, self.data.Close, 20)
     
     def next(self):
-        if crossover(self.sma_fast, self.sma_slow):
-            self.buy(size=0.25)  # 25% of allocated capital
-        elif crossover(self.sma_slow, self.sma_fast):
+        # Your trading logic
+        if self.data.Close[-1] > self.sma[-1]:
+            self.buy()
+        else:
             self.sell()
 ```
 
-### Strategy Requirements
-1. **LOOKBACK variable** - minimum historical bars needed
-2. **Strategy class** inheriting from backtesting.Strategy
-3. **init()** method for indicator setup
-4. **next()** method for trading logic
-
-## 🏗️ Architecture
-
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Strategies    │    │   Data Sources   │    │   Portfolio     │
-│                 │    │                  │    │   Manager       │
-│ • SMA Cross     │    │ • Polygon.io     │    │                 │
-│ • Momentum      │───▶│ • CoinMarketCap  │───▶│ • Capital Alloc │
-│ • Mean Revert   │    │ • Demo Data      │    │ • Risk Control  │
-│ • Custom Algos  │    │                  │    │ • Conflict Res  │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-         │                        │                       │
-         ▼                        ▼                       ▼
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│ Signal Extractor│    │ Real-time Data   │    │ Broker Factory  │
-│                 │    │ Processing       │    │                 │
-│ • Convert Logic │    │                  │    │ • Alpaca        │
-│ • Generate Sigs │    │ • Live Updates   │    │ • Inter. Brokers│
-│ • Multi-Strategy│    │ • Historical     │    │ • TD Ameritrade │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-```
-
-### Broker Factory Architecture
-
-The system uses a **modular broker factory pattern** for extensible trading platform support:
-
-```
-🏭 BROKER FACTORY ARCHITECTURE
-
-┌─────────────────────┐     ┌─────────────────────┐     ┌─────────────────────┐
-│   Unified Trading   │────▶│   Broker Factory    │────▶│   Broker Registry   │
-│      Interface      │     │                     │     │                     │
-│                     │     │ • Auto-detection    │     │ • Alpaca ✅         │
-│ • execute_order()   │     │ • Credential Mgmt   │     │ • IB (planned)      │
-│ • get_account()     │     │ • Config Creation   │     │ • TDA (planned)     │
-│ • connect()         │     │ • Error Handling    │     │ • Coinbase (planned)│
-└─────────────────────┘     └─────────────────────┘     └─────────────────────┘
-         │                           │                           │
-         ▼                           ▼                           ▼
-┌─────────────────────┐     ┌─────────────────────┐     ┌─────────────────────┐
-│   Signal Context    │     │   Config Context    │     │ Implementation Layer│
-│                     │     │                     │     │                     │
-│ • Strategy ID       │     │ • Paper/Live Mode   │     │ • Native APIs       │
-│ • Portfolio Mgr     │     │ • Credentials       │     │ • Order Translation │
-│ • Capital Limits    │     │ • Environment       │     │ • Error Mapping     │
-└─────────────────────┘     └─────────────────────┘     └─────────────────────┘
-```
-
-### Order Execution Architecture
-
-The system uses a **context-aware order execution architecture** that follows trading industry standards:
-
-```
-📊 TRADING SIGNAL               🧠 PORTFOLIO CONTEXT                💰 ORDER EXECUTION
-┌─────────────────┐            ┌─────────────────┐               ┌─────────────────┐
-│   Pure Signal   │            │ Portfolio Mgr   │               │ Context-Aware   │
-│                 │            │                 │               │ Broker Executor │
-│ • Signal Type   │            │ • Strategy      │               │                 │
-│ • Price/Size    │──────────▶ │   Allocations   │──────────────▶│ • Market Buy    │
-│ • Strategy ID   │            │ • Capital Limits│               │ • Market Sell   │
-│ • Pure Intent   │            │ • Position      │               │ • Limit Orders  │
-│                 │            │   Tracking      │               │ • Stop Orders   │
-└─────────────────┘            └─────────────────┘               └─────────────────┘
-```
-
-**Key Architecture Principles:**
-
-1. **Clean Separation**: Signals remain pure trading intent, execution handles allocation
-2. **Context-Aware Executors**: Order executors have portfolio manager access for proper capital allocation
-3. **Strategy-Specific Allocation**: Each strategy uses only its allocated capital, not full account value
-4. **Broker Abstraction**: Unified interface across all trading platforms
-5. **Industry Standard**: Matches Bloomberg EMSX, FIX Protocol patterns where execution engines have risk context
-
-**Example Capital Allocation:**
-```python
-# Account Value: $100,000
-# Strategy Allocations:
-#   - sma_cross: 40% = $40,000
-#   - momentum: 35% = $35,000  
-#   - mean_revert: 25% = $25,000
-
-# Signal: sma_cross BUY with size=0.5 (50% of strategy allocation)
-# Order Amount: $40,000 × 0.5 = $20,000 (NOT $100,000 × 0.5 = $50,000)
-```
-
-This architecture ensures:
-- ✅ **Proper Capital Allocation**: Each strategy respects its limits
-- ✅ **Multi-Strategy Safety**: No strategy can exceed its allocation
-- ✅ **Broker Flexibility**: Easy to add new trading platforms
-- ✅ **Scalable Design**: Easy to add new order types and risk controls
-- ✅ **Production Ready**: Follows institutional trading system patterns
-
-## 📋 Command Reference
-
-### Core Commands
 ```bash
-# Main command (matches package name)
-stratequeue [options]
-
-# Short alias for power users  
-sq [options]
-
-# Legacy aliases (for compatibility)
-live-trading [options]
-trading-system [options]
+# Test your strategy
+stratequeue --strategy my_strategy.py --symbols AAPL --no-trading
 ```
 
-### Essential Arguments
-| Flag | Description | Example |
-|------|-------------|---------|
-| `--strategy` | Single strategy file | `--strategy sma.py` |
-| `--strategies` | Multi-strategy config | `--strategies portfolio.txt` |
-| `--symbols` | Trading symbols | `--symbols AAPL,MSFT,BTC` |
-| `--data-source` | Data provider | `--data-source polygon` |
-| `--paper` | Paper trading (default) | `--paper` |
-| `--live` | Live trading | `--live` |
-| `--no-trading` | Signals only | `--no-trading` |
-| `--broker` | Specify broker | `--broker alpaca` |
-| `--duration` | Runtime in minutes | `--duration 120` |
-| `--verbose` | Detailed logging | `--verbose` |
+## 📈 Real-Time Output
 
-### Trading Mode Examples
-```bash
-# Development - signals only
-stratequeue --strategy algo.py --symbols AAPL --no-trading
+```
+🚀 LIVE TRADING SYSTEM STARTED
+============================================================
+Mode: MULTI-STRATEGY
+Strategies: sma, momentum, mean_revert
+Symbols: AAPL, MSFT, GOOGL
+Data Source: polygon
+Granularity: 1h, 15m, 1d
+💰 Trading: PAPER MODE via Alpaca
+============================================================
 
-# Testing - paper trading  
-stratequeue --strategy algo.py --symbols AAPL --paper
+🎯 SIGNAL #1 - 2024-06-10 14:30:15 [sma]
+Symbol: AAPL
+Action: 📈 BUY
+Price: $185.42
+Confidence: 85.0%
+Allocation: $2,000 (40% of strategy capital)
 
-# Production - live trading (with warnings)
-stratequeue --strategy algo.py --symbols AAPL --live
+🎯 SIGNAL #2 - 2024-06-10 14:45:22 [momentum]  
+Symbol: MSFT
+Action: 📉 SELL
+Price: $340.15
+Confidence: 78.0%
+Allocation: $1,750 (35% of strategy capital)
 ```
 
-### Broker Management
-```bash
-# List supported brokers and features
-stratequeue --list-brokers
+## 🆘 Common Issues
 
-# Check broker environment status
+### "No broker detected"
+```bash
+# Check your setup
 stratequeue --broker-status
 
-# Get setup instructions
+# Get help setting up Alpaca (easiest broker)
 stratequeue --broker-setup alpaca
-stratequeue --broker-setup all
-
-# Specify broker explicitly
-stratequeue --strategy algo.py --symbols AAPL --broker alpaca --paper
 ```
 
-### Advanced Examples
+### "Strategy file not found"
 ```bash
-# List available granularities
-stratequeue --list-granularities
+# Make sure your file exists
+ls my_strategy.py
 
-# Custom granularity and lookback
-stratequeue --strategy algo.py --symbols AAPL --granularity 5m --lookback 100 --paper
-
-# Multi-strategy with specific duration
-stratequeue --strategies portfolio.txt --symbols AAPL,MSFT --duration 480 --live  # 8 hours
-
-# Verbose logging for debugging
-stratequeue --strategy debug_algo.py --symbols TSLA --verbose --paper
+# Use full path if needed
+stratequeue --strategy /full/path/to/my_strategy.py --symbols AAPL
 ```
 
-## 🎯 Use Cases
-
-### **Quantitative Research**
+### "Invalid allocation"
 ```bash
-# Quick strategy validation (signals only)
-stratequeue --strategy research_idea.py --symbols SPY --data-source demo --no-trading --duration 10
+# Allocations must add up to 1.0 (100%) or less
+stratequeue --strategy sma.py,momentum.py --allocation 0.6,0.4  # ✅ Good (100%)
+stratequeue --strategy sma.py,momentum.py --allocation 0.6,0.3  # ✅ Good (90%)
+stratequeue --strategy sma.py,momentum.py --allocation 0.6,0.6  # ❌ Bad (120%)
 ```
 
-### **Strategy Testing**
+## 🎓 Learning Path
+
+### 1. Start Simple
 ```bash
-# Paper trading with real data
-stratequeue --strategy new_algo.py --symbols AAPL --data-source polygon --paper --duration 60
+# Just see what signals your strategy generates
+stratequeue --strategy examples/strategies/sma.py --symbols AAPL --no-trading --duration 5
 ```
 
-### **Portfolio Management**
+### 2. Add Paper Trading
 ```bash
-# Multi-strategy portfolio with paper trading
-stratequeue --strategies diversified_portfolio.txt --symbols AAPL,MSFT,GOOGL,TSLA --paper
-
-# Live multi-strategy trading (production)
-stratequeue --strategies tested_portfolio.txt --symbols AAPL,MSFT --live
+# Test with fake money
+stratequeue --strategy examples/strategies/sma.py --symbols AAPL --paper --duration 30
 ```
 
-### **Crypto Trading**
+### 3. Try Multiple Strategies
 ```bash
-# Crypto strategy with CoinMarketCap data (paper trading)
-stratequeue --strategy crypto_momentum.py --symbols BTC,ETH --data-source coinmarketcap --paper
-
-# Live crypto trading
-stratequeue --strategy proven_crypto.py --symbols BTC,ETH --data-source coinmarketcap --live
+# Run a simple portfolio
+stratequeue --strategy examples/strategies/sma.py,examples/strategies/momentum.py --allocation 0.6,0.4 --symbols AAPL --paper
 ```
 
-### **Multi-Broker Setup**
+### 4. Go Live (When Ready!)
 ```bash
-# Test with different brokers
-stratequeue --strategy algo.py --symbols AAPL --broker alpaca --paper
-stratequeue --strategy algo.py --symbols AAPL --broker ib --paper  # Future
-
-# Auto-detect best available broker
-stratequeue --strategy algo.py --symbols AAPL --paper  # Uses detected broker
+# Real money trading (be careful!)
+stratequeue --strategy my_tested_strategy.py --symbols AAPL --live
 ```
 
-## 🔍 Monitoring & Output
+## 🔗 More Examples
 
-### Real-time Signal Display
-```
-🎯 MULTI-STRATEGY SIGNALS - 2024-06-09 14:30:00
-
-📈 sma_short → AAPL: BUY @ $185.45 (Conf: 85%)
-  └─ Allocation: $2,500 (25% of strategy capital)
-  └─ Broker: Alpaca (Paper Trading)
-  
-📉 momentum_1h → MSFT: SELL @ $340.12 (Conf: 78%)
-  └─ Allocation: $1,800 (18% of strategy capital)
-  └─ Broker: Alpaca (Paper Trading)
-
-📊 PORTFOLIO STATUS:
-  • Total Value: $12,450.67
-  • Active Strategies: 3/3
-  • Open Positions: 5
-  • Available Cash: $3,234.21
-  • Trading Mode: PAPER
-```
-
-### Broker Status Display
+### Get Help
 ```bash
-$ stratequeue --broker-status
-
-🏦 BROKER ENVIRONMENT STATUS:
-┌─────────────────────┬─────────────┬─────────────┬─────────────────┐
-│ Broker              │ Paper Creds │ Live Creds  │ Status          │
-├─────────────────────┼─────────────┼─────────────┼─────────────────┤
-│ Alpaca              │ ✅ Valid    │ ❌ Missing  │ Paper Ready     │
-│ Interactive Brokers │ ❌ Missing  │ ❌ Missing  │ Not Configured  │
-│ TD Ameritrade       │ ❌ Missing  │ ❌ Missing  │ Not Configured  │
-└─────────────────────┴─────────────┴─────────────┴─────────────────┘
-
-💡 Run 'stratequeue --broker-setup <broker>' for setup instructions
+stratequeue --help                    # Show all options
+stratequeue --list-brokers           # See supported brokers  
+stratequeue --list-granularities     # See supported timeframes
+stratequeue --broker-status          # Check your broker setup
 ```
 
-### Performance Tracking
-```
-📈 STRATEGY PERFORMANCE:
-┌─────────────────┬─────────────┬─────────────┬─────────────┐
-│ Strategy        │ Allocation  │ P&L         │ Win Rate    │
-├─────────────────┼─────────────┼─────────────┼─────────────┤
-│ sma_short       │ $5,000 (40%)│ +$234.56    │ 67%         │
-│ momentum_1h     │ $3,750 (30%)│ +$123.45    │ 72%         │
-│ mean_revert     │ $3,750 (30%)│ -$45.23     │ 58%         │
-└─────────────────┴─────────────┴─────────────┴─────────────┘
-💰 Trading Mode: PAPER via Alpaca
-```
-
-## 🚨 Important Notes
-
-### **Trading Mode Safety**
-- **Paper trading by default** - system defaults to paper trading for safety
-- **Explicit live trading** - must use `--live` flag for real money trading
-- **Live trading warnings** - clear alerts when using real money
-- **Credential validation** - ensures proper setup before trading
-
-### **Risk Management**
-- **Always test with `--no-trading` first** - validate strategy logic
-- **Use paper trading extensively** - test with `--paper` before going live
-- **Start with small position sizes** - use conservative allocations initially
-- **Monitor multi-strategy interactions** - watch for unexpected correlations
-
-### **Best Practices**
-- **Strategy isolation**: Each strategy should be independent
-- **Capital allocation**: Don't over-allocate to any single strategy
-- **Regular monitoring**: Watch for unexpected correlations
-- **Gradual scaling**: Increase allocation as strategies prove themselves
-- **Broker diversification**: Consider using multiple brokers for redundancy
-
-### **Broker-Specific Notes**
-- **Alpaca**: Supports both paper and live trading, good for US stocks/ETFs
-- **Interactive Brokers**: Planned support for global markets, options, futures
-- **TD Ameritrade**: Planned support for US markets with good options support
-
-## 🆘 Troubleshooting
-
-### Installation Issues
+### Advanced Usage
 ```bash
-# Missing trading dependencies
-pip install stratequeue[trading]
+# Custom runtime
+stratequeue --strategy sma.py --symbols AAPL --duration 120  # Run for 2 hours
 
-# Import errors
-pip install --upgrade stratequeue
+# Verbose logging (for debugging)
+stratequeue --strategy sma.py --symbols AAPL --verbose
 
-# Permission issues
-pip install --user stratequeue
+# Override strategy lookback period
+stratequeue --strategy sma.py --symbols AAPL --lookback 50
+
+# Multiple symbols, single strategy
+stratequeue --strategy diversified.py --symbols AAPL,MSFT,GOOGL,TSLA --paper
 ```
-
-### Configuration Issues
-```bash
-# Check installed commands
-which stratequeue
-
-# Verify installation
-stratequeue --help
-
-# Debug mode
-stratequeue --strategy test.py --symbols AAPL --verbose --no-trading
-```
-
-### Trading Issues
-```bash
-# Check broker status
-stratequeue --broker-status
-
-# Get setup instructions
-stratequeue --broker-setup alpaca
-
-# Test with paper trading first
-stratequeue --strategy test.py --symbols AAPL --paper --verbose
-
-# Test signals only
-stratequeue --strategy test.py --symbols AAPL --no-trading
-```
-
-### Multi-Strategy Issues
-- **Capital conflicts**: Check strategy allocations sum to ≤ 1.0
-- **Symbol conflicts**: Monitor which strategies trade overlapping symbols
-- **Performance attribution**: Use `--verbose` to track per-strategy signals
-- **Broker limitations**: Ensure your broker supports all required symbols
-
-### Broker-Specific Troubleshooting
-
-**Alpaca Issues:**
-```bash
-# Validate credentials
-stratequeue --broker-setup alpaca
-
-# Check API key permissions
-# Ensure keys have trading permissions (not just market data)
-
-# Paper vs Live confusion
-# Use PAPER_KEY/PAPER_SECRET for paper trading
-# Use ALPACA_API_KEY/ALPACA_SECRET_KEY for live trading
-```
-
-## 🔗 Additional Resources
-
-- **Strategy Examples**: See `examples/strategies/` directory
-- **Configuration Templates**: Sample multi-strategy configs included
-- **Broker Integration Guide**: Detailed guide for adding new brokers
-- **API Documentation**: Auto-generated docs from docstrings
-- **Community**: GitHub issues for support and feature requests
 
 ---
 
-**Stratequeue** - Professional multi-strategy trading infrastructure with extensible broker support for Python developers. 
+**Ready to start?** Install Stratequeue and turn your backtesting strategies into live trading systems in minutes, not months. 
