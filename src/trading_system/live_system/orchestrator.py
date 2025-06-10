@@ -33,7 +33,8 @@ class LiveTradingSystem:
     
     def __init__(self, strategy_path: Optional[str] = None, symbols: List[str] = None, 
                  data_source: str = "demo", granularity: str = "1m", lookback_override: Optional[int] = None,
-                 enable_trading: bool = False, multi_strategy_config: Optional[str] = None):
+                 enable_trading: bool = False, multi_strategy_config: Optional[str] = None,
+                 broker_type: Optional[str] = None, paper_trading: bool = True):
         """
         Initialize live trading system
         
@@ -43,14 +44,18 @@ class LiveTradingSystem:
             data_source: Data source ("demo", "polygon", "coinmarketcap") 
             granularity: Data granularity (e.g., "1m", "5m", "1h")
             lookback_override: Override calculated lookback period
-            enable_trading: Enable actual trading execution via Alpaca
+            enable_trading: Enable actual trading execution
             multi_strategy_config: Path to multi-strategy config file (multi-strategy mode)
+            broker_type: Broker type to use for trading (auto-detected if None)
+            paper_trading: Use paper trading (True) or live trading (False)
         """
         self.symbols = symbols or []
         self.data_source = data_source
         self.granularity = granularity
         self.lookback_override = lookback_override
         self.enable_trading = enable_trading
+        self.broker_type = broker_type
+        self.paper_trading = paper_trading
         
         # Determine mode
         self.is_multi_strategy = multi_strategy_config is not None
@@ -82,8 +87,8 @@ class LiveTradingSystem:
         # Initialize data ingestion
         self.data_ingester = self.data_manager.setup_data_ingestion()
         
-        # Initialize Alpaca executor if trading is enabled
-        self.alpaca_executor = self._initialize_trading()
+        # Initialize broker executor if trading is enabled
+        self.broker_executor = self._initialize_trading()
         
     def _initialize_strategies(self, strategy_path: str, multi_strategy_config: str):
         """Initialize strategy components based on mode"""
@@ -124,7 +129,7 @@ class LiveTradingSystem:
             self.multi_strategy_runner = None
     
     def _initialize_trading(self):
-        """Initialize Alpaca trading executor if enabled"""
+        """Initialize broker trading executor if enabled"""
         if not self.enable_trading:
             return None
             
@@ -134,15 +139,50 @@ class LiveTradingSystem:
             if self.is_multi_strategy:
                 portfolio_manager = self.multi_strategy_runner.portfolio_manager
             
-            alpaca_executor = create_alpaca_executor_from_env(portfolio_manager)
-            
-            mode_info = "multi-strategy" if self.is_multi_strategy else "single-strategy"
-            logger.info(f"✅ Alpaca trading enabled with {mode_info} portfolio management")
-            
-            return alpaca_executor
-            
+            # Try new broker factory first
+            try:
+                from ..brokers import auto_create_broker, BrokerFactory
+                from ..brokers.base import BrokerConfig
+                
+                if self.broker_type:
+                    # Use specified broker
+                    config = BrokerConfig(
+                        broker_type=self.broker_type,
+                        paper_trading=self.paper_trading
+                    )
+                    broker_executor = BrokerFactory.create_broker(self.broker_type, config=config, portfolio_manager=portfolio_manager)
+                    trading_mode = "paper" if self.paper_trading else "live"
+                    logger.info(f"✅ Using specified broker: {self.broker_type} ({trading_mode} trading)")
+                else:
+                    # Auto-detect broker
+                    broker_executor = auto_create_broker(portfolio_manager=portfolio_manager)
+                    # Update the auto-created broker's paper trading setting
+                    broker_executor.config.paper_trading = self.paper_trading
+                    trading_mode = "paper" if self.paper_trading else "live"
+                    logger.info(f"✅ Auto-detected broker: {broker_executor.config.broker_type} ({trading_mode} trading)")
+                
+                # Connect to broker
+                if broker_executor.connect():
+                    mode_info = "multi-strategy" if self.is_multi_strategy else "single-strategy"
+                    trading_mode = "paper" if self.paper_trading else "live"
+                    logger.info(f"✅ Broker trading enabled with {mode_info} portfolio management ({trading_mode} mode)")
+                    return broker_executor
+                else:
+                    logger.error("Failed to connect to broker")
+                    return None
+                
+            except ImportError:
+                # Fallback to legacy Alpaca executor
+                logger.info("Broker factory not available, using legacy Alpaca executor")
+                alpaca_executor = create_alpaca_executor_from_env(portfolio_manager)
+                
+                mode_info = "multi-strategy" if self.is_multi_strategy else "single-strategy"
+                logger.info(f"✅ Alpaca trading enabled with {mode_info} portfolio management")
+                
+                return alpaca_executor
+                
         except Exception as e:
-            logger.error(f"Failed to initialize Alpaca executor: {e}")
+            logger.error(f"Failed to initialize trading executor: {e}")
             logger.warning("Trading disabled - running in signal-only mode")
             self.enable_trading = False
             return None
@@ -173,7 +213,7 @@ class LiveTradingSystem:
             duration_minutes, 
             strategy_info,
             self.enable_trading, 
-            self.alpaca_executor
+            self.broker_executor
         )
         
         start_time = datetime.now()
@@ -198,7 +238,7 @@ class LiveTradingSystem:
                 # Process trading cycle
                 signals = await self.trading_processor.process_trading_cycle(
                     self.data_manager, 
-                    self.alpaca_executor
+                    self.broker_executor
                 )
                 
                 # Display and log signals
@@ -207,7 +247,7 @@ class LiveTradingSystem:
                     self.display_manager.display_signals_summary(signals, signal_count)
                     
                     # Execute trades if enabled
-                    if self.enable_trading and self.alpaca_executor:
+                    if self.enable_trading and self.broker_executor:
                         await self._execute_signals(signals)
                 
                 # Wait before next cycle (respecting granularity)
@@ -220,17 +260,26 @@ class LiveTradingSystem:
         finally:
             # Display final summary
             active_signals = self.trading_processor.get_active_signals()
-            self.display_manager.display_session_summary(active_signals, self.alpaca_executor)
+            self.display_manager.display_session_summary(active_signals, self.broker_executor)
     
     async def _execute_signals(self, signals):
-        """Execute trading signals via Alpaca"""
+        """Execute trading signals via broker"""
         if self.is_multi_strategy:
             # Multi-strategy signals: Dict[symbol, Dict[strategy_id, signal]]
             for symbol, strategy_signals in signals.items():
                 if isinstance(strategy_signals, dict):
                     for strategy_id, signal in strategy_signals.items():
                         if signal.signal != SignalType.HOLD:
-                            success = self.alpaca_executor.execute_signal(symbol, signal)
+                            # Handle both new broker interface and legacy Alpaca executor
+                            if hasattr(self.broker_executor, 'execute_signal'):
+                                result = self.broker_executor.execute_signal(symbol, signal)
+                                if hasattr(result, 'success'):  # New broker interface returns OrderResult
+                                    success = result.success
+                                else:  # Legacy interface returns boolean
+                                    success = result
+                            else:
+                                success = False
+                            
                             if success:
                                 logger.info(f"✅ Executed {signal.signal.value} for {symbol} [{strategy_id}]")
                             else:
@@ -239,7 +288,16 @@ class LiveTradingSystem:
             # Single strategy signals: Dict[symbol, signal]
             for symbol, signal in signals.items():
                 if signal.signal != SignalType.HOLD:
-                    success = self.alpaca_executor.execute_signal(symbol, signal)
+                    # Handle both new broker interface and legacy Alpaca executor
+                    if hasattr(self.broker_executor, 'execute_signal'):
+                        result = self.broker_executor.execute_signal(symbol, signal)
+                        if hasattr(result, 'success'):  # New broker interface returns OrderResult
+                            success = result.success
+                        else:  # Legacy interface returns boolean
+                            success = result
+                    else:
+                        success = False
+                    
                     if success:
                         logger.info(f"✅ Executed {signal.signal.value} for {symbol}")
                     else:

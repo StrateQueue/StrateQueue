@@ -50,7 +50,7 @@ class AlpacaExecutor:
         self.trading_client = TradingClient(
             api_key=config.api_key,
             secret_key=config.secret_key,
-            paper=config.paper,
+            paper=config.paper_trading,
             url_override=config.base_url if config.base_url else None
         )
         
@@ -186,7 +186,7 @@ class AlpacaExecutor:
         """Validate connection to Alpaca API"""
         try:
             account = self.trading_client.get_account()
-            logger.info(f"✅ Connected to Alpaca {'Paper' if self.config.paper else 'Live'} Trading")
+            logger.info(f"✅ Connected to Alpaca {'Paper' if self.config.paper_trading else 'Live'} Trading")
             logger.info(f"Account ID: {account.id}")
             logger.info(f"Portfolio Value: ${float(account.portfolio_value):,.2f}")
             logger.info(f"Cash Balance: ${float(account.cash):,.2f}")

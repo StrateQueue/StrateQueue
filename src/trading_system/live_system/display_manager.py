@@ -52,7 +52,7 @@ class DisplayManager:
         
         if enable_trading:
             print("💰 Trading: ENABLED via Alpaca")
-            if alpaca_executor and alpaca_executor.config.paper:
+            if alpaca_executor and alpaca_executor.config.paper_trading:
                 print("📝 Mode: PAPER TRADING")
             else:
                 print("🔴 Mode: LIVE TRADING")
