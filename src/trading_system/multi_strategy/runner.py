@@ -6,6 +6,7 @@ Main coordinator for multi-strategy trading that orchestrates:
 - Signal coordination
 - Portfolio integration
 - System lifecycle management
+- Hot swapping strategies at runtime
 """
 
 import logging
@@ -15,6 +16,7 @@ from .config import ConfigManager, StrategyConfig
 from .signal_coordinator import SignalCoordinator
 from .portfolio_integrator import PortfolioIntegrator
 from ..core.signal_extractor import TradingSignal
+from ..core.strategy_loader import StrategyLoader
 from ..statistics import StatisticsManager
 
 logger = logging.getLogger(__name__)
@@ -24,7 +26,7 @@ class MultiStrategyRunner:
     Coordinates multiple trading strategies running in parallel.
     
     Handles strategy loading, signal coordination, and portfolio management
-    integration for multi-strategy live trading.
+    integration for multi-strategy live trading with hot swapping support.
     """
     
     def __init__(self, config_file_path: str, symbols: List[str], 
@@ -56,16 +58,16 @@ class MultiStrategyRunner:
         self.signal_coordinator = SignalCoordinator(strategy_configs)
         
         # Initialize portfolio integrator
-        allocations = self.config_manager.get_allocations()
-        self.portfolio_integrator = PortfolioIntegrator(allocations, statistics_manager)
+        strategy_allocations = self.config_manager.get_allocations()
+        self.portfolio_integrator = PortfolioIntegrator(strategy_allocations, statistics_manager)
         
         logger.info(f"Initialized multi-strategy runner with {len(strategy_configs)} strategies")
         logger.info(f"Maximum lookback period required: {self.max_lookback_period} bars")
     
     def initialize_strategies(self):
-        """Initialize all strategy classes and signal extractors"""
+        """Initialize all loaded strategies"""
         self.signal_coordinator.initialize_strategies()
-        logger.info("Multi-strategy runner fully initialized")
+        logger.info("Multi-strategy runner initialization complete")
     
     def get_max_lookback_period(self) -> int:
         """Get the maximum lookback period required across all strategies"""
@@ -217,3 +219,160 @@ class MultiStrategyRunner:
     def portfolio_manager(self):
         """Access to the underlying portfolio manager for backward compatibility"""
         return self.portfolio_integrator.portfolio_manager 
+    
+    # HOT SWAP COORDINATION METHODS
+    
+    def deploy_strategy_runtime(self, strategy_path: str, strategy_id: str, 
+                              allocation_percentage: float, symbol: Optional[str] = None) -> bool:
+        """
+        Deploy a new strategy at runtime
+        
+        Args:
+            strategy_path: Path to the strategy file
+            strategy_id: Unique identifier for the strategy
+            allocation_percentage: Allocation percentage (0.0 to 1.0)
+            symbol: Optional symbol for 1:1 mapping (None for all symbols)
+            
+        Returns:
+            True if strategy was deployed successfully
+        """
+        try:
+            logger.info(f"🚀 Deploying strategy {strategy_id} at runtime...")
+            
+            # Load and validate strategy file
+            original_strategy = StrategyLoader.load_strategy_from_file(strategy_path)
+            
+            # Calculate lookback period
+            if self.lookback_override:
+                lookback_period = self.lookback_override
+            else:
+                lookback_period = StrategyLoader.calculate_lookback_period(original_strategy, strategy_path)
+            
+            # Create strategy configuration
+            config = StrategyConfig(
+                strategy_id=strategy_id,
+                file_path=strategy_path,
+                allocation=allocation_percentage,
+                lookback_period=lookback_period,
+                symbol=symbol
+            )
+            
+            # Add to signal coordinator
+            if not self.signal_coordinator.add_strategy_runtime(strategy_id, config):
+                logger.error(f"Failed to add strategy {strategy_id} to signal coordinator")
+                return False
+            
+            # Add to portfolio manager
+            if not self.portfolio_integrator.portfolio_manager.add_strategy_runtime(strategy_id, allocation_percentage):
+                logger.error(f"Failed to add strategy {strategy_id} to portfolio manager")
+                # Rollback signal coordinator changes
+                self.signal_coordinator.remove_strategy_runtime(strategy_id)
+                return False
+            
+            # Update max lookback if necessary
+            if lookback_period > self.max_lookback_period:
+                self.max_lookback_period = lookback_period
+                logger.info(f"Updated max lookback period to {lookback_period}")
+            
+            logger.info(f"✅ Successfully deployed strategy {strategy_id} at runtime "
+                       f"({allocation_percentage:.1%} allocation, {lookback_period} lookback)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to deploy strategy {strategy_id} at runtime: {e}")
+            return False
+    
+    def undeploy_strategy_runtime(self, strategy_id: str, liquidate_positions: bool = True) -> bool:
+        """
+        Undeploy a strategy at runtime
+        
+        Args:
+            strategy_id: Strategy to undeploy
+            liquidate_positions: Whether to liquidate all positions for this strategy
+            
+        Returns:
+            True if strategy was undeployed successfully
+        """
+        try:
+            logger.info(f"🛑 Undeploying strategy {strategy_id} at runtime...")
+            
+            # Remove from signal coordinator first (stops new signals)
+            if not self.signal_coordinator.remove_strategy_runtime(strategy_id):
+                logger.warning(f"Strategy {strategy_id} not found in signal coordinator")
+            
+            # Remove from portfolio manager
+            if not self.portfolio_integrator.portfolio_manager.remove_strategy_runtime(strategy_id, liquidate_positions):
+                logger.warning(f"Strategy {strategy_id} not found in portfolio manager")
+            
+            logger.info(f"✅ Successfully undeployed strategy {strategy_id} at runtime")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to undeploy strategy {strategy_id} at runtime: {e}")
+            return False
+    
+    def pause_strategy_runtime(self, strategy_id: str) -> bool:
+        """
+        Pause a strategy at runtime (stops signal generation but keeps positions)
+        
+        Args:
+            strategy_id: Strategy to pause
+            
+        Returns:
+            True if strategy was paused successfully
+        """
+        try:
+            if self.signal_coordinator.pause_strategy(strategy_id):
+                logger.info(f"✅ Successfully paused strategy {strategy_id}")
+                return True
+            else:
+                logger.error(f"Failed to pause strategy {strategy_id}")
+                return False
+        except Exception as e:
+            logger.error(f"Error pausing strategy {strategy_id}: {e}")
+            return False
+    
+    def resume_strategy_runtime(self, strategy_id: str) -> bool:
+        """
+        Resume a paused strategy at runtime
+        
+        Args:
+            strategy_id: Strategy to resume
+            
+        Returns:
+            True if strategy was resumed successfully
+        """
+        try:
+            if self.signal_coordinator.resume_strategy(strategy_id):
+                logger.info(f"✅ Successfully resumed strategy {strategy_id}")
+                return True
+            else:
+                logger.error(f"Failed to resume strategy {strategy_id}")
+                return False
+        except Exception as e:
+            logger.error(f"Error resuming strategy {strategy_id}: {e}")
+            return False
+    
+    def rebalance_portfolio_runtime(self, new_allocations: Dict[str, float]) -> bool:
+        """
+        Rebalance portfolio allocations at runtime
+        
+        Args:
+            new_allocations: New allocation percentages for strategies
+            
+        Returns:
+            True if rebalancing was successful
+        """
+        try:
+            logger.info(f"⚖️ Rebalancing portfolio at runtime...")
+            
+            if self.portfolio_integrator.portfolio_manager.rebalance_allocations(new_allocations):
+                logger.info(f"✅ Successfully rebalanced portfolio")
+                return True
+            else:
+                logger.error(f"Failed to rebalance portfolio")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error rebalancing portfolio: {e}")
+            return False 

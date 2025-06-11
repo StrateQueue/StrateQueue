@@ -102,6 +102,131 @@ class SimplePortfolioManager:
         
         logger.info(f"Added strategy {strategy_id}: {allocation_percentage:.1%} allocation")
     
+    # HOT SWAP METHODS
+    
+    def add_strategy_runtime(self, strategy_id: str, allocation_percentage: float) -> bool:
+        """
+        Add a new strategy allocation at runtime with automatic rebalancing
+        
+        Args:
+            strategy_id: Strategy identifier
+            allocation_percentage: Allocation percentage (0.0 to 1.0)
+            
+        Returns:
+            True if strategy was added successfully
+        """
+        try:
+            if strategy_id in self.strategy_allocations:
+                logger.warning(f"Strategy {strategy_id} already exists in portfolio, skipping add")
+                return False
+            
+            # Check if new allocation would exceed 100%
+            current_total = sum(alloc.allocation_percentage for alloc in self.strategy_allocations.values())
+            if current_total + allocation_percentage > 1.01:  # Allow small rounding error
+                logger.error(f"Cannot add strategy {strategy_id}: would exceed 100% allocation "
+                           f"(current: {current_total:.1%}, adding: {allocation_percentage:.1%})")
+                return False
+            
+            # Add the strategy
+            self.add_strategy(strategy_id, allocation_percentage)
+            
+            logger.info(f"🔥 Hot-added strategy to portfolio: {strategy_id} ({allocation_percentage:.1%})")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to hot-add strategy {strategy_id} to portfolio: {e}")
+            return False
+    
+    def remove_strategy_runtime(self, strategy_id: str, liquidate_positions: bool = True) -> bool:
+        """
+        Remove a strategy allocation at runtime
+        
+        Args:
+            strategy_id: Strategy to remove
+            liquidate_positions: Whether to liquidate all positions for this strategy
+            
+        Returns:
+            True if strategy was removed successfully
+        """
+        try:
+            if strategy_id not in self.strategy_allocations:
+                logger.warning(f"Strategy {strategy_id} not found in portfolio, cannot remove")
+                return False
+            
+            # Log positions that will be affected
+            positions = self.strategy_allocations[strategy_id].positions
+            if positions and liquidate_positions:
+                logger.warning(f"Strategy {strategy_id} has {len(positions)} positions that will be orphaned")
+                for symbol, position in positions.items():
+                    if position.quantity > 0:
+                        logger.warning(f"  • {symbol}: {position.quantity} shares, ${position.total_cost:.2f} cost basis")
+            
+            # Remove from portfolio
+            removed_allocation = self.strategy_allocations[strategy_id].allocation_percentage
+            del self.strategy_allocations[strategy_id]
+            
+            logger.info(f"🔥 Hot-removed strategy from portfolio: {strategy_id} "
+                       f"(freed {removed_allocation:.1%} allocation)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to hot-remove strategy {strategy_id} from portfolio: {e}")
+            return False
+    
+    def rebalance_allocations(self, new_allocations: Dict[str, float]) -> bool:
+        """
+        Rebalance strategy allocations at runtime
+        
+        Args:
+            new_allocations: New allocation percentages for strategies
+            
+        Returns:
+            True if rebalancing was successful
+        """
+        try:
+            # Validate new allocations
+            total_allocation = sum(new_allocations.values())
+            if abs(total_allocation - 1.0) > 0.01:
+                logger.error(f"New allocations sum to {total_allocation:.1%}, not 100%")
+                return False
+            
+            # Check if all strategies exist
+            for strategy_id in new_allocations:
+                if strategy_id not in self.strategy_allocations:
+                    logger.error(f"Strategy {strategy_id} not found in portfolio")
+                    return False
+            
+            # Apply new allocations
+            old_allocations = {}
+            for strategy_id, new_percentage in new_allocations.items():
+                old_percentage = self.strategy_allocations[strategy_id].allocation_percentage
+                old_allocations[strategy_id] = old_percentage
+                
+                self.strategy_allocations[strategy_id].allocation_percentage = new_percentage
+                
+                # Update allocated amounts if account value is set
+                if self.total_account_value > 0:
+                    self.strategy_allocations[strategy_id].total_allocated = (
+                        self.total_account_value * new_percentage
+                    )
+                
+                logger.info(f"Strategy {strategy_id}: {old_percentage:.1%} → {new_percentage:.1%}")
+            
+            logger.info(f"🔥 Portfolio rebalanced successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to rebalance portfolio: {e}")
+            # Restore old allocations on failure
+            for strategy_id, old_percentage in old_allocations.items():
+                if strategy_id in self.strategy_allocations:
+                    self.strategy_allocations[strategy_id].allocation_percentage = old_percentage
+                    if self.total_account_value > 0:
+                        self.strategy_allocations[strategy_id].total_allocated = (
+                            self.total_account_value * old_percentage
+                        )
+            return False
+    
     def update_account_value(self, account_value: float):
         """
         Update total account value and recalculate strategy allocations

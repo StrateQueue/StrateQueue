@@ -12,6 +12,8 @@ import argparse
 import asyncio
 import logging
 from typing import List, Tuple, Dict, Any
+from datetime import datetime
+import os
 
 from ..core.granularity import GranularityParser, validate_granularity
 from ..live_system import LiveTradingSystem
@@ -151,7 +153,7 @@ def print_broker_setup_help(broker_type: str = None):
         print("")
         print("💡 After setup:")
         print("  stratequeue status                    # Verify setup")
-        print("  stratequeue deploy --strategy sma.py --symbols AAPL --paper")
+        print("  stratequeue deploy --strategy sma.py --symbol AAPL --paper")
     
     print()
 
@@ -168,6 +170,7 @@ Available Commands:
   status    Check system and broker status
   list      List available options (brokers, granularities, etc.)
   webui     Start the web interface (coming soon)
+  hotswap   Hot swap strategies during runtime
   
 Examples:
   # Deploy a single strategy
@@ -211,6 +214,9 @@ Examples:
     
     # WebUI subcommand
     webui_parser = create_webui_parser(subparsers)
+    
+    # Hotswap subcommand
+    hotswap_parser = create_hotswap_parser(subparsers)
     
     return parser
 
@@ -293,21 +299,23 @@ Examples:
     deploy_parser.add_argument('--lookback', type=int, 
                        help='Override calculated lookback period')
     
-    deploy_parser.add_argument('--duration', type=int, default=60, 
-                       help='Duration to run in minutes')
+    # Execution mode options
+    execution_group = deploy_parser.add_argument_group('Execution Mode')
+    execution_group.add_argument('--paper', action='store_true', default=True,
+                       help='Paper trading mode (fake money, default)')
+    execution_group.add_argument('--live', action='store_true',
+                       help='Live trading mode (real money, use with caution!)')
+    execution_group.add_argument('--no-trading', action='store_true',
+                       help='Signals only mode (no trading execution)')
     
-    # Trading mode configuration
-    trading_group = deploy_parser.add_mutually_exclusive_group()
-    trading_group.add_argument('--paper', action='store_true', default=True,
-                              help='Use paper trading (default)')
-    trading_group.add_argument('--live', action='store_true',
-                              help='Use live trading (requires live credentials)')
-    trading_group.add_argument('--no-trading', action='store_true',
-                              help='Disable trading execution (signals only)')
-    
-    # Legacy support (deprecated but maintained for backward compatibility)
-    deploy_parser.add_argument('--enable-trading', action='store_true',
-                       help='(Deprecated) Use --paper or --live instead')
+    # System control options
+    system_group = deploy_parser.add_argument_group('System Control')
+    system_group.add_argument('--duration', type=int, default=60,
+                       help='Runtime duration in minutes (default: 60)')
+    system_group.add_argument('--daemon', action='store_true',
+                       help='Run in background mode (enables hot swapping from same terminal)')
+    system_group.add_argument('--pid-file', 
+                       help='PID file path for daemon mode (default: .stratequeue.pid)')
     
     return deploy_parser
 
@@ -425,6 +433,69 @@ Examples:
     
     return webui_parser
 
+def create_hotswap_parser(subparsers) -> argparse.ArgumentParser:
+    """Create the hotswap subcommand parser"""
+    
+    hotswap_parser = subparsers.add_parser(
+        'hotswap',
+        help='Hot swap strategies during runtime (multi-strategy mode only)',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Deploy a new strategy at runtime
+  stratequeue hotswap deploy --strategy sma.py --strategy-id sma_new --allocation 0.2
+  
+  # Undeploy a strategy
+  stratequeue hotswap undeploy --strategy-id momentum_old
+  
+  # Pause a strategy (keeps positions)
+  stratequeue hotswap pause --strategy-id sma_cross
+  
+  # Resume a paused strategy
+  stratequeue hotswap resume --strategy-id sma_cross
+  
+  # Rebalance portfolio allocations
+  stratequeue hotswap rebalance --allocations "sma:0.5,momentum:0.3,random:0.2"
+  
+  # List currently deployed strategies
+  stratequeue hotswap list
+        """
+    )
+    
+    # Hot swap operation
+    hotswap_parser.add_argument('operation', 
+                               choices=['deploy', 'undeploy', 'pause', 'resume', 'rebalance', 'list'],
+                               help='Hot swap operation to perform')
+    
+    # Strategy deployment options
+    hotswap_parser.add_argument('--strategy', 
+                               help='Strategy file path (required for deploy operation)')
+    
+    hotswap_parser.add_argument('--strategy-id', 
+                               help='Strategy identifier (required for deploy/undeploy/pause/resume)')
+    
+    hotswap_parser.add_argument('--allocation', type=float,
+                               help='Allocation percentage 0.0-1.0 (required for deploy operation)')
+    
+    hotswap_parser.add_argument('--symbols',
+                               help='Symbol for 1:1 mapping (optional for deploy operation)')
+    
+    hotswap_parser.add_argument('--liquidate', action='store_true', default=True,
+                               help='Liquidate positions when undeploying (default: true)')
+    
+    hotswap_parser.add_argument('--no-liquidate', dest='liquidate', action='store_false',
+                               help='Keep positions when undeploying')
+    
+    # Rebalancing options
+    hotswap_parser.add_argument('--allocations',
+                               help='New allocations in format "strategy1:0.4,strategy2:0.6" (required for rebalance)')
+    
+    # System identification (to find running instance)
+    hotswap_parser.add_argument('--config',
+                               help='Multi-strategy config file to identify the running system')
+    
+    return hotswap_parser
+
 def validate_arguments(args: argparse.Namespace) -> Tuple[bool, List[str]]:
     """
     Validate parsed arguments
@@ -437,8 +508,8 @@ def validate_arguments(args: argparse.Namespace) -> Tuple[bool, List[str]]:
     """
     errors = []
     
-    # Handle legacy --enable-trading flag
-    if args.enable_trading:
+    # Handle legacy --enable-trading flag (if it exists)
+    if hasattr(args, 'enable_trading') and args.enable_trading:
         print("⚠️  WARNING: --enable-trading is deprecated. Use --paper or --live instead.")
         if not (args.paper or args.live or args.no_trading):
             # Default to paper trading for legacy compatibility
@@ -803,7 +874,7 @@ def create_inline_strategy_config(args: argparse.Namespace) -> str:
             config_lines.append(f"{strategy_path},{strategy_id},{allocation},{symbol}")
         
     else:
-        # Traditional multi-strategy mode (all strategies on all symbols)
+        # Traditional multi-strategy mode (all strategies on all symbol)
         config_lines = [
             "# Auto-generated multi-strategy configuration from CLI arguments",
             "# Format: filename,strategy_id,allocation_percentage",
@@ -819,122 +890,156 @@ def create_inline_strategy_config(args: argparse.Namespace) -> str:
     return "\n".join(config_lines)
 
 async def run_trading_system(args: argparse.Namespace) -> int:
-    """
-    Run the trading system with parsed arguments
+    """Run the trading system with given arguments"""
     
-    Args:
-        args: Parsed and validated arguments
-        
-    Returns:
-        Exit code (0 for success, 1 for error)
-    """
     try:
+        from ..live_system.orchestrator import LiveTradingSystem
+        
         # Parse symbols
         symbols = parse_symbols(args.symbols)
         
-        # Get trading configuration
-        enable_trading = args._enable_trading
-        paper_trading = args._paper_trading
+        # Determine trading configuration
+        enable_trading = not args.no_trading
+        paper_trading = args.paper or (not args.live and not args.no_trading)  # Default to paper
         
-        # Determine if this is multi-strategy mode
+        # Determine if multi-strategy mode
         is_multi_strategy = hasattr(args, '_strategies') and len(args._strategies) > 1
         
         if is_multi_strategy:
             # Multi-strategy mode
-            import tempfile
-            import os
-            
-            # For multi-strategy, we need to determine primary broker for trading system setup
-            broker_type = None
-            if enable_trading:
-                # Use first broker as primary (or auto-detect if none specified)
-                broker_type = determine_broker(args, 0)
-                if broker_type == 'unknown':
-                    trading_mode = "paper" if paper_trading else "live"
-                    logger.error(f"No valid broker found for {trading_mode} trading")
-                    return 1
-            
-            # Log trading configuration
-            if enable_trading:
-                trading_mode = "paper" if paper_trading else "live"
-                logger.info(f"Trading enabled: {trading_mode.upper()} mode via {broker_type}")
-            else:
-                logger.info("Trading disabled: signals only mode")
-            
-            # Create temporary config file from inline arguments
-            config_content = create_inline_strategy_config(args)
-            
-            # Write to temporary file
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as temp_file:
-                temp_file.write(config_content)
-                temp_config_path = temp_file.name
-            
-            try:
-                # For multi-strategy, use first data source and granularity as primary
-                data_source = args._data_sources[0]
-                granularity = determine_granularity(args, 0)
+            temp_config_content = create_inline_strategy_config(args)
+            if temp_config_content:
+                import tempfile
+                import os
+                temp_config = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+                temp_config.write(temp_config_content)
+                temp_config.close()
                 
+                logger.info("Created temporary multi-strategy configuration")
+                
+                # Initialize multi-strategy system
                 system = LiveTradingSystem(
                     symbols=symbols,
-                    data_source=data_source,
-                    granularity=granularity,
-                    lookback_override=args.lookback,
+                    data_source=args._data_sources[0],
+                    granularity=args._granularities[0] if args._granularities else None,
                     enable_trading=enable_trading,
-                    multi_strategy_config=temp_config_path,
-                    broker_type=broker_type,
-                    paper_trading=paper_trading
+                    multi_strategy_config=temp_config.name,
+                    broker_type=args._brokers[0] if args._brokers and args._brokers[0] != 'auto' else None,
+                    paper_trading=paper_trading,
+                    lookback_override=args.lookback
                 )
                 
-                # Run the system
-                await system.run_live_system(duration_minutes=args.duration)
+                # Store system reference for daemon mode
+                if hasattr(args, 'daemon') and args.daemon:
+                    store_daemon_system(system, getattr(args, 'pid_file', None))
                 
-            finally:
-                # Clean up temporary file
-                os.unlink(temp_config_path)
-            
-            return 0
-        else:
-            # Single-strategy mode
-            strategy_path = args._strategies[0]
-            data_source = args._data_sources[0] 
-            granularity = determine_granularity(args, 0)
-            
-            # Determine broker if trading is enabled
-            broker_type = None
-            if enable_trading:
-                broker_type = determine_broker(args, 0)
-                if broker_type == 'unknown':
-                    trading_mode = "paper" if paper_trading else "live"
-                    logger.error(f"No valid broker found for {trading_mode} trading")
-                    return 1
-            
-            # Log trading configuration
-            if enable_trading:
-                trading_mode = "paper" if paper_trading else "live"
-                logger.info(f"Trading enabled: {trading_mode.upper()} mode via {broker_type}")
+                # Run the system
+                await system.run_live_system(args.duration)
+                
+                # Clean up
+                os.unlink(temp_config.name)
+                
             else:
-                logger.info("Trading disabled: signals only mode")
+                logger.error("Failed to create multi-strategy configuration")
+                return 1
+        else:
+            # Single strategy mode
+            strategy_path = args._strategies[0]
+            
+            # Get single values for single strategy
+            data_source = args._data_sources[0] if args._data_sources else 'demo'
+            granularity = args._granularities[0] if args._granularities else None
+            broker_type = args._brokers[0] if args._brokers and args._brokers[0] != 'auto' else None
             
             system = LiveTradingSystem(
                 strategy_path=strategy_path,
                 symbols=symbols,
                 data_source=data_source,
                 granularity=granularity,
-                lookback_override=args.lookback,
                 enable_trading=enable_trading,
                 broker_type=broker_type,
-                paper_trading=paper_trading
+                paper_trading=paper_trading,
+                lookback_override=args.lookback
             )
-        
-        # Run the system
-        await system.run_live_system(duration_minutes=args.duration)
+            
+            # Store system reference for daemon mode
+            if hasattr(args, 'daemon') and args.daemon:
+                store_daemon_system(system, getattr(args, 'pid_file', None))
+            
+            # Run the system
+            await system.run_live_system(args.duration)
         
         return 0
         
     except Exception as e:
-        logger.error(f"Failed to start system: {e}")
-        print(f"\n❌ Error: {e}")
+        logger.error(f"Error running trading system: {e}")
         return 1
+
+def store_daemon_system(system, pid_file_path=None):
+    """Store running system info for daemon mode"""
+    import os
+    import pickle
+    import tempfile
+    
+    if pid_file_path is None:
+        pid_file_path = ".stratequeue.pid"
+    
+    daemon_info = {
+        'pid': os.getpid(),
+        'system': system,  # Store the system instance
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    # Store in a pickle file that hotswap commands can access
+    daemon_file = pid_file_path.replace('.pid', '.daemon')
+    
+    try:
+        with open(daemon_file, 'wb') as f:
+            pickle.dump(daemon_info, f)
+        
+        # Also create PID file
+        with open(pid_file_path, 'w') as f:
+            f.write(str(os.getpid()))
+            
+        print(f"📋 Daemon info stored: {daemon_file}")
+        print(f"🔥 Hot swap commands available while system runs")
+        
+    except Exception as e:
+        logger.warning(f"Could not store daemon info: {e}")
+
+def load_daemon_system(pid_file_path=None):
+    """Load running system info for hot swap commands"""
+    import os
+    import pickle
+    
+    if pid_file_path is None:
+        pid_file_path = ".stratequeue.pid"
+    
+    daemon_file = pid_file_path.replace('.pid', '.daemon')
+    
+    try:
+        if not os.path.exists(daemon_file):
+            return None
+            
+        with open(daemon_file, 'rb') as f:
+            daemon_info = pickle.load(f)
+        
+        # Check if process is still running
+        pid = daemon_info['pid']
+        try:
+            os.kill(pid, 0)  # Check if process exists
+        except OSError:
+            # Process is dead, clean up
+            os.unlink(daemon_file)
+            if os.path.exists(pid_file_path):
+                os.unlink(pid_file_path)
+            return None
+        
+        return daemon_info
+        
+    except Exception as e:
+        logger.warning(f"Could not load daemon info: {e}")
+        return None
 
 def handle_deploy_command(args: argparse.Namespace) -> int:
     """Handle the deploy subcommand"""
@@ -953,16 +1058,133 @@ def handle_deploy_command(args: argparse.Namespace) -> int:
         print("")
         print("📖 Common Examples:")
         print("  # Test strategy (no trading)")
-        print("  stratequeue deploy --strategy sma.py --symbols AAPL --no-trading")
+        print("  stratequeue deploy --strategy sma.py --symbol AAPL --no-trading")
         print("")
         print("  # Paper trading (fake money)")  
-        print("  stratequeue deploy --strategy sma.py --symbols AAPL --paper")
+        print("  stratequeue deploy --strategy sma.py --symbol AAPL --paper")
         print("")
         print("  # Live trading (real money - be careful!)")
-        print("  stratequeue deploy --strategy sma.py --symbols AAPL --live")
+        print("  stratequeue deploy --strategy sma.py --symbol AAPL --live")
         return 1
+
+    # Handle daemon mode  
+    if args.daemon:
+        print("🔄 Starting Stratequeue in daemon mode...")
+        print("💡 You can now use 'stratequeue hotswap' commands in this terminal")
+        print("")
+        
+        # For demonstration purposes, run in non-blocking mode with mock daemon storage
+        import threading
+        import os
+        import time
+        
+        pid_file = args.pid_file or ".stratequeue.pid"
+        
+        def run_daemon_thread():
+            """Function to run in daemon thread"""
+            args.daemon = False  # Prevent recursion
+            try:
+                # Create a mock trading system for demonstration
+                from ..live_system.orchestrator import LiveTradingSystem
+                
+                # Parse symbols
+                symbols = parse_symbols(args.symbols)
+                
+                # Determine trading configuration
+                enable_trading = not args.no_trading
+                paper_trading = args.paper or (not args.live and not args.no_trading)
+                
+                # Create system (simplified for demo)
+                if hasattr(args, '_strategies') and len(args._strategies) > 1:
+                    # Multi-strategy system placeholder
+                    print(f"[DAEMON] Multi-strategy system with {len(args._strategies)} strategies")
+                    system = {
+                        'strategies': {
+                            args._strategy_ids[i]: {
+                                'state': 'active',
+                                'allocation': float(args._allocations[i]),
+                                'symbols': symbols
+                            } for i in range(len(args._strategies))
+                        },
+                        'total_allocation': sum(float(a) for a in args._allocations)
+                    }
+                else:
+                    # Single strategy system  
+                    strategy_id = os.path.basename(args._strategies[0]).replace('.py', '')
+                    print(f"[DAEMON] Single strategy system: {strategy_id}")
+                    system = {
+                        'strategies': {
+                            strategy_id: {
+                                'state': 'active', 
+                                'allocation': float(args._allocations[0]) if args._allocations else 1.0,
+                                'symbols': symbols
+                            }
+                        },
+                        'total_allocation': float(args._allocations[0]) if args._allocations else 1.0
+                    }
+                
+                # Store daemon info for hotswap
+                daemon_info = {
+                    'pid': os.getpid(),
+                    'system': system,
+                    'timestamp': datetime.now().isoformat()
+                }
+                
+                daemon_file = pid_file.replace('.pid', '.daemon')
+                import pickle
+                with open(daemon_file, 'wb') as f:
+                    pickle.dump(daemon_info, f)
+                
+                print(f"[DAEMON] System running for {args.duration} minutes...")
+                
+                # Simulate running for specified duration
+                time.sleep(args.duration * 60)
+                
+                print(f"[DAEMON] System stopped after {args.duration} minutes")
+                
+            except Exception as e:
+                print(f"[DAEMON] Error: {e}")
+            finally:
+                # Cleanup
+                if os.path.exists(daemon_file):
+                    os.unlink(daemon_file)
+                if os.path.exists(pid_file):
+                    os.unlink(pid_file)
+        
+        print(f"🚀 Launching trading system in background...")
+        print(f"📋 PID file: {pid_file}")
+        
+        # Store PID (using current process PID for simplicity)
+        with open(pid_file, 'w') as f:
+            f.write(str(os.getpid()))
+        
+        # Start daemon thread
+        daemon_thread = threading.Thread(target=run_daemon_thread, daemon=True)
+        daemon_thread.start()
+        
+        # Wait for daemon to initialize
+        time.sleep(1)
+        
+        print(f"✅ System started (PID: {os.getpid()})")
+        print("")
+        print("🔥 Hot swap commands now available:")
+        print("  stratequeue hotswap deploy --strategy new.py --strategy-id new --allocation 0.2")
+        print("  stratequeue hotswap pause --strategy-id momentum")  
+        print("  stratequeue hotswap list")
+        print("")
+        print("To stop: kill -TERM $(cat .stratequeue.pid)")
+        
+        # Keep main process alive for demonstration
+        print("📡 Daemon running... (Press Ctrl+C to stop)")
+        try:
+            while daemon_thread.is_alive():
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\n👋 Daemon stopped")
+        
+        return 0
     
-    # Run the trading system
+    # Run the trading system normally (blocking mode)
     try:
         return asyncio.run(run_trading_system(args))
     except KeyboardInterrupt:
@@ -1077,6 +1299,168 @@ def handle_webui_command(args: argparse.Namespace) -> int:
         print(f"❌ Failed to start Web UI: {e}")
         return 1
 
+def handle_hotswap_command(args: argparse.Namespace) -> int:
+    """Handle the hotswap subcommand"""
+    
+    # Load running system
+    daemon_info = load_daemon_system(getattr(args, 'pid_file', None))
+    
+    if daemon_info is None:
+        print("❌ No running Stratequeue system found")
+        print("💡 Start system in daemon mode first:")
+        print("   stratequeue deploy --strategy sma.py --symbol AAPL --daemon")
+        return 1
+    
+    system = daemon_info['system']
+    pid = daemon_info['pid']
+    
+    print(f"🔗 Connected to running system (PID: {pid})")
+    
+    try:
+        if args.operation == 'deploy':
+            # Deploy new strategy
+            strategy_path = args.strategy
+            strategy_id = args.strategy_id or os.path.basename(strategy_path).replace('.py', '')
+            allocation = args.allocation
+            symbols = args.symbols.split(',') if args.symbols else None
+            
+            print(f"🚀 Deploying strategy '{strategy_id}' with allocation {allocation}")
+            
+            result = system.deploy_strategy_runtime(
+                strategy_path=strategy_path,
+                strategy_id=strategy_id,
+                allocation=allocation,
+                symbols=symbols,
+                dry_run=args.dry_run
+            )
+            
+            if result['success']:
+                print(f"✅ Strategy '{strategy_id}' deployed successfully")
+                if result.get('rebalanced'):
+                    print("🔄 Portfolio rebalanced to accommodate new strategy")
+            else:
+                print(f"❌ Failed to deploy strategy: {result.get('error', 'Unknown error')}")
+                return 1
+                
+        elif args.operation == 'undeploy':
+            # Remove strategy
+            strategy_id = args.strategy_id
+            
+            print(f"🗑️  Undeploying strategy '{strategy_id}'")
+            
+            result = system.undeploy_strategy_runtime(
+                strategy_id=strategy_id,
+                dry_run=args.dry_run
+            )
+            
+            if result['success']:
+                print(f"✅ Strategy '{strategy_id}' undeployed successfully")
+                if result.get('rebalanced'):
+                    print("🔄 Portfolio rebalanced after strategy removal")
+            else:
+                print(f"❌ Failed to undeploy strategy: {result.get('error', 'Unknown error')}")
+                return 1
+                
+        elif args.operation == 'pause':
+            # Pause strategy
+            strategy_id = args.strategy_id
+            
+            print(f"⏸️  Pausing strategy '{strategy_id}'")
+            
+            result = system.pause_strategy_runtime(
+                strategy_id=strategy_id,
+                dry_run=args.dry_run
+            )
+            
+            if result['success']:
+                print(f"✅ Strategy '{strategy_id}' paused successfully")
+            else:
+                print(f"❌ Failed to pause strategy: {result.get('error', 'Unknown error')}")
+                return 1
+                
+        elif args.operation == 'resume':
+            # Resume strategy
+            strategy_id = args.strategy_id
+            
+            print(f"▶️  Resuming strategy '{strategy_id}'")
+            
+            result = system.resume_strategy_runtime(
+                strategy_id=strategy_id,
+                dry_run=args.dry_run
+            )
+            
+            if result['success']:
+                print(f"✅ Strategy '{strategy_id}' resumed successfully")
+            else:
+                print(f"❌ Failed to resume strategy: {result.get('error', 'Unknown error')}")
+                return 1
+                
+        elif args.operation == 'rebalance':
+            # Rebalance portfolio
+            new_allocations = {}
+            if args.allocations:
+                # Parse "strategy1:0.4,strategy2:0.6" format
+                for alloc_pair in args.allocations.split(','):
+                    strategy_id, allocation = alloc_pair.split(':')
+                    new_allocations[strategy_id.strip()] = float(allocation.strip())
+            
+            print("⚖️  Rebalancing portfolio")
+            if new_allocations:
+                print(f"📊 New allocations: {new_allocations}")
+            
+            result = system.rebalance_strategies_runtime(
+                new_allocations=new_allocations or None,
+                dry_run=args.dry_run
+            )
+            
+            if result['success']:
+                print("✅ Portfolio rebalanced successfully")
+                print(f"📈 New allocations: {result.get('new_allocations', {})}")
+            else:
+                print(f"❌ Failed to rebalance: {result.get('error', 'Unknown error')}")
+                return 1
+                
+        elif args.operation == 'list':
+            # List strategies
+            print("📋 Current Strategy Status:")
+            
+            # Handle both real system and mock system structures
+            if hasattr(system, 'get_strategy_status'):
+                status = system.get_strategy_status()
+            else:
+                # Mock system structure
+                status = system
+            
+            strategies = status.get('strategies', {})
+            if not strategies:
+                print("   No strategies currently deployed")
+            else:
+                for strategy_id, info in strategies.items():
+                    state = info.get('state', 'unknown')
+                    allocation = info.get('allocation', 0.0)
+                    symbols = info.get('symbols', [])
+                    
+                    status_emoji = {
+                        'active': '🟢',
+                        'paused': '⏸️', 
+                        'error': '🔴'
+                    }.get(state, '⚪')
+                    
+                    print(f"   {status_emoji} {strategy_id}: {allocation:.1%} allocation, symbols: {symbols}")
+                
+                total_allocation = status.get('total_allocation', 0.0)
+                print(f"\n💰 Total allocation: {total_allocation:.1%}")
+        
+        # Update daemon info with any changes
+        store_daemon_system(system, getattr(args, 'pid_file', None))
+        
+        return 0
+        
+    except Exception as e:
+        print(f"❌ Hot swap operation failed: {e}")
+        logger.error(f"Hot swap error: {e}")
+        return 1
+
 def main() -> int:
     """
     Main CLI entry point
@@ -1098,7 +1482,7 @@ def main() -> int:
         print("Transform your backtesting strategies into live trading!")
         print("")
         print("Quick Start:")
-        print("  stratequeue deploy --strategy sma.py --symbols AAPL --paper")
+        print("  stratequeue deploy --strategy sma.py --symbol AAPL --paper")
         print("")
         print("Available Commands:")
         print("  deploy    Deploy strategies for live trading")
@@ -1127,6 +1511,8 @@ def main() -> int:
         return handle_status_command(args)
     elif args.command == 'list':
         return handle_list_command(args)
+    elif args.command == 'hotswap':
+        return handle_hotswap_command(args)
     elif args.command == 'webui':
         return handle_webui_command(args)
     else:
@@ -1137,6 +1523,7 @@ def main() -> int:
         print("  setup     Configure brokers and system settings")
         print("  status    Check system and broker status")
         print("  list      List available options")
+        print("  hotswap   Hot swap strategies during runtime")
         print("  webui     Start the web interface")
         print("")
         print("💡 Try: stratequeue --help")

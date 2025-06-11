@@ -6,6 +6,7 @@ Handles signal generation and validation across multiple strategies:
 - Multi-strategy signal generation
 - Signal validation against portfolio constraints
 - Strategy status tracking
+- Hot swapping strategies at runtime
 """
 
 import logging
@@ -30,45 +31,164 @@ class SignalCoordinator:
         self.strategy_configs = strategy_configs
         self.strategy_status: Dict[str, str] = {}
         self.active_signals: Dict[str, Dict[str, TradingSignal]] = {}  # strategy_id -> symbol -> signal
+        self.paused_strategies: set = set()  # Track paused strategies
         
     def initialize_strategies(self):
         """Load and initialize all strategy classes"""
         logger.info("Initializing strategy classes...")
         
         for strategy_id, config in self.strategy_configs.items():
-            try:
-                # Use cached strategy class or load from file if not cached
-                if config.strategy_class is not None:
-                    strategy_class = config.strategy_class
-                else:
-                    # Load strategy class from file (fallback if not cached)
-                    strategy_class = StrategyLoader.load_strategy_from_file(config.file_path)
-                    config.strategy_class = strategy_class
-                
-                # Convert to signal-generating strategy
-                signal_strategy_class = StrategyLoader.convert_to_signal_strategy(strategy_class)
-                
-                # Create signal extractor with individual strategy's lookback requirement
-                signal_extractor = LiveSignalExtractor(
-                    signal_strategy_class,
-                    min_bars_required=config.lookback_period
-                )
-                
-                # Update config
-                config.strategy_class = signal_strategy_class
-                config.signal_extractor = signal_extractor
-                
-                # Initialize strategy status
-                self.strategy_status[strategy_id] = "initialized"
-                
-                logger.info(f"✅ Initialized strategy: {strategy_id} (lookback: {config.lookback_period})")
-                
-            except Exception as e:
-                logger.error(f"❌ Failed to initialize strategy {strategy_id}: {e}")
-                self.strategy_status[strategy_id] = f"error: {e}"
-                raise
+            self._initialize_single_strategy(strategy_id, config)
         
         logger.info(f"Successfully initialized {len(self.strategy_configs)} strategies")
+    
+    def _initialize_single_strategy(self, strategy_id: str, config: StrategyConfig):
+        """Initialize a single strategy (helper method for hot swapping)"""
+        try:
+            # Use cached strategy class or load from file if not cached
+            if config.strategy_class is not None:
+                strategy_class = config.strategy_class
+            else:
+                # Load strategy class from file (fallback if not cached)
+                strategy_class = StrategyLoader.load_strategy_from_file(config.file_path)
+                config.strategy_class = strategy_class
+            
+            # Convert to signal-generating strategy
+            signal_strategy_class = StrategyLoader.convert_to_signal_strategy(strategy_class)
+            
+            # Create signal extractor with individual strategy's lookback requirement
+            signal_extractor = LiveSignalExtractor(
+                signal_strategy_class,
+                min_bars_required=config.lookback_period
+            )
+            
+            # Update config
+            config.strategy_class = signal_strategy_class
+            config.signal_extractor = signal_extractor
+            
+            # Initialize strategy status
+            self.strategy_status[strategy_id] = "initialized"
+            
+            logger.info(f"✅ Initialized strategy: {strategy_id} (lookback: {config.lookback_period})")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize strategy {strategy_id}: {e}")
+            self.strategy_status[strategy_id] = f"error: {e}"
+            raise
+    
+    # HOT SWAP METHODS
+    
+    def add_strategy_runtime(self, strategy_id: str, config: StrategyConfig) -> bool:
+        """
+        Add a new strategy at runtime
+        
+        Args:
+            strategy_id: Unique identifier for the strategy
+            config: Strategy configuration
+            
+        Returns:
+            True if strategy was added successfully
+        """
+        try:
+            if strategy_id in self.strategy_configs:
+                logger.warning(f"Strategy {strategy_id} already exists, skipping add")
+                return False
+            
+            # Add to configurations
+            self.strategy_configs[strategy_id] = config
+            
+            # Initialize the strategy
+            self._initialize_single_strategy(strategy_id, config)
+            
+            logger.info(f"🔥 Hot-added strategy: {strategy_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to hot-add strategy {strategy_id}: {e}")
+            # Clean up on failure
+            if strategy_id in self.strategy_configs:
+                del self.strategy_configs[strategy_id]
+            if strategy_id in self.strategy_status:
+                del self.strategy_status[strategy_id]
+            return False
+    
+    def remove_strategy_runtime(self, strategy_id: str) -> bool:
+        """
+        Remove a strategy at runtime
+        
+        Args:
+            strategy_id: Strategy to remove
+            
+        Returns:
+            True if strategy was removed successfully
+        """
+        try:
+            if strategy_id not in self.strategy_configs:
+                logger.warning(f"Strategy {strategy_id} not found, cannot remove")
+                return False
+            
+            # Remove from all tracking structures
+            del self.strategy_configs[strategy_id]
+            if strategy_id in self.strategy_status:
+                del self.strategy_status[strategy_id]
+            if strategy_id in self.active_signals:
+                del self.active_signals[strategy_id]
+            self.paused_strategies.discard(strategy_id)
+            
+            logger.info(f"🔥 Hot-removed strategy: {strategy_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to hot-remove strategy {strategy_id}: {e}")
+            return False
+    
+    def pause_strategy(self, strategy_id: str) -> bool:
+        """
+        Pause a strategy (stops signal generation but keeps config)
+        
+        Args:
+            strategy_id: Strategy to pause
+            
+        Returns:
+            True if strategy was paused successfully
+        """
+        if strategy_id not in self.strategy_configs:
+            logger.warning(f"Strategy {strategy_id} not found, cannot pause")
+            return False
+        
+        self.paused_strategies.add(strategy_id)
+        self.strategy_status[strategy_id] = "paused"
+        
+        # Clear active signals for paused strategy
+        if strategy_id in self.active_signals:
+            del self.active_signals[strategy_id]
+        
+        logger.info(f"⏸️ Paused strategy: {strategy_id}")
+        return True
+    
+    def resume_strategy(self, strategy_id: str) -> bool:
+        """
+        Resume a paused strategy
+        
+        Args:
+            strategy_id: Strategy to resume
+            
+        Returns:
+            True if strategy was resumed successfully
+        """
+        if strategy_id not in self.strategy_configs:
+            logger.warning(f"Strategy {strategy_id} not found, cannot resume")
+            return False
+        
+        self.paused_strategies.discard(strategy_id)
+        self.strategy_status[strategy_id] = "initialized"
+        
+        logger.info(f"▶️ Resumed strategy: {strategy_id}")
+        return True
+    
+    def is_strategy_paused(self, strategy_id: str) -> bool:
+        """Check if a strategy is paused"""
+        return strategy_id in self.paused_strategies
     
     async def generate_signals(self, symbol: str, historical_data) -> Dict[str, TradingSignal]:
         """
@@ -88,6 +208,10 @@ class SignalCoordinator:
         
         for strategy_id, config in self.strategy_configs.items():
             if not config.signal_extractor:
+                continue
+            
+            # Skip paused strategies
+            if self.is_strategy_paused(strategy_id):
                 continue
             
             # Check if this strategy should run on this symbol

@@ -382,3 +382,6 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+.stratequeue.daemon
+test_hotswap.py
+test_cli.py

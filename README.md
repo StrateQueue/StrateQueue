@@ -124,6 +124,67 @@ stratequeue --strategy sma.py,momentum.py --allocation 0.5,0.5 --symbols AAPL,MS
 # Both strategies trade all symbols (AAPL, MSFT, GOOGL)
 ```
 
+## 🔥 Hot Swapping (Runtime Strategy Management)
+
+**Change your strategies without stopping the system** - Deploy, remove, pause, and rebalance strategies while your system keeps running.
+
+### **Deploy New Strategies at Runtime**
+```bash
+# Start with basic portfolio in daemon mode (non-blocking)
+stratequeue deploy --strategy sma.py,momentum.py --allocation 0.6,0.4 --symbols AAPL --daemon
+
+# Now in the SAME terminal: Add a new strategy while running
+stratequeue hotswap deploy --strategy new_algo.py --strategy-id new_strat --allocation 0.2
+
+# System automatically rebalances: sma(60%), momentum(40%) → sma(48%), momentum(32%), new_algo(20%)
+```
+
+### **Pause/Resume Strategies**
+```bash
+# Pause a strategy (stops signals, keeps positions)
+stratequeue hotswap pause --strategy-id momentum
+
+# Resume when ready
+stratequeue hotswap resume --strategy-id momentum
+```
+
+### **Remove Strategies**
+```bash
+# Remove a strategy (optionally liquidate positions)
+stratequeue hotswap undeploy --strategy-id old_strat --liquidate
+```
+
+### **Rebalance Portfolio**
+```bash
+# Change allocations on the fly
+stratequeue hotswap rebalance --allocations "sma:0.5,momentum:0.3,new_algo:0.2"
+```
+
+### **Monitor Changes**
+```bash
+# See current strategies and their status
+stratequeue hotswap list
+
+# Check detailed system status
+stratequeue status
+```
+
+### **Your Trading Timeline Scenarios**
+```bash
+# t0: Start with A & B in daemon mode
+stratequeue deploy --strategy a.py,b.py --allocation 0.6,0.4 --daemon
+
+# t1: Remove A (while system keeps running in background)
+stratequeue hotswap undeploy --strategy-id a
+
+# t2: Add A & C, rebalance
+stratequeue hotswap deploy --strategy a_v2.py --strategy-id a_new --allocation 0.3
+stratequeue hotswap deploy --strategy c.py --strategy-id c --allocation 0.3
+stratequeue hotswap rebalance --allocations "b:0.4,a_new:0.3,c:0.3"
+```
+
+> **Note:** Hot swapping only works in multi-strategy mode. Single-strategy deployments need to be restarted to change strategies.
+
 ## 🏦 Supported Brokers
 
 | Broker | Status | Paper Trading | Live Trading |

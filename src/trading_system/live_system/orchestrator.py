@@ -10,7 +10,7 @@ Main orchestrator that coordinates all components of the live trading system:
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 from ..utils.config import load_config
 from ..core.signal_extractor import SignalType
@@ -347,14 +347,142 @@ class LiveTradingSystem:
                         logger.warning(f"❌ Failed to execute {signal.signal.value} for {symbol}")
     
     def get_system_status(self) -> dict:
-        """Get current system status"""
-        return {
-            'mode': 'multi-strategy' if self.is_multi_strategy else 'single-strategy',
+        """Get comprehensive system status"""
+        status = {
+            'timestamp': datetime.now().isoformat(),
+            'mode': 'multi_strategy' if self.is_multi_strategy else 'single_strategy',
             'symbols': self.symbols,
             'data_source': self.data_source,
             'granularity': self.granularity,
             'lookback_period': self.lookback_period,
             'trading_enabled': self.enable_trading,
-            'trade_count': self.display_manager.get_trade_count(),
-            'active_signals': self.trading_processor.get_active_signals()
-        } 
+            'broker_connected': self.broker_executor is not None,
+            'broker_type': getattr(self.broker_executor, 'config', {}).get('broker_type', None) if self.broker_executor else None,
+            'paper_trading': self.paper_trading
+        }
+        
+        if self.is_multi_strategy:
+            status['strategy_count'] = len(self.multi_strategy_runner.get_strategy_ids())
+            status['strategy_statuses'] = self.multi_strategy_runner.get_all_strategy_statuses()
+            status['portfolio_health'] = self.multi_strategy_runner.is_system_healthy()
+        else:
+            status['strategy_path'] = self.strategy_path
+            status['strategy_class'] = self.strategy_class.__name__ if self.strategy_class else None
+        
+        return status
+    
+    # HOT SWAP METHODS (Multi-strategy mode only)
+    
+    def deploy_strategy_runtime(self, strategy_path: str, strategy_id: str, 
+                              allocation_percentage: float, symbol: Optional[str] = None) -> bool:
+        """
+        Deploy a new strategy at runtime (multi-strategy mode only)
+        
+        Args:
+            strategy_path: Path to the strategy file
+            strategy_id: Unique identifier for the strategy  
+            allocation_percentage: Allocation percentage (0.0 to 1.0)
+            symbol: Optional symbol for 1:1 mapping (None for all symbols)
+            
+        Returns:
+            True if strategy was deployed successfully
+        """
+        if not self.is_multi_strategy:
+            logger.error("Hot swapping is only supported in multi-strategy mode")
+            return False
+        
+        return self.multi_strategy_runner.deploy_strategy_runtime(
+            strategy_path, strategy_id, allocation_percentage, symbol
+        )
+    
+    def undeploy_strategy_runtime(self, strategy_id: str, liquidate_positions: bool = True) -> bool:
+        """
+        Undeploy a strategy at runtime (multi-strategy mode only)
+        
+        Args:
+            strategy_id: Strategy to undeploy
+            liquidate_positions: Whether to liquidate all positions for this strategy
+            
+        Returns:
+            True if strategy was undeployed successfully
+        """
+        if not self.is_multi_strategy:
+            logger.error("Hot swapping is only supported in multi-strategy mode")
+            return False
+        
+        return self.multi_strategy_runner.undeploy_strategy_runtime(strategy_id, liquidate_positions)
+    
+    def pause_strategy_runtime(self, strategy_id: str) -> bool:
+        """
+        Pause a strategy at runtime (multi-strategy mode only)
+        
+        Args:
+            strategy_id: Strategy to pause
+            
+        Returns:
+            True if strategy was paused successfully
+        """
+        if not self.is_multi_strategy:
+            logger.error("Hot swapping is only supported in multi-strategy mode")
+            return False
+        
+        return self.multi_strategy_runner.pause_strategy_runtime(strategy_id)
+    
+    def resume_strategy_runtime(self, strategy_id: str) -> bool:
+        """
+        Resume a paused strategy at runtime (multi-strategy mode only)
+        
+        Args:
+            strategy_id: Strategy to resume
+            
+        Returns:
+            True if strategy was resumed successfully
+        """
+        if not self.is_multi_strategy:
+            logger.error("Hot swapping is only supported in multi-strategy mode")
+            return False
+        
+        return self.multi_strategy_runner.resume_strategy_runtime(strategy_id)
+    
+    def rebalance_portfolio_runtime(self, new_allocations: Dict[str, float]) -> bool:
+        """
+        Rebalance portfolio allocations at runtime (multi-strategy mode only)
+        
+        Args:
+            new_allocations: New allocation percentages for strategies
+            
+        Returns:
+            True if rebalancing was successful
+        """
+        if not self.is_multi_strategy:
+            logger.error("Portfolio rebalancing is only supported in multi-strategy mode")
+            return False
+        
+        return self.multi_strategy_runner.rebalance_portfolio_runtime(new_allocations)
+    
+    def get_deployed_strategies(self) -> List[str]:
+        """
+        Get list of currently deployed strategy IDs
+        
+        Returns:
+            List of strategy IDs (empty if single-strategy mode)
+        """
+        if not self.is_multi_strategy:
+            return []
+        
+        return self.multi_strategy_runner.get_strategy_ids()
+    
+    def get_strategy_status(self, strategy_id: str) -> str:
+        """
+        Get status of a specific strategy
+        
+        Args:
+            strategy_id: Strategy to check
+            
+        Returns:
+            Strategy status string
+        """
+        if not self.is_multi_strategy:
+            return "N/A (single-strategy mode)"
+        
+        return self.multi_strategy_runner.get_strategy_status(strategy_id) 
