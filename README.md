@@ -124,88 +124,66 @@ stratequeue --strategy sma.py,momentum.py --allocation 0.5,0.5 --symbols AAPL,MS
 # Both strategies trade all symbols (AAPL, MSFT, GOOGL)
 ```
 
-## 🔥 One-Terminal Strategy Management
+## 🔥 Hot Swapping (Runtime Strategy Management)
 
-**No more terminal juggling!** The `deploy` command is now context-aware and automatically switches between blocking and hot swap modes.
+**Change your strategies without stopping the system** - Deploy, remove, pause, and rebalance strategies while your system keeps running.
 
-### **🎯 Simple Unified Workflow**
-
+### **Deploy New Strategies at Runtime**
 ```bash
-# Option 1: Start in foreground (see output in terminal)
-stratequeue deploy --strategy sma.py,momentum.py --allocation 0.6,0.4 --symbols AAPL
-
-# Option 2: Start in background (daemon mode for hot swapping)
+# Start with basic portfolio in daemon mode (non-blocking)
 stratequeue deploy --strategy sma.py,momentum.py --allocation 0.6,0.4 --symbols AAPL --daemon
 
-# Now use the SAME terminal for all management:
-stratequeue deploy --strategy new_algo.py --allocation 0.2                 # Auto-hot-swap
-stratequeue pause --strategy-id momentum                                   # Direct commands
-stratequeue resume --strategy-id momentum
-stratequeue undeploy --strategy-id old_strat
-stratequeue list                                                           # Show live status
+# Now in the SAME terminal: Add a new strategy while running
+stratequeue hotswap deploy --strategy new_algo.py --strategy-id new_strat --allocation 0.2
+
+# System automatically rebalances: sma(60%), momentum(40%) → sma(48%), momentum(32%), new_algo(20%)
 ```
 
-### **🤖 Context-Aware Intelligence**
-
-The `deploy` command automatically detects your situation:
-
-- **🆕 No system running** → Start fresh system (foreground or daemon based on `--daemon` flag)
-- **🔄 System already running** → Hot swap new strategies into running system  
-- **🧹 Dead system detected** → Clean up and restart fresh
-
-### **📈 Your Exact Trading Timeline**
+### **Pause/Resume Strategies**
 ```bash
-# t0: Deploy strategies A & B (daemon mode returns control immediately)
+# Pause a strategy (stops signals, keeps positions)
+stratequeue hotswap pause --strategy-id momentum
+
+# Resume when ready
+stratequeue hotswap resume --strategy-id momentum
+```
+
+### **Remove Strategies**
+```bash
+# Remove a strategy (optionally liquidate positions)
+stratequeue hotswap undeploy --strategy-id old_strat --liquidate
+```
+
+### **Rebalance Portfolio**
+```bash
+# Change allocations on the fly
+stratequeue hotswap rebalance --allocations "sma:0.5,momentum:0.3,new_algo:0.2"
+```
+
+### **Monitor Changes**
+```bash
+# See current strategies and their status
+stratequeue hotswap list
+
+# Check detailed system status
+stratequeue status
+```
+
+### **Your Trading Timeline Scenarios**
+```bash
+# t0: Start with A & B in daemon mode
 stratequeue deploy --strategy a.py,b.py --allocation 0.6,0.4 --daemon
 
-# t1: Undeploy A (same terminal, system keeps running)
-stratequeue undeploy --strategy-id a
+# t1: Remove A (while system keeps running in background)
+stratequeue hotswap undeploy --strategy-id a
 
-# t2: Deploy A & C (context-aware - auto-hot-swaps into running system)
-stratequeue deploy --strategy a_v2.py,c.py --allocation 0.3,0.3
+# t2: Add A & C, rebalance
+stratequeue hotswap deploy --strategy a_v2.py --strategy-id a_new --allocation 0.3
+stratequeue hotswap deploy --strategy c.py --strategy-id c --allocation 0.3
+stratequeue hotswap rebalance --allocations "b:0.4,a_new:0.3,c:0.3"
 ```
 
-### **🎛️ Direct Strategy Commands**
-
-```bash
-# Monitor running strategies  
-stratequeue list                    # Smart: shows running strategies if system active
-
-# Strategy lifecycle management
-stratequeue pause --strategy-id momentum      # Pause strategy (stops signals, keeps positions)
-stratequeue resume --strategy-id momentum     # Resume paused strategy
-stratequeue undeploy --strategy-id old_algo   # Remove strategy completely
-
-# Add more strategies (auto-detected as hot swap)
-stratequeue deploy --strategy new.py --allocation 0.2
-```
-
-### **🔍 Status & Monitoring**
-
-```bash
-# Context-aware list command
-stratequeue list                    # Shows running strategies (if daemon active) OR general options
-
-# Example output when system is running:
-# 📋 Current Strategy Status:
-#    🟢 sma: 60.0% allocation, symbols: ['AAPL'] 
-#    ⏸️ momentum: 40.0% allocation, symbols: ['AAPL']
-#    💰 Total allocation: 100.0%
-#    🔗 System PID: 12345
-
-# Traditional hotswap commands still work
-stratequeue hotswap list            # Explicit hotswap (legacy)
-```
-
-### **🎚️ Deployment Modes**
-
-| Command | Behavior | Use Case |
-|---------|----------|----------|
-| `stratequeue deploy --strategy sma.py` | Context-aware, foreground mode | New users, want to see output |
-| `stratequeue deploy --strategy sma.py --daemon` | Context-aware, background mode | Hot swapping, production |
-| `stratequeue deploy --strategy new.py` *(when system running)* | Auto-hot-swap | Adding strategies at runtime |
-
-> **💡 Pro Tip:** Start with `--daemon` for seamless strategy management. The terminal returns control immediately while the system runs in the background.
+> **Note:** Hot swapping only works in multi-strategy mode. Single-strategy deployments need to be restarted to change strategies.
 
 ## 🏦 Supported Brokers
 
@@ -257,13 +235,13 @@ stratequeue deploy --strategy stocks.py --symbols AAPL,MSFT --data-source polygo
 ### **Easy Testing**
 ```bash
 # Test strategy logic without any trading
-stratequeue deploy --strategy my_new_idea.py --symbols AAPL --no-trading
+stratequeue --strategy my_new_idea.py --symbols AAPL --no-trading
 
 # Test with fake money
-stratequeue deploy --strategy my_new_idea.py --symbols AAPL --paper
+stratequeue --strategy my_new_idea.py --symbols AAPL --paper
 
 # Only go live after thorough testing
-stratequeue deploy --strategy my_tested_strategy.py --symbols AAPL --live
+stratequeue --strategy my_tested_strategy.py --symbols AAPL --live
 ```
 
 ## 📋 Example Commands
@@ -271,34 +249,34 @@ stratequeue deploy --strategy my_tested_strategy.py --symbols AAPL --live
 ### Single Strategy Examples
 ```bash
 # Basic demo
-stratequeue deploy --strategy sma.py --symbols AAPL
+stratequeue --strategy sma.py --symbols AAPL
 
 # Real data, paper trading
-stratequeue deploy --strategy sma.py --symbols AAPL --data-source polygon --paper
+stratequeue --strategy sma.py --symbols AAPL --data-source polygon --paper
 
 # Crypto trading
-stratequeue deploy --strategy crypto_momentum.py --symbols BTC,ETH --data-source coinmarketcap
+stratequeue --strategy crypto_momentum.py --symbols BTC,ETH --data-source coinmarketcap
 
 # High frequency (1 second intervals)
-stratequeue deploy --strategy scalper.py --symbols SPY --granularity 1s
+stratequeue --strategy scalper.py --symbols SPY --granularity 1s
 
 # Long term (daily signals)
-stratequeue deploy --strategy swing_trade.py --symbols AAPL,MSFT --granularity 1d
+stratequeue --strategy swing_trade.py --symbols AAPL,MSFT --granularity 1d
 ```
 
 ### Multi-Strategy Examples
 ```bash
 # Traditional mode: both strategies trade AAPL
-stratequeue deploy --strategy sma.py,momentum.py --allocation 0.6,0.4 --symbols AAPL
+stratequeue --strategy sma.py,momentum.py --allocation 0.6,0.4 --symbols AAPL
 
 # Traditional mode: both strategies trade SPY  
-stratequeue deploy --strategy day_trade.py,swing_trade.py --allocation 0.3,0.7 --granularity 1m,1d --symbols SPY
+stratequeue --strategy day_trade.py,swing_trade.py --allocation 0.3,0.7 --granularity 1m,1d --symbols SPY
 
 # 1:1 mapping: stock_algo.py→AAPL, crypto_algo.py→BTC
-stratequeue deploy --strategy stock_algo.py,crypto_algo.py --allocation 0.8,0.2 --symbols AAPL,BTC --data-source polygon,coinmarketcap
+stratequeue --strategy stock_algo.py,crypto_algo.py --allocation 0.8,0.2 --symbols AAPL,BTC --data-source polygon,coinmarketcap
 
 # 1:1 mapping: each strategy gets its own symbol
-stratequeue deploy \
+stratequeue \
   --strategy sma.py,momentum.py,mean_revert.py \
   --allocation 0.4,0.35,0.25 \
   --symbols AAPL,MSFT,GOOGL \
@@ -347,7 +325,7 @@ class MyStrategy(Strategy):
 
 ```bash
 # Test your strategy
-stratequeue deploy --strategy my_strategy.py --symbols AAPL --no-trading
+stratequeue --strategy my_strategy.py --symbols AAPL --no-trading
 ```
 
 ## 📈 Real-Time Output
@@ -411,13 +389,13 @@ stratequeue --strategy sma.py,momentum.py --allocation 0.6,0.6  # ❌ Bad (120%)
 ### 1. Start Simple
 ```bash
 # Just see what signals your strategy generates
-stratequeue deploy --strategy examples/strategies/sma.py --symbols AAPL --no-trading --duration 5
+stratequeue --strategy examples/strategies/sma.py --symbols AAPL --no-trading --duration 5
 ```
 
 ### 2. Add Paper Trading
 ```bash
 # Test with fake money
-stratequeue deploy --strategy examples/strategies/sma.py --symbols AAPL --paper --duration 30
+stratequeue --strategy examples/strategies/sma.py --symbols AAPL --paper --duration 30
 ```
 
 ### 3. Try Multiple Strategies

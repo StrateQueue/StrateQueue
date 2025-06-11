@@ -168,10 +168,7 @@ Available Commands:
   deploy    Deploy strategies for live trading
   setup     Configure brokers and system settings
   status    Check system and broker status
-  list      List strategies (if running) or available options
-  pause     Pause a running strategy
-  resume    Resume a paused strategy
-  undeploy  Remove a deployed strategy
+  list      List available options (brokers, granularities, etc.)
   webui     Start the web interface (coming soon)
   hotswap   Hot swap strategies during runtime
   
@@ -220,11 +217,6 @@ Examples:
     
     # Hotswap subcommand
     hotswap_parser = create_hotswap_parser(subparsers)
-    
-    # Direct strategy management commands
-    pause_parser = create_pause_parser(subparsers)
-    resume_parser = create_resume_parser(subparsers)
-    undeploy_parser = create_undeploy_parser(subparsers)
     
     return parser
 
@@ -503,86 +495,6 @@ Examples:
                                help='Multi-strategy config file to identify the running system')
     
     return hotswap_parser
-
-
-def create_pause_parser(subparsers) -> argparse.ArgumentParser:
-    """Create the pause subcommand parser"""
-    
-    pause_parser = subparsers.add_parser(
-        'pause',
-        help='Pause a running strategy',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Pause a specific strategy
-  stratequeue pause sma
-  
-  # Pause with dry run (test mode)
-  stratequeue pause momentum --dry-run
-        """
-    )
-    
-    pause_parser.add_argument('strategy_id', help='Strategy ID to pause')
-    pause_parser.add_argument('--dry-run', action='store_true',
-                             help='Show what would be done without actually pausing')
-    pause_parser.add_argument('--pid-file',
-                             help='PID file path (default: .stratequeue.pid)')
-    
-    return pause_parser
-
-
-def create_resume_parser(subparsers) -> argparse.ArgumentParser:
-    """Create the resume subcommand parser"""
-    
-    resume_parser = subparsers.add_parser(
-        'resume',
-        help='Resume a paused strategy',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Resume a specific strategy
-  stratequeue resume --strategy-id sma
-  
-  # Resume with dry run (test mode)
-  stratequeue resume --strategy-id momentum --dry-run
-        """
-    )
-    
-    resume_parser.add_argument('--strategy-id', required=True,
-                              help='Strategy ID to resume')
-    resume_parser.add_argument('--dry-run', action='store_true',
-                              help='Show what would be done without actually resuming')
-    resume_parser.add_argument('--pid-file',
-                              help='PID file path (default: .stratequeue.pid)')
-    
-    return resume_parser
-
-
-def create_undeploy_parser(subparsers) -> argparse.ArgumentParser:
-    """Create the undeploy subcommand parser"""
-    
-    undeploy_parser = subparsers.add_parser(
-        'undeploy',
-        help='Remove a deployed strategy',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Remove a specific strategy
-  stratequeue undeploy --strategy-id sma
-  
-  # Remove with dry run (test mode)
-  stratequeue undeploy --strategy-id momentum --dry-run
-        """
-    )
-    
-    undeploy_parser.add_argument('--strategy-id', required=True,
-                                help='Strategy ID to remove')
-    undeploy_parser.add_argument('--dry-run', action='store_true',
-                                help='Show what would be done without actually removing')
-    undeploy_parser.add_argument('--pid-file',
-                                help='PID file path (default: .stratequeue.pid)')
-    
-    return undeploy_parser
 
 def validate_arguments(args: argparse.Namespace) -> Tuple[bool, List[str]]:
     """
@@ -1038,7 +950,7 @@ async def run_trading_system(args: argparse.Namespace) -> int:
             data_source = args._data_sources[0] if args._data_sources else 'demo'
             granularity = args._granularities[0] if args._granularities else None
             broker_type = args._brokers[0] if args._brokers and args._brokers[0] != 'auto' else None
-                
+            
             system = LiveTradingSystem(
                 strategy_path=strategy_path,
                 symbols=symbols,
@@ -1049,14 +961,14 @@ async def run_trading_system(args: argparse.Namespace) -> int:
                 paper_trading=paper_trading,
                 lookback_override=args.lookback
             )
-                
+            
             # Store system reference for daemon mode
             if hasattr(args, 'daemon') and args.daemon:
                 store_daemon_system(system, getattr(args, 'pid_file', None))
             
             # Run the system
             await system.run_live_system(args.duration)
-            
+        
         return 0
         
     except Exception as e:
@@ -1129,268 +1041,8 @@ def load_daemon_system(pid_file_path=None):
         logger.warning(f"Could not load daemon info: {e}")
         return None
 
-def detect_system_mode():
-    """Detect current system state for context-aware deployment"""
-    import os
-    
-    pid_file = ".stratequeue.pid"
-    daemon_file = ".stratequeue.daemon"
-    
-    # No daemon files at all
-    if not os.path.exists(pid_file) and not os.path.exists(daemon_file):
-        return "FRESH_START"
-    
-    # Check if daemon is actually running
-    daemon_info = load_daemon_system()
-    if daemon_info is not None:
-        # Daemon exists and process is alive
-        return "HOTSWAP"
-    
-    # Daemon files exist but process is dead
-    if os.path.exists(pid_file) or os.path.exists(daemon_file):
-        return "CLEANUP_RESTART"
-    
-    return "FRESH_START"
-
-
-def cleanup_stale_daemon():
-    """Clean up stale daemon files"""
-    import os
-    
-    files_to_clean = [".stratequeue.pid", ".stratequeue.daemon"]
-    for file_path in files_to_clean:
-        if os.path.exists(file_path):
-            try:
-                os.unlink(file_path)
-                logger.info(f"Cleaned up stale file: {file_path}")
-            except OSError as e:
-                logger.warning(f"Could not clean up {file_path}: {e}")
-
-
-def hotswap_deploy_strategies(args: argparse.Namespace) -> int:
-    """Deploy strategies to running system using hotswap logic"""
-    
-    print("🔄 Adding strategies to running system...")
-    
-    # Load running system
-    daemon_info = load_daemon_system(getattr(args, 'pid_file', None))
-    
-    if daemon_info is None:
-        print("❌ No running system found (this shouldn't happen)")
-        return 1
-    
-    system = daemon_info['system']
-    pid = daemon_info['pid']
-    
-    print(f"🔗 Connected to running system (PID: {pid})")
-    
-    try:
-        # Deploy each strategy
-        for i, strategy_path in enumerate(args._strategies):
-            strategy_id = args._strategy_ids[i]
-            allocation = float(args._allocations[i])
-            symbols = parse_symbols(args.symbols)
-            
-            print(f"🚀 Deploying strategy '{strategy_id}' with allocation {allocation:.1%}")
-            
-            # Handle both real system and mock system structures
-            if hasattr(system, 'deploy_strategy_runtime'):
-                # Real system
-                result = system.deploy_strategy_runtime(
-                    strategy_path=strategy_path,
-                    strategy_id=strategy_id,
-                    allocation=allocation,
-                    symbols=symbols,
-                    dry_run=False
-                )
-                
-                if result['success']:
-                    print(f"✅ Strategy '{strategy_id}' deployed successfully")
-                    if result.get('rebalanced'):
-                        print("🔄 Portfolio rebalanced to accommodate new strategy")
-                else:
-                    print(f"❌ Failed to deploy strategy: {result.get('error', 'Unknown error')}")
-                    return 1
-            else:
-                # Mock system - simulate successful deployment
-                if strategy_id in system['strategies']:
-                    print(f"🔄 Updating existing strategy '{strategy_id}'")
-                else:
-                    print(f"✅ Added new strategy '{strategy_id}'")
-                
-                # Add strategy to mock system
-                system['strategies'][strategy_id] = {
-                    'state': 'active',
-                    'allocation': allocation,
-                    'symbols': symbols
-                }
-                
-                # Recalculate total allocation
-                system['total_allocation'] = sum(
-                    strategy['allocation'] for strategy in system['strategies'].values()
-                )
-                
-                # Store updated system state
-                store_daemon_system(system, getattr(args, 'pid_file', None))
-        
-        print(f"🎉 Successfully deployed {len(args._strategies)} strategy(ies)")
-        return 0
-        
-    except Exception as e:
-        print(f"❌ Deployment failed: {e}")
-        logger.error(f"Hotswap deployment error: {e}")
-        return 1
-
-
-def start_fresh_deployment(args: argparse.Namespace) -> int:
-    """Start fresh deployment (either daemon or blocking mode)"""
-    
-    if args.daemon:
-        print("🔄 Starting new trading system in daemon mode...")
-        return start_daemon_mode(args)
-    else:
-        print("🔄 Starting new trading system...")
-        return start_blocking_mode(args)
-
-
-def start_daemon_mode(args: argparse.Namespace) -> int:
-    """Start system in daemon mode"""
-    print("💡 You can use 'stratequeue deploy' to add more strategies")
-    print("")
-    
-    # For demonstration purposes, run in non-blocking mode with mock daemon storage
-    import threading
-    import os
-    import time
-    
-    pid_file = args.pid_file or ".stratequeue.pid"
-    
-    def run_daemon_thread():
-        """Function to run in daemon thread"""
-        args_copy = args
-        args_copy.daemon = False  # Prevent recursion
-        try:
-            # Create a mock trading system for demonstration
-            symbols = parse_symbols(args.symbols)
-            
-            # Create system (simplified for demo)
-            if hasattr(args, '_strategies') and len(args._strategies) > 1:
-                # Multi-strategy system placeholder
-                print(f"[DAEMON] Multi-strategy system with {len(args._strategies)} strategies")
-                system = {
-                    'strategies': {
-                        args._strategy_ids[i]: {
-                            'state': 'active',
-                            'allocation': float(args._allocations[i]),
-                            'symbols': symbols
-                        } for i in range(len(args._strategies))
-                    },
-                    'total_allocation': sum(float(a) for a in args._allocations)
-                }
-            else:
-                # Single strategy system  
-                strategy_id = os.path.basename(args._strategies[0]).replace('.py', '')
-                print(f"[DAEMON] Single strategy system: {strategy_id}")
-                system = {
-                    'strategies': {
-                        strategy_id: {
-                            'state': 'active', 
-                            'allocation': float(args._allocations[0]) if args._allocations else 1.0,
-                            'symbols': symbols
-                        }
-                    },
-                    'total_allocation': float(args._allocations[0]) if args._allocations else 1.0
-                }
-            
-            # Store daemon info for hotswap
-            daemon_info = {
-                'pid': os.getpid(),
-                'system': system,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            daemon_file = pid_file.replace('.pid', '.daemon')
-            import pickle
-            with open(daemon_file, 'wb') as f:
-                pickle.dump(daemon_info, f)
-            
-            print(f"[DAEMON] System running for {args.duration} minutes...")
-            
-            # Simulate running for specified duration
-            time.sleep(args.duration * 60)
-            
-            print(f"[DAEMON] System stopped after {args.duration} minutes")
-            
-        except Exception as e:
-            print(f"[DAEMON] Error: {e}")
-        finally:
-            # Cleanup
-            if os.path.exists(daemon_file):
-                os.unlink(daemon_file)
-            if os.path.exists(pid_file):
-                os.unlink(pid_file)
-    
-    print(f"🚀 Launching trading system in background...")
-    print(f"📋 PID file: {pid_file}")
-    
-    # Store PID (using current process PID for simplicity)
-    with open(pid_file, 'w') as f:
-        f.write(str(os.getpid()))
-    
-    # Start daemon thread
-    daemon_thread = threading.Thread(target=run_daemon_thread, daemon=True)
-    daemon_thread.start()
-    
-    # Wait for daemon to initialize
-    time.sleep(1)
-    
-    print(f"✅ System started (PID: {os.getpid()})")
-    print("")
-    print("🔥 Deploy more strategies:")
-    print("  stratequeue deploy --strategy new.py --allocation 0.2")
-    print("")
-    print("🎛️  Strategy management:")
-    print("  stratequeue pause --strategy-id momentum")  
-    print("  stratequeue resume --strategy-id momentum")
-    print("  stratequeue undeploy --strategy-id old_strategy")
-    print("")
-    print("📊 Status:")
-    print("  stratequeue list")
-    print("")
-    print("To stop: kill -TERM $(cat .stratequeue.pid)")
-    
-    # Keep main process alive for demonstration
-    print("📡 Daemon running... (Press Ctrl+C to stop)")
-    try:
-        while daemon_thread.is_alive():
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\n👋 Daemon stopped")
-    
-    return 0
-
-
-def start_blocking_mode(args: argparse.Namespace) -> int:
-    """Start system in blocking mode (shows output in terminal)"""
-    print("📊 Strategy output will display here...")
-    print("💡 Use --daemon flag to run in background")
-    print("🛑 Press Ctrl+C to stop")
-    print("")
-    
-    # Run the trading system normally (blocking mode)
-    try:
-        return asyncio.run(run_trading_system(args))
-    except KeyboardInterrupt:
-        print("\n👋 Goodbye!")
-        return 0
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        print(f"❌ Unexpected error: {e}")
-        return 1
-
-
 def handle_deploy_command(args: argparse.Namespace) -> int:
-    """Handle the deploy subcommand with context-aware logic"""
+    """Handle the deploy subcommand"""
     
     # Validate arguments
     is_valid, errors = validate_arguments(args)
@@ -1406,38 +1058,142 @@ def handle_deploy_command(args: argparse.Namespace) -> int:
         print("")
         print("📖 Common Examples:")
         print("  # Test strategy (no trading)")
-        print("  stratequeue deploy --strategy sma.py --symbols AAPL --no-trading")
+        print("  stratequeue deploy --strategy sma.py --symbol AAPL --no-trading")
         print("")
         print("  # Paper trading (fake money)")  
-        print("  stratequeue deploy --strategy sma.py --symbols AAPL --paper")
+        print("  stratequeue deploy --strategy sma.py --symbol AAPL --paper")
         print("")
         print("  # Live trading (real money - be careful!)")
-        print("  stratequeue deploy --strategy sma.py --symbols AAPL --live")
-        return 1
-    
-    # Context-aware deployment logic
-    mode = detect_system_mode()
-    
-    if mode == "FRESH_START":
-        # No daemon running - start fresh system
-        return start_fresh_deployment(args)
-        
-    elif mode == "HOTSWAP":
-        # Daemon running - add strategies to existing system
-        return hotswap_deploy_strategies(args)
-        
-    elif mode == "CLEANUP_RESTART":
-        # Dead daemon with stale files - clean up and restart
-        print("🧹 Previous system stopped, cleaning up...")
-        cleanup_stale_daemon()
-        print("🔄 Starting fresh system...")
-        return start_fresh_deployment(args)
-        
-    else:
-        print(f"❌ Unknown system mode: {mode}")
+        print("  stratequeue deploy --strategy sma.py --symbol AAPL --live")
         return 1
 
-
+    # Handle daemon mode  
+    if args.daemon:
+        print("🔄 Starting Stratequeue in daemon mode...")
+        print("💡 You can now use 'stratequeue hotswap' commands in this terminal")
+        print("")
+        
+        # For demonstration purposes, run in non-blocking mode with mock daemon storage
+        import threading
+        import os
+        import time
+        
+        pid_file = args.pid_file or ".stratequeue.pid"
+        
+        def run_daemon_thread():
+            """Function to run in daemon thread"""
+            args.daemon = False  # Prevent recursion
+            try:
+                # Create a mock trading system for demonstration
+                from ..live_system.orchestrator import LiveTradingSystem
+                
+                # Parse symbols
+                symbols = parse_symbols(args.symbols)
+                
+                # Determine trading configuration
+                enable_trading = not args.no_trading
+                paper_trading = args.paper or (not args.live and not args.no_trading)
+                
+                # Create system (simplified for demo)
+                if hasattr(args, '_strategies') and len(args._strategies) > 1:
+                    # Multi-strategy system placeholder
+                    print(f"[DAEMON] Multi-strategy system with {len(args._strategies)} strategies")
+                    system = {
+                        'strategies': {
+                            args._strategy_ids[i]: {
+                                'state': 'active',
+                                'allocation': float(args._allocations[i]),
+                                'symbols': symbols
+                            } for i in range(len(args._strategies))
+                        },
+                        'total_allocation': sum(float(a) for a in args._allocations)
+                    }
+                else:
+                    # Single strategy system  
+                    strategy_id = os.path.basename(args._strategies[0]).replace('.py', '')
+                    print(f"[DAEMON] Single strategy system: {strategy_id}")
+                    system = {
+                        'strategies': {
+                            strategy_id: {
+                                'state': 'active', 
+                                'allocation': float(args._allocations[0]) if args._allocations else 1.0,
+                                'symbols': symbols
+                            }
+                        },
+                        'total_allocation': float(args._allocations[0]) if args._allocations else 1.0
+                    }
+                
+                # Store daemon info for hotswap
+                daemon_info = {
+                    'pid': os.getpid(),
+                    'system': system,
+                    'timestamp': datetime.now().isoformat()
+                }
+                
+                daemon_file = pid_file.replace('.pid', '.daemon')
+                import pickle
+                with open(daemon_file, 'wb') as f:
+                    pickle.dump(daemon_info, f)
+                
+                print(f"[DAEMON] System running for {args.duration} minutes...")
+                
+                # Simulate running for specified duration
+                time.sleep(args.duration * 60)
+                
+                print(f"[DAEMON] System stopped after {args.duration} minutes")
+                
+            except Exception as e:
+                print(f"[DAEMON] Error: {e}")
+            finally:
+                # Cleanup
+                if os.path.exists(daemon_file):
+                    os.unlink(daemon_file)
+                if os.path.exists(pid_file):
+                    os.unlink(pid_file)
+        
+        print(f"🚀 Launching trading system in background...")
+        print(f"📋 PID file: {pid_file}")
+        
+        # Store PID (using current process PID for simplicity)
+        with open(pid_file, 'w') as f:
+            f.write(str(os.getpid()))
+        
+        # Start daemon thread
+        daemon_thread = threading.Thread(target=run_daemon_thread, daemon=True)
+        daemon_thread.start()
+        
+        # Wait for daemon to initialize
+        time.sleep(1)
+        
+        print(f"✅ System started (PID: {os.getpid()})")
+        print("")
+        print("🔥 Hot swap commands now available:")
+        print("  stratequeue hotswap deploy --strategy new.py --strategy-id new --allocation 0.2")
+        print("  stratequeue hotswap pause --strategy-id momentum")  
+        print("  stratequeue hotswap list")
+        print("")
+        print("To stop: kill -TERM $(cat .stratequeue.pid)")
+        
+        # Keep main process alive for demonstration
+        print("📡 Daemon running... (Press Ctrl+C to stop)")
+        try:
+            while daemon_thread.is_alive():
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\n👋 Daemon stopped")
+        
+        return 0
+    
+    # Run the trading system normally (blocking mode)
+    try:
+        return asyncio.run(run_trading_system(args))
+    except KeyboardInterrupt:
+        print("\n👋 Goodbye!")
+        return 0
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        print(f"❌ Unexpected error: {e}")
+        return 1
 
 def handle_setup_command(args: argparse.Namespace) -> int:
     """Handle the setup subcommand"""
@@ -1697,191 +1453,13 @@ def handle_hotswap_command(args: argparse.Namespace) -> int:
         
         # Update daemon info with any changes
         store_daemon_system(system, getattr(args, 'pid_file', None))
-    
-    return 0
+        
+        return 0
         
     except Exception as e:
         print(f"❌ Hot swap operation failed: {e}")
         logger.error(f"Hot swap error: {e}")
         return 1
-
-
-def handle_pause_command(args: argparse.Namespace) -> int:
-    """Handle the pause subcommand"""
-    
-    # Load running system
-    daemon_info = load_daemon_system(getattr(args, 'pid_file', None))
-    
-    if daemon_info is None:
-        print("❌ No running Stratequeue system found")
-        print("💡 Start system first:")
-        print("   stratequeue deploy --strategy sma.py --symbols AAPL --daemon")
-        return 1
-    
-    system = daemon_info['system']
-    pid = daemon_info['pid']
-    strategy_id = args.strategy_id
-    
-    print(f"🔗 Connected to running system (PID: {pid})")
-    print(f"⏸️  Pausing strategy '{strategy_id}'")
-    
-    try:
-        # Handle both real system and mock system structures
-        if hasattr(system, 'pause_strategy_runtime'):
-            # Real system
-            result = system.pause_strategy_runtime(
-                strategy_id=strategy_id,
-                dry_run=getattr(args, 'dry_run', False)
-            )
-            
-            if result['success']:
-                print(f"✅ Strategy '{strategy_id}' paused successfully")
-            else:
-                print(f"❌ Failed to pause strategy: {result.get('error', 'Unknown error')}")
-                return 1
-        else:
-            # Mock system - simulate successful pause
-            if strategy_id not in system['strategies']:
-                print(f"❌ Strategy '{strategy_id}' not found")
-                return 1
-            
-            if getattr(args, 'dry_run', False):
-                print(f"🔍 DRY RUN: Would pause strategy '{strategy_id}'")
-            else:
-                system['strategies'][strategy_id]['state'] = 'paused'
-                store_daemon_system(system, getattr(args, 'pid_file', None))
-                print(f"✅ Strategy '{strategy_id}' paused successfully")
-        
-        return 0
-        
-    except Exception as e:
-        print(f"❌ Pause operation failed: {e}")
-        logger.error(f"Pause error: {e}")
-        return 1
-
-
-def handle_resume_command(args: argparse.Namespace) -> int:
-    """Handle the resume subcommand"""
-    
-    # Load running system
-    daemon_info = load_daemon_system(getattr(args, 'pid_file', None))
-    
-    if daemon_info is None:
-        print("❌ No running Stratequeue system found")
-        print("💡 Start system first:")
-        print("   stratequeue deploy --strategy sma.py --symbols AAPL --daemon")
-        return 1
-    
-    system = daemon_info['system']
-    pid = daemon_info['pid']
-    strategy_id = args.strategy_id
-    
-    print(f"🔗 Connected to running system (PID: {pid})")
-    print(f"▶️  Resuming strategy '{strategy_id}'")
-    
-    try:
-        # Handle both real system and mock system structures
-        if hasattr(system, 'resume_strategy_runtime'):
-            # Real system
-            result = system.resume_strategy_runtime(
-                strategy_id=strategy_id,
-                dry_run=getattr(args, 'dry_run', False)
-            )
-            
-            if result['success']:
-                print(f"✅ Strategy '{strategy_id}' resumed successfully")
-            else:
-                print(f"❌ Failed to resume strategy: {result.get('error', 'Unknown error')}")
-                return 1
-        else:
-            # Mock system - simulate successful resume
-            if strategy_id not in system['strategies']:
-                print(f"❌ Strategy '{strategy_id}' not found")
-                return 1
-            
-            if getattr(args, 'dry_run', False):
-                print(f"🔍 DRY RUN: Would resume strategy '{strategy_id}'")
-            else:
-                system['strategies'][strategy_id]['state'] = 'active'
-                store_daemon_system(system, getattr(args, 'pid_file', None))
-                print(f"✅ Strategy '{strategy_id}' resumed successfully")
-        
-        return 0
-        
-    except Exception as e:
-        print(f"❌ Resume operation failed: {e}")
-        logger.error(f"Resume error: {e}")
-        return 1
-
-
-def handle_undeploy_command(args: argparse.Namespace) -> int:
-    """Handle the undeploy subcommand"""
-    
-    # Load running system
-    daemon_info = load_daemon_system(getattr(args, 'pid_file', None))
-    
-    if daemon_info is None:
-        print("❌ No running Stratequeue system found")
-        print("💡 Start system first:")
-        print("   stratequeue deploy --strategy sma.py --symbols AAPL --daemon")
-        return 1
-    
-    system = daemon_info['system']
-    pid = daemon_info['pid']
-    strategy_id = args.strategy_id
-    
-    print(f"🔗 Connected to running system (PID: {pid})")
-    print(f"🗑️  Undeploying strategy '{strategy_id}'")
-    
-    try:
-        # Handle both real system and mock system structures
-        if hasattr(system, 'undeploy_strategy_runtime'):
-            # Real system
-            result = system.undeploy_strategy_runtime(
-                strategy_id=strategy_id,
-                dry_run=getattr(args, 'dry_run', False)
-            )
-            
-            if result['success']:
-                print(f"✅ Strategy '{strategy_id}' undeployed successfully")
-                if result.get('rebalanced'):
-                    print("🔄 Portfolio rebalanced after strategy removal")
-            else:
-                print(f"❌ Failed to undeploy strategy: {result.get('error', 'Unknown error')}")
-                return 1
-        else:
-            # Mock system - simulate successful undeploy
-            if strategy_id not in system['strategies']:
-                print(f"❌ Strategy '{strategy_id}' not found")
-                return 1
-            
-            if getattr(args, 'dry_run', False):
-                print(f"🔍 DRY RUN: Would remove strategy '{strategy_id}'")
-                print("🔍 DRY RUN: Would rebalance remaining strategies")
-            else:
-                # Remove strategy
-                del system['strategies'][strategy_id]
-                
-                # Recalculate total allocation
-                if system['strategies']:
-                    system['total_allocation'] = sum(
-                        strategy['allocation'] for strategy in system['strategies'].values()
-                    )
-                    print("🔄 Portfolio rebalanced after strategy removal")
-                else:
-                    system['total_allocation'] = 0.0
-                    print("📭 No strategies remaining in system")
-                
-                store_daemon_system(system, getattr(args, 'pid_file', None))
-                print(f"✅ Strategy '{strategy_id}' undeployed successfully")
-        
-        return 0
-        
-    except Exception as e:
-        print(f"❌ Undeploy operation failed: {e}")
-        logger.error(f"Undeploy error: {e}")
-        return 1
-
 
 def main() -> int:
     """
@@ -1910,10 +1488,7 @@ def main() -> int:
         print("  deploy    Deploy strategies for live trading")
         print("  setup     Configure brokers and system settings")  
         print("  status    Check system and broker status")
-        print("  list      List strategies (if running) or available options")
-        print("  pause     Pause a running strategy")
-        print("  resume    Resume a paused strategy")
-        print("  undeploy  Remove a deployed strategy")
+        print("  list      List available options (brokers, granularities)")
         print("  webui     Start the web interface (coming soon)")
         print("")
         print("Get Help:")
@@ -1935,47 +1510,11 @@ def main() -> int:
     elif args.command == 'status':
         return handle_status_command(args)
     elif args.command == 'list':
-        # Context-aware list - check if daemon is running
-        daemon_info = load_daemon_system()
-        if daemon_info is not None:
-            # Show running strategies instead of general list options
-            print("📋 Current Strategy Status:")
-            system = daemon_info['system']
-            strategies = system.get('strategies', {})
-            
-            if not strategies:
-                print("   No strategies currently deployed")
-            else:
-                for strategy_id, info in strategies.items():
-                    state = info.get('state', 'unknown')
-                    allocation = info.get('allocation', 0.0)
-                    symbols = info.get('symbols', [])
-                    
-                    status_emoji = {
-                        'active': '🟢',
-                        'paused': '⏸️', 
-                        'error': '🔴'
-                    }.get(state, '⚪')
-                    
-                    print(f"   {status_emoji} {strategy_id}: {allocation:.1%} allocation, symbols: {symbols}")
-                
-                total_allocation = system.get('total_allocation', 0.0)
-                print(f"\n💰 Total allocation: {total_allocation:.1%}")
-                print(f"🔗 System PID: {daemon_info['pid']}")
-            return 0
-        else:
-            # No daemon running, show general list options
         return handle_list_command(args)
     elif args.command == 'hotswap':
         return handle_hotswap_command(args)
     elif args.command == 'webui':
         return handle_webui_command(args)
-    elif args.command == 'pause':
-        return handle_pause_command(args)
-    elif args.command == 'resume':
-        return handle_resume_command(args)
-    elif args.command == 'undeploy':
-        return handle_undeploy_command(args)
     else:
         print(f"❌ Unknown command: {args.command}")
         print("")
@@ -1983,10 +1522,7 @@ def main() -> int:
         print("  deploy    Deploy strategies for live trading")
         print("  setup     Configure brokers and system settings")
         print("  status    Check system and broker status")
-        print("  list      List strategies (if running) or available options")
-        print("  pause     Pause a running strategy")
-        print("  resume    Resume a paused strategy")
-        print("  undeploy  Remove a deployed strategy")
+        print("  list      List available options")
         print("  hotswap   Hot swap strategies during runtime")
         print("  webui     Start the web interface")
         print("")
