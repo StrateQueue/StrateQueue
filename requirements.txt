@@ -14,6 +14,10 @@ python-dotenv>=1.0.0
 # Async support
 asyncio>=3.4.3
 
+# Web UI server dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
 # Trading and backtesting (optional - install as needed)
 # backtesting>=0.3.3
 # alpaca-trade-api>=3.0.0

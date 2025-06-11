@@ -1049,23 +1049,33 @@ def handle_list_command(args: argparse.Namespace) -> int:
 def handle_webui_command(args: argparse.Namespace) -> int:
     """Handle the webui subcommand"""
     
-    print("🚧 Web UI is coming soon!")
-    print(f"Will start web interface on {args.host}:{args.port}")
-    
-    if args.dev:
-        print("Development mode enabled")
-    
-    if args.config_dir:
-        print(f"Config directory: {args.config_dir}")
-    
-    # TODO: Implement web UI startup
-    print("\n📝 Implementation roadmap:")
-    print("  1. Create React + shadcn/ui frontend")
-    print("  2. Build FastAPI backend with WebSocket support")
-    print("  3. Integrate with existing trading system")
-    print("  4. Add real-time dashboard and strategy management")
-    
-    return 0
+    try:
+        from ..webui import start_webui_server
+        
+        print("🚀 Starting Stratequeue Web UI...")
+        
+        # Start the web UI server
+        start_webui_server(
+            port=args.port,
+            open_browser=not args.dev  # Don't auto-open in dev mode
+        )
+        
+        return 0
+        
+    except ImportError as e:
+        print("❌ Web UI dependencies not available!")
+        print("")
+        print("🔧 To enable the Web UI:")
+        print("  pip install fastapi uvicorn")
+        print("")
+        print("💡 Or install with all dependencies:")
+        print("  pip install stratequeue[all]")
+        print("")
+        print(f"Error details: {e}")
+        return 1
+    except Exception as e:
+        print(f"❌ Failed to start Web UI: {e}")
+        return 1
 
 def main() -> int:
     """
