@@ -11,6 +11,9 @@ from typing import List, Optional
 
 from .command_factory import CommandFactory, get_supported_commands, create_command
 from .utils import setup_logging, get_cli_logger
+from .utils.color_formatter import create_enhanced_help_epilog, format_welcome_message, format_help_header
+from .utils.enhanced_parser import EnhancedArgumentParser
+from .utils.command_help import get_command_help
 
 # Import command registry to ensure commands are registered
 from . import command_registry
@@ -25,11 +28,14 @@ def create_main_parser() -> argparse.ArgumentParser:
     Returns:
         Configured ArgumentParser
     """
+    # Get supported commands for enhanced help
+    supported_commands = get_supported_commands()
+    
     parser = argparse.ArgumentParser(
         prog='stratequeue',
-        description='StrateQueue - Transform your backtesting strategies into live trading',
+        description=format_help_header(),
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=create_help_epilog()
+        epilog=create_enhanced_help_epilog(supported_commands)
     )
     
     # Global arguments
@@ -45,10 +51,10 @@ def create_main_parser() -> argparse.ArgumentParser:
         version='%(prog)s 1.0.0'
     )
     
-    # Create subparsers for commands
+    # Create subparsers for commands (hide the auto-generated list, show enhanced version in epilog)
     subparsers = parser.add_subparsers(
         dest='command',
-        help='Available commands',
+        help=argparse.SUPPRESS,  # Hide the auto-generated command list
         metavar='COMMAND'
     )
     
@@ -72,17 +78,27 @@ def register_command_parsers(subparsers) -> None:
         if command:
             # Create subparser for this command with aliases
             aliases = command.aliases if hasattr(command, 'aliases') else []
+            
+            # Get enhanced help content
+            enhanced_help = get_command_help(command_name)
+            
+            # Hide individual command help since we show enhanced version in epilog
+            # Use enhanced parser for individual command help
             subparser = subparsers.add_parser(
                 command_name,
                 aliases=aliases,
-                help=description,
-                description=description
+                help=argparse.SUPPRESS,  # Hide from auto-generated list
+                description=enhanced_help['description'],
+                epilog=enhanced_help['epilog'],
+                formatter_class=EnhancedArgumentParser().formatter_class
             )
             
             # Let the command configure its parser
             command.setup_parser(subparser)
 
 
+# Legacy function - now handled by color_formatter
+# Keeping for backward compatibility but redirecting to enhanced version
 def create_help_epilog() -> str:
     """
     Create help epilog with examples and available commands
@@ -90,55 +106,14 @@ def create_help_epilog() -> str:
     Returns:
         Help epilog string
     """
-    epilog = """
-Available Commands:
-"""
-    
     supported_commands = get_supported_commands()
-    for command_name, description in supported_commands.items():
-        epilog += f"  {command_name:<12} {description}\n"
-    
-    epilog += """
-Examples:
-  # Deploy a single strategy
-  stratequeue deploy --strategy sma.py --symbols AAPL --paper
-  
-  # Check system status
-  stratequeue status
-  
-  # List available brokers
-  stratequeue list brokers
-  
-  # Setup broker credentials
-  stratequeue setup broker alpaca
-
-For command-specific help:
-  stratequeue COMMAND --help
-"""
-    
-    return epilog
+    return create_enhanced_help_epilog(supported_commands)
 
 
 def show_welcome_message() -> None:
     """Show welcome message when no command is provided"""
-    print("🚀 StrateQueue - Live Trading System")
-    print("=" * 50)
-    print("Transform your backtesting strategies into live trading!")
-    print("")
-    
     supported_commands = get_supported_commands()
-    if supported_commands:
-        print("Available Commands:")
-        for command_name, description in supported_commands.items():
-            print(f"  {command_name:<12} {description}")
-        print("")
-    
-    print("Quick Start:")
-    print("  stratequeue deploy --strategy sma.py --symbol AAPL --paper")
-    print("")
-    print("Get Help:")
-    print("  stratequeue --help           # Show detailed help")
-    print("  stratequeue COMMAND --help   # Help for specific command")
+    print(format_welcome_message(supported_commands))
 
 
 def main(argv: Optional[List[str]] = None) -> int:

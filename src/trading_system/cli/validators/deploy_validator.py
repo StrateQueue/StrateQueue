@@ -74,8 +74,12 @@ class DeployValidator(BaseValidator):
     
     def _set_trading_configuration(self, args: Namespace) -> None:
         """Set trading configuration flags"""
+        # Default to no-trading if no mode specified
+        if not (args.paper or args.live or args.no_trading):
+            args.no_trading = True
+            
         enable_trading = not args.no_trading
-        paper_trading = args.paper or (not args.live and not args.no_trading)  # Default to paper
+        paper_trading = args.paper
         
         args._enable_trading = enable_trading
         args._paper_trading = paper_trading

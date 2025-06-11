@@ -9,6 +9,9 @@ import argparse
 import logging
 import tempfile
 import os
+import signal
+import threading
+import time
 from argparse import Namespace
 from typing import List
 
@@ -16,7 +19,7 @@ from .base_command import BaseCommand
 from ..validators.deploy_validator import DeployValidator
 from ..formatters.base_formatter import BaseFormatter
 from ..utils.deploy_utils import setup_logging, create_inline_strategy_config, parse_symbols
-from ..utils.daemon_utils import DaemonManager
+from ..utils.daemon_manager import DaemonManager
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +107,7 @@ class DeployCommand(BaseCommand):
         mode_group.add_argument(
             '--paper', 
             action='store_true', 
-            help='Paper trading mode (fake money, default behavior)'
+            help='Paper trading mode (fake money)'
         )
         
         mode_group.add_argument(
@@ -116,7 +119,7 @@ class DeployCommand(BaseCommand):
         mode_group.add_argument(
             '--no-trading', 
             action='store_true',
-            help='Signals only mode (no trading execution)'
+            help='Signals only mode (no trading execution, default behavior)'
         )
         
         # System control options
@@ -199,8 +202,8 @@ class DeployCommand(BaseCommand):
         print("  stratequeue deploy --help             # Detailed deployment help")
         print("")
         print("📖 Common Examples:")
-        print("  # Test strategy (no trading)")
-        print("  stratequeue deploy --strategy sma.py --symbol AAPL --no-trading")
+        print("  # Test strategy (default mode)")
+        print("  stratequeue deploy --strategy sma.py --symbol AAPL")
         print("")
         print("  # Paper trading (fake money)")  
         print("  stratequeue deploy --strategy sma.py --symbol AAPL --paper")
@@ -210,12 +213,114 @@ class DeployCommand(BaseCommand):
     
     def _handle_daemon_mode(self, args: Namespace) -> int:
         """Handle daemon mode execution"""
-        daemon_manager = DaemonManager(args.pid_file)
+        daemon_manager = DaemonManager()
         
-        if daemon_manager.start_daemon(args):
+        print("🔄 Starting Stratequeue in daemon mode...")
+        print("💡 You can now use pause/resume/stop commands in this terminal")
+        print("")
+        
+        try:
+            # Setup signal handlers for graceful shutdown
+            def signal_handler(signum, frame):
+                print(f"\n📡 Received signal {signum}, shutting down gracefully...")
+                daemon_manager.cleanup_daemon_files()
+                exit(0)
+            
+            signal.signal(signal.SIGTERM, signal_handler)
+            signal.signal(signal.SIGINT, signal_handler)
+            
+            # Store daemon info with basic system info
+            pid_file_path = daemon_manager.get_pid_file_path()
+            system_info = self._create_daemon_system_info(args)
+            daemon_manager.store_daemon_system(system_info, pid_file_path)
+            
+            print(f"🚀 Launching trading system in background...")
+            print(f"✅ System started (PID: {os.getpid()})")
+            print("")
+            print("🔥 Management commands now available:")
+            print("  stratequeue pause <strategy_id>")
+            print("  stratequeue resume <strategy_id>")
+            print("  stratequeue stop")
+            print("")
+            
+            # Run the trading system in a separate thread
+            system_thread = threading.Thread(
+                target=self._run_trading_system_in_thread,
+                args=(args, daemon_manager),
+                daemon=True
+            )
+            system_thread.start()
+            
+            print("📡 Daemon running... (Press Ctrl+C to stop)")
+            
+            # Keep main process alive
+            try:
+                while system_thread.is_alive():
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\n👋 Daemon stopped")
+                daemon_manager.cleanup_daemon_files()
+            
             return 0
-        else:
+            
+        except Exception as e:
+            print(f"❌ Failed to start daemon: {e}")
+            daemon_manager.cleanup_daemon_files()
             return 1
+    
+    def _create_daemon_system_info(self, args: Namespace) -> dict:
+        """Create basic system info for daemon storage"""
+        # Parse symbols to get strategy info
+        symbols = parse_symbols(args.symbols)
+        
+        # Determine if multi-strategy mode
+        is_multi_strategy = hasattr(args, '_strategies') and len(args._strategies) > 1
+        
+        if is_multi_strategy:
+            strategies = {}
+            for i, strategy_path in enumerate(args._strategies):
+                strategy_id = args._strategy_ids[i] if args._strategy_ids else os.path.basename(strategy_path).replace('.py', '')
+                strategies[strategy_id] = {
+                    'class': strategy_id,
+                    'status': 'active',
+                    'allocation': float(args._allocations[i]) if args._allocations else None,
+                    'symbols': symbols,
+                    'path': strategy_path
+                }
+        else:
+            strategy_path = args._strategies[0]
+            strategy_id = os.path.basename(strategy_path).replace('.py', '')
+            strategies = {
+                strategy_id: {
+                    'class': strategy_id,
+                    'status': 'active',
+                    'allocation': 1.0,
+                    'symbols': symbols,
+                    'path': strategy_path
+                }
+            }
+        
+        return {
+            'strategies': strategies,
+            'mode': 'multi-strategy' if is_multi_strategy else 'single-strategy',
+            'args': vars(args)
+        }
+    
+    def _run_trading_system_in_thread(self, args: Namespace, daemon_manager: DaemonManager) -> None:
+        """Run trading system in background thread"""
+        try:
+            # Remove daemon flag to prevent recursion
+            args_copy = Namespace(**vars(args))
+            args_copy.daemon = False
+            
+            # Run trading system
+            result = asyncio.run(self._run_trading_system(args_copy))
+            
+        except Exception as e:
+            print(f"[DAEMON] Error: {e}")
+        finally:
+            # Cleanup when system stops
+            daemon_manager.cleanup_daemon_files()
     
     async def _run_trading_system(self, args: Namespace) -> int:
         """
