@@ -157,7 +157,7 @@ class DeployValidator(BaseValidator):
         args._brokers = brokers
         
         # Show 1:1 strategy-symbol mapping if applicable
-        self._show_strategy_symbol_mapping(strategies, args.symbols)
+        self._show_strategy_symbol_mapping(strategies, args.symbol)
         
         return errors
     
@@ -166,7 +166,7 @@ class DeployValidator(BaseValidator):
         errors = []
         
         try:
-            symbols = parse_symbols(args.symbols)
+            symbols = parse_symbols(args.symbol)
             if not symbols or any(not s for s in symbols):
                 errors.append("Invalid symbols format. Use comma-separated list like 'AAPL,MSFT'")
         except Exception:

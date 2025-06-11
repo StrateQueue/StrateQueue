@@ -89,9 +89,9 @@ class DeployParser(BaseParser):
     
     def _add_trading_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add trading configuration arguments"""
-        parser.add_argument(
-            '--symbols', 
-            default='AAPL', 
+                parser.add_argument(
+            '--symbol',
+            default='AAPL',
             help='Symbol(s) to trade. Single or comma-separated list (e.g., AAPL or ETH,BTC,AAPL). When number of symbols equals number of strategies, creates 1:1 mapping.'
         )
         

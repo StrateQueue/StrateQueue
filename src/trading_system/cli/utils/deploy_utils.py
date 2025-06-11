@@ -102,7 +102,7 @@ def create_inline_strategy_config(args: Namespace) -> Optional[str]:
         return None
     
     # Parse symbols for potential 1:1 mapping
-    symbols = parse_symbols(args.symbols)
+    symbols = parse_symbols(args.symbol)
     
     # Check if we have 1:1 strategy-to-symbol mapping
     if len(args._strategies) == len(symbols):

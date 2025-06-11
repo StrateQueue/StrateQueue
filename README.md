@@ -24,13 +24,13 @@ class SmaCross(Strategy):
 
 ```bash
 # Deploy your strategy (safe by default - signals only)
-stratequeue deploy --strategy sma.py --symbols AAPL
+stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m
 
 # When ready, enable paper trading
-stratequeue deploy --strategy sma.py --symbols AAPL --paper
+stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m --paper
 
 # When confident, go live
-stratequeue deploy --strategy sma.py --symbols AAPL --live
+stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m --live
 ```
 
 **That's it!** Your strategy is now running live with full real-time management capabilities.
@@ -50,25 +50,25 @@ pip install stratequeue
 ### 1. Test Strategy Logic (Default - Safe!)
 ```bash
 # Generate signals without any trading (default behavior)
-stratequeue deploy --strategy examples/strategies/sma.py --symbols AAPL
+stratequeue deploy --strategy examples/strategies/sma.py --symbol AAPL --granularity 1m
 ```
 
 ### 2. Paper Trading (Fake Money)
 ```bash
 # Test with fake money on real market data
-stratequeue deploy --strategy examples/strategies/sma.py --symbols AAPL --paper
+stratequeue deploy --strategy examples/strategies/sma.py --symbol AAPL --granularity 1m --paper
 ```
 
 ### 3. Live Trading (Real Money)
 ```bash
 # Trade with real money (requires broker setup)
-stratequeue deploy --strategy examples/strategies/sma.py --symbols AAPL --live
+stratequeue deploy --strategy examples/strategies/sma.py --symbol AAPL --granularity 1m --live
 ```
 
 ### 4. Real-Time Management
 ```bash
 # Deploy in background for remote management
-stratequeue deploy --strategy sma.py --symbols AAPL --daemon
+stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m --daemon
 
 # Now manage from same terminal:
 stratequeue pause sma          # Pause strategy (keeps positions)
@@ -114,32 +114,32 @@ The `deploy` command is your main entry point for starting trading strategies.
 ### **📋 Single Strategy Deployment**
 ```bash
 # Test strategy safely (default mode)
-stratequeue deploy --strategy sma.py --symbols AAPL
+stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m
 
 # Paper trading with custom timeframe
-stratequeue deploy --strategy momentum.py --symbols MSFT --granularity 1h --paper
+stratequeue deploy --strategy momentum.py --symbol MSFT --granularity 1h --paper
 
 # Live trading with custom broker
-stratequeue deploy --strategy sma.py --symbols AAPL --broker alpaca --live
+stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m --broker alpaca --live
 
 # Run in background for remote management
-stratequeue deploy --strategy trend.py --symbols GOOGL --daemon
+stratequeue deploy --strategy trend.py --symbol GOOGL --granularity 1m --daemon
 ```
 
 ### **📊 Multi-Strategy Portfolios**
 ```bash
 # Deploy portfolio with custom allocations
-stratequeue deploy --strategy sma.py,momentum.py --allocation 0.7,0.3 --symbols AAPL
+stratequeue deploy --strategy sma.py,momentum.py --allocation 0.7,0.3 --symbol AAPL --granularity 1m
 
 # 1:1 strategy-symbol mapping (when counts match)
-stratequeue deploy --strategy stock_algo.py,crypto_algo.py --allocation 0.8,0.2 --symbols AAPL,BTC
+stratequeue deploy --strategy stock_algo.py,crypto_algo.py --allocation 0.8,0.2 --symbol AAPL,BTC --granularity 1m
 
 # Different timeframes per strategy
-stratequeue deploy --strategy scalper.py,swing.py --allocation 0.4,0.6 --granularity 1m,1h --symbols ETH
+stratequeue deploy --strategy scalper.py,swing.py --allocation 0.4,0.6 --granularity 1m,1h --symbol ETH
 ```
 
 ### **⚙️ Configuration Options**
-- `--symbols` - Trading symbols (default: AAPL)
+- `--symbol` - Trading symbol(s) (default: AAPL)
 - `--data-source` - Data provider (default: demo)
 - `--granularity` - Time intervals (1s, 1m, 5m, 1h, 1d)
 - `--broker` - Trading broker (auto-detected from environment)
@@ -257,23 +257,16 @@ stratequeue ui                 # Alternative
 
 ## 🎯 Strategy-Symbol Mapping Modes
 
-StrateQueue automatically detects your intent based on strategy and symbol counts:
-
-### **🔄 Traditional Mode** (Multiple strategies on shared symbols)
-```bash
-# Both strategies trade all symbols
-stratequeue deploy --strategy sma.py,momentum.py --allocation 0.6,0.4 --symbols AAPL,MSFT,GOOGL
-# → sma trades AAPL,MSFT,GOOGL + momentum trades AAPL,MSFT,GOOGL
-```
+StrateQueue uses **1:1 Strategy-Symbol Mapping** for optimal performance:
 
 ### **🎯 1:1 Mapping Mode** (Each strategy gets dedicated symbol)
 ```bash
 # When strategy count = symbol count
-stratequeue deploy --strategy sma.py,momentum.py --allocation 0.6,0.4 --symbols AAPL,MSFT
+stratequeue deploy --strategy sma.py,momentum.py --allocation 0.6,0.4 --symbol AAPL,MSFT --granularity 1m
 # → sma trades AAPL only + momentum trades MSFT only
 
 # Perfect for specialized strategies
-stratequeue deploy --strategy stock_algo.py,crypto_algo.py --allocation 0.8,0.2 --symbols AAPL,BTC
+stratequeue deploy --strategy stock_algo.py,crypto_algo.py --allocation 0.8,0.2 --symbol AAPL,BTC --granularity 1m
 # → stock_algo.py → AAPL, crypto_algo.py → BTC
 ```
 
@@ -307,8 +300,8 @@ stratequeue list brokers
 
 ```bash
 # Use different data sources
-stratequeue deploy --strategy crypto.py --symbols BTC,ETH --data-source coinmarketcap
-stratequeue deploy --strategy stocks.py --symbols AAPL,MSFT --data-source polygon --granularity 1m
+stratequeue deploy --strategy crypto.py --symbol BTC,ETH --granularity 1m --data-source coinmarketcap
+stratequeue deploy --strategy stocks.py --symbol AAPL,MSFT --granularity 1m --data-source polygon
 ```
 
 ## 🛡️ Safety Features
@@ -328,16 +321,16 @@ stratequeue deploy --strategy stocks.py --symbols AAPL,MSFT --data-source polygo
 ### **🧪 Testing Workflow**
 ```bash
 # 1. Test strategy logic (no trading)
-stratequeue deploy --strategy new_idea.py --symbols AAPL
+stratequeue deploy --strategy new_idea.py --symbol AAPL --granularity 1m
 
 # 2. Test with fake money
-stratequeue deploy --strategy new_idea.py --symbols AAPL --paper
+stratequeue deploy --strategy new_idea.py --symbol AAPL --granularity 1m --paper
 
 # 3. Small live test
-stratequeue deploy --strategy tested_strategy.py --symbols AAPL --live --duration 30
+stratequeue deploy --strategy tested_strategy.py --symbol AAPL --granularity 1m --live --duration 30
 
 # 4. Full deployment
-stratequeue deploy --strategy proven_strategy.py --symbols AAPL --live --daemon
+stratequeue deploy --strategy proven_strategy.py --symbol AAPL --granularity 1m --live --daemon
 ```
 
 ## 📋 Complete Command Examples
@@ -345,31 +338,31 @@ stratequeue deploy --strategy proven_strategy.py --symbols AAPL --live --daemon
 ### **🚀 Deployment Examples**
 ```bash
 # Basic strategy testing (default mode)
-stratequeue deploy --strategy sma.py --symbols AAPL
+stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m
 
 # Paper trading with real data
-stratequeue deploy --strategy momentum.py --symbols MSFT --data-source polygon --paper
+stratequeue deploy --strategy momentum.py --symbol MSFT --granularity 1m --data-source polygon --paper
 
 # High-frequency crypto trading
-stratequeue deploy --strategy scalper.py --symbols BTC --granularity 1s --data-source coinmarketcap --paper
+stratequeue deploy --strategy scalper.py --symbol BTC --granularity 1s --data-source coinmarketcap --paper
 
 # Multi-strategy portfolio
-stratequeue deploy --strategy sma.py,momentum.py,mean_revert.py --allocation 0.4,0.35,0.25 --symbols AAPL,MSFT
+stratequeue deploy --strategy sma.py,momentum.py,mean_revert.py --allocation 0.4,0.35,0.25 --symbol AAPL,MSFT --granularity 1m
 
 # Background deployment for remote management
-stratequeue deploy --strategy trend.py --symbols GOOGL --daemon --duration 480
+stratequeue deploy --strategy trend.py --symbol GOOGL --granularity 1m --daemon --duration 480
 ```
 
 ### **🎛️ Management Examples**
 ```bash
 # Deploy in background
-stratequeue deploy --strategy sma.py,momentum.py --allocation 0.6,0.4 --daemon
+stratequeue deploy --strategy sma.py,momentum.py --allocation 0.6,0.4 --granularity 1m --daemon
 
 # Pause risky strategy during volatility
 stratequeue pause momentum
 
 # Add new strategy to running system
-stratequeue deploy --strategy new_algo.py --daemon
+stratequeue deploy --strategy new_algo.py --granularity 1m --daemon
 
 # Rebalance portfolio
 stratequeue rebalance --allocations=0.5,0.3,0.2
@@ -437,7 +430,7 @@ class MyStrategy(Strategy):
 
 ```bash
 # Test your strategy
-stratequeue deploy --strategy my_strategy.py --symbols AAPL
+stratequeue deploy --strategy my_strategy.py --symbol AAPL --granularity 1m
 ```
 
 ## 📈 Real-Time Output
@@ -447,7 +440,7 @@ stratequeue deploy --strategy my_strategy.py --symbols AAPL
 ════════════════════════════════════════════════════════════════════════════════
 📊 Mode: MULTI-STRATEGY PORTFOLIO
 🎯 Strategies: sma (60%), momentum (40%)
-📈 Symbols: AAPL, MSFT
+📈 Symbol: AAPL, MSFT
 🔌 Data Source: polygon (1h intervals)
 💰 Trading: PAPER MODE via Alpaca
 🕐 Duration: 240 minutes
@@ -496,7 +489,7 @@ stratequeue list brokers
 ls my_strategy.py
 
 # Use absolute path if needed
-stratequeue deploy --strategy /full/path/to/my_strategy.py --symbols AAPL
+stratequeue deploy --strategy /full/path/to/my_strategy.py --symbol AAPL --granularity 1m
 
 # Check working directory
 pwd
@@ -527,19 +520,19 @@ which stratequeue
 ### **1. 🧪 Start with Signal Testing**
 ```bash
 # See what signals your strategy generates (safe!)
-stratequeue deploy --strategy examples/strategies/sma.py --symbols AAPL --duration 5
+stratequeue deploy --strategy examples/strategies/sma.py --symbol AAPL --granularity 1m --duration 5
 ```
 
 ### **2. 📄 Add Paper Trading**
 ```bash
 # Test with fake money
-stratequeue deploy --strategy examples/strategies/sma.py --symbols AAPL --paper --duration 30
+stratequeue deploy --strategy examples/strategies/sma.py --symbol AAPL --granularity 1m --paper --duration 30
 ```
 
 ### **3. 📊 Try Multi-Strategy**
 ```bash
 # Run a simple portfolio
-stratequeue deploy --strategy examples/strategies/sma.py,examples/strategies/momentum.py --allocation 0.6,0.4 --symbols AAPL --paper
+stratequeue deploy --strategy examples/strategies/sma.py,examples/strategies/momentum.py --allocation 0.6,0.4 --symbol AAPL --granularity 1m --paper
 ```
 
 ### **4. 🎛️ Learn Real-Time Management**
@@ -557,7 +550,7 @@ stratequeue stop
 ### **5. 💰 Go Live (When Ready!)**
 ```bash
 # Real money trading (be very careful!)
-stratequeue deploy --strategy my_tested_strategy.py --symbols AAPL --live
+stratequeue deploy --strategy my_tested_strategy.py --symbol AAPL --granularity 1m --live
 ```
 
 ## 🔗 Advanced Usage
@@ -577,13 +570,13 @@ stratequeue status --broker alpaca
 ### **⚙️ Advanced Configuration**
 ```bash
 # Custom runtime duration
-stratequeue deploy --strategy sma.py --symbols AAPL --duration 480  # 8 hours
+stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m --duration 480  # 8 hours
 
 # Override strategy lookback period
-stratequeue deploy --strategy sma.py --symbols AAPL --lookback 100
+stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m --lookback 100
 
 # Verbose logging for debugging
-stratequeue deploy --strategy sma.py --symbols AAPL --verbose
+stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m --verbose
 
 # Custom PID file location for daemon mode
 stratequeue deploy --strategy sma.py --daemon --pid-file /custom/path/stratequeue.pid
@@ -592,13 +585,13 @@ stratequeue deploy --strategy sma.py --daemon --pid-file /custom/path/stratequeu
 ### **🎯 Specialized Deployments**
 ```bash
 # Multi-symbol, single strategy
-stratequeue deploy --strategy diversified.py --symbols AAPL,MSFT,GOOGL,TSLA --paper
+stratequeue deploy --strategy diversified.py --symbol AAPL,MSFT,GOOGL,TSLA --granularity 1m --paper
 
 # Cross-asset strategies
-stratequeue deploy --strategy multi_asset.py --symbols AAPL,BTC,EUR_USD --data-source polygon,coinmarketcap,forex
+stratequeue deploy --strategy multi_asset.py --symbol AAPL,BTC,EUR_USD --granularity 1m --data-source polygon,coinmarketcap,forex
 
 # Time-based strategies
-stratequeue deploy --strategy market_open.py --symbols SPY --granularity 1m --duration 390  # Full trading day
+stratequeue deploy --strategy market_open.py --symbol SPY --granularity 1m --duration 390  # Full trading day
 ```
 
 ---
@@ -616,7 +609,7 @@ stratequeue deploy --strategy market_open.py --symbols SPY --granularity 1m --du
 
 ```bash
 pip install stratequeue[all]
-stratequeue deploy --strategy your_strategy.py --symbols AAPL
+stratequeue deploy --strategy your_strategy.py --symbol AAPL --granularity 1m
 ```
 
 **Start safe, scale smart, trade professionally.** 🚀📈 

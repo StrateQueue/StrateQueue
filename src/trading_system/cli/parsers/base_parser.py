@@ -89,7 +89,7 @@ class BaseParser:
         market_group = parser.add_argument_group('Market Options')
         
         market_group.add_argument(
-            '--symbols', '--symbol',
+            '--symbol',
             type=str,
             help='Trading symbols (comma-separated)'
         )

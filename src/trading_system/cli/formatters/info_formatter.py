@@ -133,17 +133,20 @@ class InfoFormatter(BaseFormatter):
             
             # Try to get actual broker status
             try:
-                from ...brokers.utils import get_broker_status
-                status = get_broker_status()
+                from ...brokers.utils import get_broker_environment_status
+                status = get_broker_environment_status()
                 
-                for broker, broker_status in status.items():
+                for broker, broker_info in status.items():
                     output.append(f"\n{broker.upper()}:")
-                    for env_var, value in broker_status.items():
-                        status_icon = "✅" if value else "❌"
-                        output.append(f"  {status_icon} {env_var}: {'Set' if value else 'Not set'}")
+                    if broker_info['detected'] and broker_info['valid']:
+                        output.append("  ✅ Detected and configured")
+                    elif broker_info['detected'] and not broker_info['valid']:
+                        output.append(f"  ⚠️  Detected but invalid: {broker_info['error_message']}")
+                    else:
+                        output.append(f"  ❌ Not detected: {broker_info['error_message']}")
                     
-                    # Provide helpful guidance if not set up
-                    if not any(broker_status.values()):
+                    # Provide setup help for not configured brokers
+                    if not broker_info['valid']:
                         output.append(f"  💡 Setup help: stratequeue setup broker {broker}")
                         
             except (ImportError, AttributeError):
@@ -215,18 +218,22 @@ class InfoFormatter(BaseFormatter):
                 "🔧 To get setup instructions:",
                 "  pip install stratequeue[trading]",
                 "",
-                "📋 Manual Setup (Alpaca Example):",
+                "📋 Manual Setup (Alpaca Paper Trading):",
                 "  1. Create account at alpaca.markets",
                 "  2. Get API keys from dashboard", 
-                "  3. Set environment variables:",
-                "     export ALPACA_API_KEY='your_key_here'",
-                "     export ALPACA_API_SECRET='your_secret_here'",
-                "  4. For paper trading (recommended):",
-                "     export ALPACA_BASE_URL='https://paper-api.alpaca.markets'",
-                "  5. For live trading:",
+                "  3. Set environment variables for paper trading:",
+                "     export PAPER_KEY='your_paper_key_here'",
+                "     export PAPER_SECRET='your_paper_secret_here'",
+                "     export PAPER_ENDPOINT='https://paper-api.alpaca.markets/v2'",
+                "",
+                "📋 Alternative Setup (Live Trading - Use with caution):",
+                "  3. Set environment variables for live trading:",
+                "     export ALPACA_API_KEY='your_live_key_here'",
+                "     export ALPACA_SECRET_KEY='your_live_secret_here'",
                 "     export ALPACA_BASE_URL='https://api.alpaca.markets'",
                 "",
                 "💡 After setup:",
+                "  source .env  # or export $(cat .env | xargs)",
                 "  stratequeue status                    # Verify setup",
                 "  stratequeue deploy --strategy sma.py --symbol AAPL --paper"
             ])

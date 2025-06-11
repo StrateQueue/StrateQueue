@@ -71,7 +71,7 @@ class DeployCommand(BaseCommand):
         
         # Trading configuration
         parser.add_argument(
-            '--symbols', 
+            '--symbol', 
             default='AAPL', 
             help='Symbol(s) to trade. Single or comma-separated list (e.g., AAPL or ETH,BTC,AAPL). When number of symbols equals number of strategies, creates 1:1 mapping.'
         )
@@ -271,7 +271,7 @@ class DeployCommand(BaseCommand):
     def _create_daemon_system_info(self, args: Namespace) -> dict:
         """Create basic system info for daemon storage"""
         # Parse symbols to get strategy info
-        symbols = parse_symbols(args.symbols)
+        symbols = parse_symbols(args.symbol)
         
         # Determine if multi-strategy mode
         is_multi_strategy = hasattr(args, '_strategies') and len(args._strategies) > 1
@@ -337,7 +337,7 @@ class DeployCommand(BaseCommand):
             from ...live_system.orchestrator import LiveTradingSystem
             
             # Parse symbols
-            symbols = parse_symbols(args.symbols)
+            symbols = parse_symbols(args.symbol)
             
             # Determine trading configuration
             enable_trading = args._enable_trading

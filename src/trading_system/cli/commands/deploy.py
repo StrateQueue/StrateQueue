@@ -61,7 +61,7 @@ class DeployCommand(BaseCommand):
         if not args.strategy:
             errors.append("Strategy is required")
         
-        if not args.symbols:
+        if not args.symbol:
             errors.append("At least one symbol is required")
         
         # Validate broker choice
@@ -87,7 +87,7 @@ class DeployCommand(BaseCommand):
             print(BaseFormatter.format_warning("DRY RUN MODE - No actual deployment"))
         
         print(BaseFormatter.format_info(f"Strategy: {args.strategy}"))
-        print(BaseFormatter.format_info(f"Symbols: {args.symbols}"))
+        print(BaseFormatter.format_info(f"Symbols: {args.symbol}"))
         print(BaseFormatter.format_info(f"Data Source: {args.data_source}"))
         
         if args.daemon:
