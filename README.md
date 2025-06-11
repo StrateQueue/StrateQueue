@@ -24,13 +24,13 @@ class SmaCross(Strategy):
 
 ```bash
 # Deploy your strategy (safe by default - signals only)
-stratequeue deploy --strategy sma.py --symbols AAPL
+stratequeue deploy --strategy sma.py --symbols AAPL --granularity 1s
 
 # When ready, enable paper trading
-stratequeue deploy --strategy sma.py --symbols AAPL --paper
+stratequeue deploy --strategy sma.py --symbols AAPL --granularity 1s --paper
 
 # When confident, go live
-stratequeue deploy --strategy sma.py --symbols AAPL --live
+stratequeue deploy --strategy sma.py --symbols AAPL --granularity 1s --live
 ```
 
 **That's it!** Your strategy is now running live with full real-time management capabilities.
