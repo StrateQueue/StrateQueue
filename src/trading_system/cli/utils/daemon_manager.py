@@ -216,7 +216,7 @@ class DaemonIPC:
             return {'success': False, 'error': str(e)}
     
     def _handle_get_status(self, command: dict) -> dict:
-        """Handle get status command - FIXED VERSION"""
+        """Handle get status command - FIXED VERSION with symbols"""
         try:
             include_statistics = command.get('include_statistics', False)
             
@@ -236,6 +236,7 @@ class DaemonIPC:
                     # Get real status from multi-strategy runner
                     strategy_status = 'active'
                     allocation = 1.0 / len(strategy_ids)  # Default
+                    symbols = []  # Initialize symbols list
                     
                     if hasattr(self.system_instance, 'multi_strategy_runner'):
                         runner = self.system_instance.multi_strategy_runner
@@ -244,18 +245,62 @@ class DaemonIPC:
                         if hasattr(runner, 'get_strategy_status'):
                             strategy_status = runner.get_strategy_status(strategy_id)
                         
-                        # Get real allocation
+                        # Get real allocation with detailed debugging
                         if hasattr(runner, 'get_strategy_allocation'):
                             try:
                                 allocation = runner.get_strategy_allocation(strategy_id)
-                            except:
-                                pass
+                                logger.info(f"IPC: Got allocation for {strategy_id}: {allocation:.1%}")
+                            except Exception as e:
+                                logger.error(f"IPC: Error getting allocation for {strategy_id}: {e}")
+                                # Try getting from portfolio manager directly
+                                if hasattr(runner, 'portfolio_integrator') and runner.portfolio_integrator.portfolio_manager:
+                                    pm = runner.portfolio_integrator.portfolio_manager
+                                    logger.info(f"IPC: Portfolio manager has strategies: {list(pm.strategy_allocations.keys())}")
+                                    if strategy_id in pm.strategy_allocations:
+                                        allocation = pm.strategy_allocations[strategy_id].allocation_percentage
+                                        logger.info(f"IPC: Got allocation from portfolio manager for {strategy_id}: {allocation:.1%}")
+                                    else:
+                                        logger.warning(f"IPC: Strategy {strategy_id} not found in portfolio manager")
+                                        # Try getting from strategy config as fallback
+                                        if hasattr(runner, 'get_strategy_configs'):
+                                            configs = runner.get_strategy_configs()
+                                            logger.info(f"IPC: Strategy configs available: {list(configs.keys())}")
+                                            if strategy_id in configs:
+                                                allocation = configs[strategy_id].allocation
+                                                logger.info(f"IPC: Got allocation from config for {strategy_id}: {allocation:.1%}")
+                                            else:
+                                                logger.warning(f"IPC: Strategy {strategy_id} not found in configs either")
+                                else:
+                                    logger.error(f"IPC: No portfolio manager available")
+                        
+                        # Get symbols from strategy configs
+                        if hasattr(runner, 'get_strategy_configs'):
+                            try:
+                                strategy_configs = runner.get_strategy_configs()
+                                if strategy_id in strategy_configs:
+                                    config = strategy_configs[strategy_id]
+                                    if hasattr(config, 'symbol') and config.symbol:
+                                        # Strategy has a specific symbol (1:1 mapping)
+                                        symbols = [config.symbol]
+                                    elif hasattr(runner, 'symbols') and runner.symbols:
+                                        # Strategy runs on all symbols (traditional mode)
+                                        symbols = runner.symbols
+                                    else:
+                                        # Fallback: try to get from system-level symbols
+                                        symbols = getattr(self.system_instance, 'symbols', ['unknown'])
+                                else:
+                                    logger.warning(f"IPC: Strategy config not found for {strategy_id}")
+                                    symbols = ['unknown']
+                            except Exception as e:
+                                logger.error(f"IPC: Error getting symbols for {strategy_id}: {e}")
+                                symbols = ['unknown']
                     
                     status['strategies'][strategy_id] = {
                         'status': strategy_status,
-                        'allocation': allocation
+                        'allocation': allocation,
+                        'symbols': symbols
                     }
-                    logger.info(f"IPC: Strategy {strategy_id}: {strategy_status}, {allocation:.1%}")
+                    logger.info(f"IPC: Strategy {strategy_id}: {strategy_status}, {allocation:.1%}, symbols: {symbols}")
             
             # Get statistics if requested
             if include_statistics and hasattr(self.system_instance, 'statistics_manager'):

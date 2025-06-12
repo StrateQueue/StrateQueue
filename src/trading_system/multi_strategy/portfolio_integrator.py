@@ -211,6 +211,16 @@ class PortfolioIntegrator:
         Returns:
             Allocation percentage (0.0 to 1.0)
         """
+        # First try the portfolio manager (handles runtime additions)
+        if self.portfolio_manager and strategy_id in self.portfolio_manager.strategy_allocations:
+            allocation = self.portfolio_manager.strategy_allocations[strategy_id].allocation_percentage
+            # Sync our local dictionary for consistency
+            if strategy_id not in self.strategy_allocations:
+                self.strategy_allocations[strategy_id] = allocation
+                logger.info(f"Synced strategy allocation: {strategy_id} = {allocation:.1%}")
+            return allocation
+        
+        # Fallback to initial allocations (for backward compatibility)
         return self.strategy_allocations.get(strategy_id, 0.0)
     
     def get_available_capital(self, strategy_id: str) -> float:
