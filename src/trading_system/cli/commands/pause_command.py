@@ -9,7 +9,7 @@ from argparse import Namespace
 from typing import List, Optional
 
 from .base_command import BaseCommand
-from ..utils.daemon_manager import DaemonManager
+from ..utils.daemon_manager import DaemonManager, DaemonIPC
 
 
 class PauseCommand(BaseCommand):
@@ -94,7 +94,7 @@ class PauseCommand(BaseCommand):
                 return 0
             
             # Pause strategy in live system
-            success = self._pause_strategy_in_system(system_info['system'], args.strategy_id)
+            success = self._pause_strategy_in_system(system_info, args.strategy_id)
             
             if success:
                 print(f"✅ Successfully paused strategy '{args.strategy_id}'")
@@ -116,15 +116,32 @@ class PauseCommand(BaseCommand):
         strategies = system_info.get('strategies', {})
         return strategy_id in strategies
     
-    def _pause_strategy_in_system(self, trading_system: any, strategy_id: str) -> bool:
+    def _pause_strategy_in_system(self, system_info: dict, strategy_id: str) -> bool:
         """Pause strategy in live trading system"""
         try:
             print(f"🔧 Pausing strategy '{strategy_id}'")
             
-            # TODO: Implement actual strategy pausing
-            # trading_system.pause_strategy(strategy_id)
+            # Send pause command via IPC
+            ipc = DaemonIPC()
             
-            return True
+            command = {
+                'type': 'pause_strategy',
+                'strategy_id': strategy_id
+            }
+            
+            response = ipc.send_command(command)
+            
+            if response.get('success'):
+                print(f"✅ Strategy '{strategy_id}' paused successfully")
+                print("   • Signal generation stopped")
+                print("   • Existing positions maintained")
+                print(f"   • Resume with: stratequeue resume {strategy_id}")
+                return True
+            else:
+                error_msg = response.get('error', 'Unknown error')
+                print(f"❌ Failed to pause strategy '{strategy_id}': {error_msg}")
+                return False
+                
         except Exception as e:
-            print(f"⚠️  Strategy pause simulation: {e}")
+            print(f"❌ Error pausing strategy: {e}")
             return False 

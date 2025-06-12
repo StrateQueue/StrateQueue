@@ -154,11 +154,8 @@ class TestDataIngestion(BaseDataIngestion):
         
         if symbol not in self.historical_data:
             logger.warning(f"No historical data for {symbol}, generating minimal data")
-            # Generate a small amount of historical data first
-            import asyncio
-            historical_data = asyncio.run(self.fetch_historical_data(symbol, days_back=1))
-            if len(historical_data) == 0:
-                return pd.DataFrame()
+            # Generate minimal historical data synchronously instead of using async call
+            self._generate_minimal_historical_data(symbol)
         
         # Get current price
         current_price = self.current_prices.get(symbol, self.base_prices.get(symbol, 100.0))
@@ -191,6 +188,65 @@ class TestDataIngestion(BaseDataIngestion):
             return self.historical_data[symbol]
         
         return self.get_backtesting_data(symbol)
+    
+    def _generate_minimal_historical_data(self, symbol: str):
+        """Generate minimal historical data synchronously for a new symbol"""
+        # Set up basic parameters
+        base_price = self.base_prices.get(symbol, random.uniform(50, 500))
+        self.current_prices[symbol] = base_price
+        
+        # Generate just a few bars to start with (synchronously)
+        minimal_bars = 10  # Just enough to get started
+        data = []
+        current_price = base_price
+        
+        # Create timestamps for the last few intervals
+        from datetime import datetime, timedelta
+        end_time = datetime.now()
+        interval_seconds = getattr(self, 'granularity_seconds', 60)  # Default to 1 minute
+        
+        for i in range(minimal_bars):
+            timestamp = end_time - timedelta(seconds=(minimal_bars - i) * interval_seconds)
+            
+            # Simple price walk
+            price_change_pct = random.gauss(0, 0.01)  # 1% volatility
+            new_price = current_price * (1 + price_change_pct)
+            
+            # Generate OHLC
+            if new_price > current_price:
+                open_price = current_price
+                close_price = new_price
+                high_price = close_price * (1 + random.uniform(0, 0.005))
+                low_price = open_price * (1 - random.uniform(0, 0.002))
+            else:
+                open_price = current_price
+                close_price = new_price
+                low_price = close_price * (1 - random.uniform(0, 0.005))
+                high_price = open_price * (1 + random.uniform(0, 0.002))
+            
+            volume = random.randint(50000, 200000)
+            
+            data.append({
+                'Open': round(open_price, 2),
+                'High': round(high_price, 2),
+                'Low': round(low_price, 2),
+                'Close': round(close_price, 2),
+                'Volume': volume,
+                'timestamp': timestamp
+            })
+            
+            current_price = close_price
+        
+        # Create DataFrame
+        df = pd.DataFrame(data)
+        df.set_index('timestamp', inplace=True)
+        df.index = pd.to_datetime(df.index)
+        
+        # Cache the data
+        self.historical_data[symbol] = df
+        self.current_prices[symbol] = current_price
+        
+        logger.info(f"Generated {len(df)} minimal historical bars for {symbol}")
     
     def _generate_realtime_bar(self, symbol: str) -> MarketData:
         """Generate a single realistic bar for real-time simulation"""

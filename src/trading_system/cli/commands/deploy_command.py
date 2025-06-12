@@ -172,7 +172,31 @@ class DeployCommand(BaseCommand):
             self._show_quick_help()
             return 1
         
-        # Handle daemon mode
+        # Check for existing daemon first
+        daemon_manager = DaemonManager()
+        success, existing_system, error = daemon_manager.load_daemon_system()
+        
+        if success and existing_system:
+            if args.daemon:
+                # Add strategy to existing daemon (hotswap functionality)
+                print(f"🔗 Found existing daemon (PID: {existing_system.get('pid')})")
+                return self._add_strategy_to_existing_daemon(args, existing_system, daemon_manager)
+            else:
+                # Warn user about existing daemon
+                print("⚠️  A daemon is already running!")
+                print(f"   PID: {existing_system.get('pid')}")
+                strategies = existing_system.get('strategies', {})
+                print(f"   Strategies: {len(strategies)} active")
+                for strategy_id, info in strategies.items():
+                    status = info.get('status', 'unknown')
+                    print(f"     • {strategy_id} ({status})")
+                print("")
+                print("💡 Options:")
+                print("   --daemon           Add strategy to existing daemon")
+                print("   stratequeue stop   Stop existing daemon first")
+                return 1
+        
+        # Handle daemon mode (no existing daemon)
         if args.daemon:
             return self._handle_daemon_mode(args)
         
@@ -223,16 +247,15 @@ class DeployCommand(BaseCommand):
             # Setup signal handlers for graceful shutdown
             def signal_handler(signum, frame):
                 print(f"\n📡 Received signal {signum}, shutting down gracefully...")
+                daemon_manager.ipc.stop_command_server()  # Stop IPC server
                 daemon_manager.cleanup_daemon_files()
                 exit(0)
             
             signal.signal(signal.SIGTERM, signal_handler)
             signal.signal(signal.SIGINT, signal_handler)
             
-            # Store daemon info with basic system info
+            # Get PID file path for later use
             pid_file_path = daemon_manager.get_pid_file_path()
-            system_info = self._create_daemon_system_info(args)
-            daemon_manager.store_daemon_system(system_info, pid_file_path)
             
             print(f"🚀 Launching trading system in background...")
             print(f"✅ System started (PID: {os.getpid()})")
@@ -268,13 +291,85 @@ class DeployCommand(BaseCommand):
             daemon_manager.cleanup_daemon_files()
             return 1
     
+    def _add_strategy_to_existing_daemon(self, args: Namespace, system_info: dict, daemon_manager: DaemonManager) -> int:
+        """
+        Add strategy to existing daemon (hotswap deploy functionality)
+        
+        Args:
+            args: Parsed command arguments
+            system_info: Existing daemon system information
+            daemon_manager: Daemon manager instance
+            
+        Returns:
+            Exit code (0 for success, 1 for error)
+        """
+        try:
+            # Parse new strategy info
+            strategy_path = args._strategies[0]
+            strategy_id = os.path.basename(strategy_path).replace('.py', '')
+            symbols = parse_symbols(args.symbol)
+            
+            # Check if strategy already exists
+            existing_strategies = system_info.get('strategies', {})
+            if strategy_id in existing_strategies:
+                print(f"❌ Strategy '{strategy_id}' already exists in daemon")
+                print("💡 Use a different strategy file name or stop the existing strategy first")
+                return 1
+            
+            # Use specified allocation from command line arguments
+            num_existing = len(existing_strategies)
+            if hasattr(args, '_allocations') and args._allocations:
+                new_allocation = float(args._allocations[0])
+                allocation_description = f"specified allocation"
+            else:
+                # Fallback to equal weight if no allocation specified
+                new_allocation = 1.0 / (num_existing + 1)
+                allocation_description = f"equal weight with {num_existing} existing"
+            
+            print(f"🚀 Adding strategy '{strategy_id}' to daemon...")
+            print(f"📊 New allocation: {new_allocation:.1%} ({allocation_description})")
+            print(f"📈 Symbols: {', '.join(symbols)}")
+            
+            # Use symbol for 1:1 mapping if single symbol, None for all symbols
+            target_symbol = symbols[0] if len(symbols) == 1 else None
+            
+            # Send hotswap command via IPC
+            command = {
+                'type': 'add_strategy',
+                'strategy_path': strategy_path,
+                'strategy_id': strategy_id,
+                'allocation': new_allocation,
+                'symbol': target_symbol
+            }
+            
+            response = daemon_manager.ipc.send_command(command)
+            
+            if response.get('success'):
+                print(f"✅ Successfully added strategy '{strategy_id}' to daemon")
+                print("🔄 Portfolio automatically rebalanced to accommodate new strategy")
+                print("")
+                print("🔥 Strategy now active in daemon! Available commands:")
+                print(f"  stratequeue pause {strategy_id}")
+                print(f"  stratequeue resume {strategy_id}")
+                print("  stratequeue stop")
+                return 0
+            else:
+                error_msg = response.get('error', 'Unknown error')
+                print(f"❌ Failed to add strategy '{strategy_id}': {error_msg}")
+                return 1
+                
+        except Exception as e:
+            logger.error(f"Error adding strategy to daemon: {e}")
+            print(f"❌ Error adding strategy to daemon: {e}")
+            return 1
+    
     def _create_daemon_system_info(self, args: Namespace) -> dict:
         """Create basic system info for daemon storage"""
         # Parse symbols to get strategy info
         symbols = parse_symbols(args.symbol)
         
-        # Determine if multi-strategy mode
-        is_multi_strategy = hasattr(args, '_strategies') and len(args._strategies) > 1
+        # Determine if multi-strategy mode - force it for daemon mode to enable hotswap
+        is_multi_strategy = (hasattr(args, '_strategies') and len(args._strategies) > 1) or args.daemon
         
         if is_multi_strategy:
             strategies = {}
@@ -306,6 +401,57 @@ class DeployCommand(BaseCommand):
             'args': vars(args)
         }
     
+    def _create_daemon_system_info_from_system(self, trading_system: any, original_info: dict) -> dict:
+        """
+        Create updated daemon system info from running trading system
+        
+        Args:
+            trading_system: Running trading system instance
+            original_info: Original daemon info to preserve
+            
+        Returns:
+            Updated system info dictionary
+        """
+        try:
+            # Preserve original system instance and metadata
+            updated_info = original_info.copy()
+            updated_info['system'] = trading_system
+            
+            # Update strategies info if possible
+            if hasattr(trading_system, 'get_deployed_strategies'):
+                strategy_ids = trading_system.get_deployed_strategies()
+                strategies = {}
+                
+                for strategy_id in strategy_ids:
+                    # Get strategy status and allocation
+                    status = getattr(trading_system, 'get_strategy_status', lambda x: 'active')(strategy_id)
+                    
+                    # Try to get allocation from portfolio manager
+                    allocation = 1.0 / len(strategy_ids)  # Default equal allocation
+                    if hasattr(trading_system, 'multi_strategy_runner'):
+                        runner = trading_system.multi_strategy_runner
+                        if hasattr(runner, 'get_strategy_allocation'):
+                            allocation = runner.get_strategy_allocation(strategy_id)
+                    
+                    strategies[strategy_id] = {
+                        'class': strategy_id,
+                        'status': status,
+                        'allocation': allocation,
+                        'symbols': updated_info.get('args', {}).get('symbol', ['AAPL']),
+                        'path': f"{strategy_id}.py"  # Approximation
+                    }
+                
+                updated_info['strategies'] = strategies
+            
+            return updated_info
+            
+        except Exception as e:
+            logger.warning(f"Could not update daemon system info: {e}")
+            # Return original with updated system instance
+            updated_info = original_info.copy()
+            updated_info['system'] = trading_system
+            return updated_info
+    
     def _run_trading_system_in_thread(self, args: Namespace, daemon_manager: DaemonManager) -> None:
         """Run trading system in background thread"""
         try:
@@ -313,14 +459,168 @@ class DeployCommand(BaseCommand):
             args_copy = Namespace(**vars(args))
             args_copy.daemon = False
             
-            # Run trading system
-            result = asyncio.run(self._run_trading_system(args_copy))
+            # Run trading system with daemon storage
+            result = asyncio.run(self._run_trading_system_with_daemon_storage(args_copy, daemon_manager))
             
         except Exception as e:
             print(f"[DAEMON] Error: {e}")
         finally:
             # Cleanup when system stops
             daemon_manager.cleanup_daemon_files()
+    
+    async def _run_trading_system_with_daemon_storage(self, args: Namespace, daemon_manager: DaemonManager) -> int:
+        """
+        Run trading system and store in daemon manager for hotswap support
+        
+        Args:
+            args: Parsed command arguments
+            daemon_manager: Daemon manager instance
+            
+        Returns:
+            Exit code
+        """
+        try:
+            # Import here to avoid circular imports
+            from ...live_system.orchestrator import LiveTradingSystem
+            
+            # Parse symbols
+            symbols = parse_symbols(args.symbol)
+            
+            # Determine trading configuration
+            enable_trading = args._enable_trading
+            paper_trading = args._paper_trading
+            
+            # Force multi-strategy mode for daemon to enable hotswap
+            # Create a simple multi-strategy config
+            import tempfile
+            temp_config_content = self._create_daemon_multi_strategy_config(args)
+            temp_config = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+            try:
+                temp_config.write(temp_config_content)
+                temp_config.close()
+                
+                # Initialize multi-strategy system for daemon
+                system = LiveTradingSystem(
+                    symbols=symbols,
+                    data_source=args._data_sources[0],
+                    granularity=args._granularities[0] if args._granularities else None,
+                    enable_trading=enable_trading,
+                    multi_strategy_config=temp_config.name,
+                    broker_type=args._brokers[0] if args._brokers and args._brokers[0] != 'auto' else None,
+                    paper_trading=paper_trading,
+                    lookback_override=args.lookback
+                )
+                
+                # Store essential daemon info for hotswap (avoid pickling issues)
+                strategies_info = self._extract_strategies_from_system(system, args)
+                daemon_info = {
+                    'pid': os.getpid(),
+                    'system': system,  # Store reference for this process (not pickled)
+                    'start_time': time.time(),
+                    'strategies': strategies_info,
+                    'mode': 'multi-strategy',
+                    'symbols': symbols,
+                    'args': vars(args)
+                }
+                daemon_manager.store_daemon_system(daemon_info)
+                
+                # Start IPC command server for hotswap operations
+                daemon_manager.ipc.start_command_server(system)
+                
+                print(f"[DAEMON] System stored for hotswap operations")
+                print(f"[DAEMON] IPC command server started")
+                
+                print(f"🚀 Starting daemon system for {args.duration} minutes...")
+                print(f"📊 Mode: Multi-strategy (hotswap enabled)")
+                print(f"💰 Trading mode: {'Paper' if paper_trading else 'Live'}")
+                print("")
+                
+                # Run the system
+                await system.run_live_system(args.duration)
+                
+                print("✅ Daemon system completed successfully")
+                return 0
+                
+            finally:
+                # Clean up temporary file
+                if os.path.exists(temp_config.name):
+                    os.unlink(temp_config.name)
+                    
+        except ImportError as e:
+            logger.error(f"Trading system not available: {e}")
+            print(f"❌ Trading system not available: {e}")
+            print("💡 Install with: pip install stratequeue[trading]")
+            return 1
+        except Exception as e:
+            logger.error(f"Error running daemon system: {e}")
+            print(f"❌ Error running daemon system: {e}")
+            return 1
+    
+    def _create_daemon_multi_strategy_config(self, args: Namespace) -> str:
+        """Create multi-strategy config for daemon mode"""
+        # Extract strategy info
+        strategy_path = args._strategies[0]
+        strategy_id = os.path.basename(strategy_path).replace('.py', '')
+        allocation = args._allocations[0] if args._allocations else 1.0
+        
+        # Get the symbol for this strategy
+        symbols = parse_symbols(args.symbol)
+        symbol = symbols[0] if symbols else 'AAPL'
+        
+        # Create CSV content for single strategy in multi-strategy format
+        # Format: filename,strategy_id,allocation_percentage,symbol (1:1 mapping)
+        content = f"{strategy_path},{strategy_id},{allocation},{symbol}\n"
+        
+        return content
+    
+    def _extract_strategies_from_system(self, system: any, args: Namespace) -> dict:
+        """Extract strategy information safely for daemon storage"""
+        try:
+            strategies = {}
+            
+            # Extract from multi-strategy runner if available
+            if hasattr(system, 'multi_strategy_runner'):
+                runner = system.multi_strategy_runner
+                if hasattr(runner, 'config_manager'):
+                    config_manager = runner.config_manager
+                    if hasattr(config_manager, 'strategy_configs'):
+                        for strategy_id, config in config_manager.strategy_configs.items():
+                            strategies[strategy_id] = {
+                                'class': strategy_id,
+                                'status': 'active',
+                                'allocation': config.allocation,
+                                'symbols': args.symbol.split(',') if isinstance(args.symbol, str) else [args.symbol],
+                                'path': config.file_path
+                            }
+            
+            # Fallback: single strategy from args
+            if not strategies:
+                strategy_path = args._strategies[0]
+                strategy_id = os.path.basename(strategy_path).replace('.py', '')
+                strategies[strategy_id] = {
+                    'class': strategy_id,
+                    'status': 'active',
+                    'allocation': 1.0,
+                    'symbols': args.symbol.split(',') if isinstance(args.symbol, str) else [args.symbol],
+                    'path': strategy_path
+                }
+            
+            return strategies
+            
+        except Exception as e:
+            logger.warning(f"Could not extract strategy info: {e}")
+            # Return basic info from args
+            strategy_path = args._strategies[0]
+            strategy_id = os.path.basename(strategy_path).replace('.py', '')
+            return {
+                strategy_id: {
+                    'class': strategy_id,
+                    'status': 'active',
+                    'allocation': 1.0,
+                    'symbols': [args.symbol],
+                    'path': strategy_path
+                }
+            }
     
     async def _run_trading_system(self, args: Namespace) -> int:
         """
@@ -343,8 +643,8 @@ class DeployCommand(BaseCommand):
             enable_trading = args._enable_trading
             paper_trading = args._paper_trading
             
-            # Determine if multi-strategy mode
-            is_multi_strategy = hasattr(args, '_strategies') and len(args._strategies) > 1
+            # Determine if multi-strategy mode - force it for daemon mode to enable hotswap
+            is_multi_strategy = (hasattr(args, '_strategies') and len(args._strategies) > 1) or args.daemon
             
             if is_multi_strategy:
                 return await self._run_multi_strategy_system(args, symbols, enable_trading, paper_trading)
@@ -407,10 +707,8 @@ class DeployCommand(BaseCommand):
             
         finally:
             # Clean up temporary file
-            try:
+            if os.path.exists(temp_config.name):
                 os.unlink(temp_config.name)
-            except Exception as e:
-                logger.warning(f"Failed to clean up temp file: {e}")
     
     async def _run_single_strategy_system(self, args: Namespace, symbols: List[str], 
                                          enable_trading: bool, paper_trading: bool) -> int:

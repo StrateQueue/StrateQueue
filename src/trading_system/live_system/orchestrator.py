@@ -77,8 +77,8 @@ class LiveTradingSystem:
             self.symbols,
             self.lookback_period,
             self.is_multi_strategy,
-            getattr(self, 'strategy_class', None),
-            getattr(self, 'multi_strategy_runner', None),
+            self.strategy_class,
+            self.multi_strategy_runner,
             self.statistics_manager
         )
         
@@ -89,6 +89,10 @@ class LiveTradingSystem:
         
         # Initialize broker executor if trading is enabled
         self.broker_executor = self._initialize_trading()
+        
+        # Pass data manager reference to multi-strategy runner for runtime symbol addition
+        if self.is_multi_strategy and self.multi_strategy_runner:
+            self.multi_strategy_runner.data_manager_ref = self.data_manager
         
     def _initialize_strategies(self, strategy_path: str, multi_strategy_config: str):
         """Initialize strategy components based on mode"""

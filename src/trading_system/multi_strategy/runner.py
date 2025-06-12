@@ -269,6 +269,11 @@ class MultiStrategyRunner:
                 self.signal_coordinator.remove_strategy_runtime(strategy_id)
                 return False
             
+            # If strategy has a specific symbol, make sure data manager is tracking it
+            if symbol and hasattr(self, 'data_manager_ref') and self.data_manager_ref:
+                if not self.data_manager_ref.add_symbol_runtime(symbol):
+                    logger.warning(f"Failed to add symbol {symbol} to data manager, strategy may not get data")
+            
             # Update max lookback if necessary
             if lookback_period > self.max_lookback_period:
                 self.max_lookback_period = lookback_period

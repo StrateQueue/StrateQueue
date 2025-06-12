@@ -160,6 +160,42 @@ class DataManager:
         data = self.get_symbol_data(symbol)
         return len(data) >= self.lookback_period
     
+    def add_symbol_runtime(self, symbol: str) -> bool:
+        """
+        Add a new symbol to track at runtime
+        
+        Args:
+            symbol: Symbol to add for data tracking
+            
+        Returns:
+            True if symbol was added successfully
+        """
+        try:
+            if symbol in self.symbols:
+                logger.info(f"Symbol {symbol} already being tracked")
+                return True
+            
+            # Add to symbol list
+            self.symbols.append(symbol)
+            
+            # Initialize empty data storage
+            self.cumulative_data[symbol] = pd.DataFrame()
+            
+            # Subscribe to symbol if using real data source
+            if self.data_ingester and self.data_source != "demo":
+                self.data_ingester.subscribe_to_symbol(symbol)
+            
+            logger.info(f"🔥 Added symbol {symbol} to data tracking at runtime")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to add symbol {symbol} at runtime: {e}")
+            return False
+    
+    def get_tracked_symbols(self) -> List[str]:
+        """Get list of currently tracked symbols"""
+        return self.symbols.copy()
+    
     def get_data_progress(self, symbol: str) -> tuple[int, int, float]:
         """Get data collection progress for a symbol"""
         data = self.get_symbol_data(symbol)

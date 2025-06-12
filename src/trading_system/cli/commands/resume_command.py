@@ -9,7 +9,7 @@ from argparse import Namespace
 from typing import List, Optional
 
 from .base_command import BaseCommand
-from ..utils.daemon_manager import DaemonManager
+from ..utils.daemon_manager import DaemonManager, DaemonIPC
 
 
 class ResumeCommand(BaseCommand):
@@ -94,7 +94,7 @@ class ResumeCommand(BaseCommand):
                 return 0
             
             # Resume strategy in live system
-            success = self._resume_strategy_in_system(system_info['system'], args.strategy_id)
+            success = self._resume_strategy_in_system(system_info, args.strategy_id)
             
             if success:
                 print(f"✅ Successfully resumed strategy '{args.strategy_id}'")
@@ -116,15 +116,32 @@ class ResumeCommand(BaseCommand):
         strategies = system_info.get('strategies', {})
         return strategy_id in strategies
     
-    def _resume_strategy_in_system(self, trading_system: any, strategy_id: str) -> bool:
+    def _resume_strategy_in_system(self, system_info: dict, strategy_id: str) -> bool:
         """Resume strategy in live trading system"""
         try:
             print(f"🔧 Resuming strategy '{strategy_id}'")
             
-            # TODO: Implement actual strategy resuming
-            # trading_system.resume_strategy(strategy_id)
+            # Send resume command via IPC
+            ipc = DaemonIPC()
             
-            return True
+            command = {
+                'type': 'resume_strategy',
+                'strategy_id': strategy_id
+            }
+            
+            response = ipc.send_command(command)
+            
+            if response.get('success'):
+                print(f"✅ Strategy '{strategy_id}' resumed successfully")
+                print("   • Signal generation restarted")
+                print("   • Strategy is now active")
+                print(f"   • Pause again with: stratequeue pause {strategy_id}")
+                return True
+            else:
+                error_msg = response.get('error', 'Unknown error')
+                print(f"❌ Failed to resume strategy '{strategy_id}': {error_msg}")
+                return False
+                
         except Exception as e:
-            print(f"⚠️  Strategy resume simulation: {e}")
+            print(f"❌ Error resuming strategy: {e}")
             return False 
