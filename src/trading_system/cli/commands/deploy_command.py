@@ -497,6 +497,10 @@ class DeployCommand(BaseCommand):
     def _run_trading_system_in_thread(self, args: Namespace, daemon_manager: DaemonManager) -> None:
         """Run trading system in background thread"""
         try:
+            # Setup logging in daemon thread
+            from ..utils.deploy_utils import setup_logging
+            setup_logging(verbose=getattr(args, 'verbose', False))
+            
             # Remove daemon flag to prevent recursion
             args_copy = Namespace(**vars(args))
             args_copy.daemon = False

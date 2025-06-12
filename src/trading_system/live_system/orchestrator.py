@@ -256,6 +256,12 @@ class LiveTradingSystem:
                     
                     # Update market prices again after trade execution for accurate P&L calculations
                     await self._update_post_trade_prices()
+                    
+                    # Display periodic statistics every 5 signals
+                    if signal_count % 5 == 0 and self.statistics_manager:
+                        print(f"\n📊 PERIODIC STATISTICS (Signal #{signal_count}):")
+                        print(self.statistics_manager.display_summary())
+                        print("")
                 
                 # Wait before next cycle (respecting granularity)
                 await asyncio.sleep(cycle_interval)
