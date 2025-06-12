@@ -65,49 +65,32 @@ const TradingDashboard = () => {
     totalPnl?: number;
     activeTrades?: number;
   }>({});
+  const [strategies, setStrategies] = useState<any[]>([]);
+  const [strategiesLoading, setStrategiesLoading] = useState(true);
+  const [strategiesError, setStrategiesError] = useState<string | null>(null);
 
-  // Mock data for strategies
-  const strategies = [
-    {
-      id: 1,
-      name: "SMA Crossover",
-      file: "examples/strategies/sma.py",
-      symbols: ["AAPL"],
-      status: "running",
-      pnl: 2420.50,
-      pnlPercent: 4.8,
-      trades: 27,
-      winRate: 68.5,
-      lastUpdate: "2 mins ago",
-      allocation: 0.4
-    },
-    {
-      id: 2,
-      name: "Momentum Strategy",
-      file: "examples/strategies/momentum.py", 
-      symbols: ["MSFT", "GOOGL"],
-      status: "running",
-      pnl: -340.75,
-      pnlPercent: -1.2,
-      trades: 15,
-      winRate: 42.2,
-      lastUpdate: "5 mins ago",
-      allocation: 0.35
-    },
-    {
-      id: 3,
-      name: "Random Strategy",
-      file: "examples/strategies/random.py",
-      symbols: ["BTC"],
-      status: "paused", 
-      pnl: 750.25,
-      pnlPercent: 2.1,
-      trades: 34,
-      winRate: 55.8,
-      lastUpdate: "1 hour ago",
-      allocation: 0.25
+  // Fetch strategies from the API
+  const fetchStrategies = async () => {
+    try {
+      setStrategiesLoading(true);
+      setStrategiesError(null);
+      
+      const response = await fetch('http://localhost:8080/api/strategies');
+      const data = await response.json();
+      
+      if (data.success) {
+        setStrategies(data.strategies);
+      } else {
+        setStrategiesError(data.message || 'Failed to fetch strategies');
+        setStrategies([]); // Clear strategies on error
+      }
+    } catch (error) {
+      setStrategiesError('Failed to connect to API');
+      setStrategies([]);
+    } finally {
+      setStrategiesLoading(false);
     }
-  ];
+  };
 
   const recentTrades = [
     { id: 1, strategy: 'SMA Crossover', symbol: 'AAPL', type: 'BUY', price: 185.42, pnl: 125, time: '10:30:15' },
@@ -117,13 +100,24 @@ const TradingDashboard = () => {
   ];
 
   useEffect(() => {
-    const interval = setInterval(() => {
+    // Fetch strategies on component mount
+    fetchStrategies();
+    
+    // Set up polling for live updates every 10 seconds
+    const strategiesInterval = setInterval(fetchStrategies, 10000);
+    
+    // Animated values for demo purposes
+    const animationInterval = setInterval(() => {
       setAnimatedValues({
         totalPnl: Math.random() * 200 + 2830,
         activeTrades: Math.floor(Math.random() * 5) + 8
       });
     }, 3000);
-    return () => clearInterval(interval);
+    
+    return () => {
+      clearInterval(strategiesInterval);
+      clearInterval(animationInterval);
+    };
   }, []);
 
   const StatusBadge = ({ status }: { status: string }) => {
@@ -189,8 +183,8 @@ const TradingDashboard = () => {
         />
         <MetricCard
           title="Active Strategies"
-          value="2"
-          change="+1"
+          value={strategies.filter(s => s.status === 'running').length.toString()}
+          change={strategies.length > 0 ? `+${strategies.length}` : "0"}
           trend="up"
           icon={Activity}
           subtitle="Currently running trading strategies"
@@ -261,111 +255,168 @@ const TradingDashboard = () => {
 
   const StrategiesView = () => (
     <div className="space-y-6">
+      {/* Loading State */}
+      {strategiesLoading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="flex items-center gap-3">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+            <span className="text-sm text-muted-foreground">Loading strategies...</span>
+          </div>
+        </div>
+      )}
+
+      {/* Error State */}
+      {strategiesError && !strategiesLoading && (
+        <Alert className="border-l-4 border-l-red-500">
+          <Info className="h-4 w-4" />
+          <AlertDescription>
+            <div>
+              <p className="font-medium">No strategies available</p>
+              <p className="text-sm text-muted-foreground">{strategiesError}</p>
+              <p className="text-xs text-muted-foreground mt-2">
+                💡 Start a trading system: <code>stratequeue deploy --strategy examples/strategies/sma.py --symbol AAPL --daemon</code>
+              </p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="mt-3"
+                onClick={fetchStrategies}
+              >
+                Retry
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Strategy Cards */}
-      <ScrollArea className="h-[600px]">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pr-4">
-          {strategies.map((strategy) => (
-            <Card key={strategy.id} className="hover:bg-accent/50 transition-all duration-300">
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="space-y-2">
-                    <CardTitle className="text-lg">{strategy.name}</CardTitle>
-                    <CardDescription>{strategy.file}</CardDescription>
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs text-muted-foreground">Symbols:</span>
-                      {strategy.symbols.map((symbol) => (
-                        <Badge key={symbol} variant="outline" className="text-xs">
-                          {symbol}
-                        </Badge>
-                      ))}
+      {!strategiesLoading && !strategiesError && strategies.length > 0 && (
+        <ScrollArea className="h-[600px]">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pr-4">
+            {strategies.map((strategy) => (
+              <Card key={strategy.id} className="hover:bg-accent/50 transition-all duration-300">
+                <CardHeader>
+                  <div className="flex items-start justify-between">
+                    <div className="space-y-2">
+                      <CardTitle className="text-lg">{strategy.name}</CardTitle>
+                      <CardDescription>{strategy.file}</CardDescription>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-muted-foreground">Symbols:</span>
+                        {strategy.symbols.map((symbol: string) => (
+                          <Badge key={symbol} variant="outline" className="text-xs">
+                            {symbol}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={strategy.status} />
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" className="h-8 w-8 p-0">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                          <DropdownMenuItem>
+                            <Edit className="mr-2 h-4 w-4" />
+                            Edit Strategy
+                          </DropdownMenuItem>
+                          <DropdownMenuItem>
+                            <Copy className="mr-2 h-4 w-4" />
+                            Clone Strategy
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem className="text-red-600">
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete Strategy
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <StatusBadge status={strategy.status} />
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="h-8 w-8 p-0">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem>
-                          <Edit className="mr-2 h-4 w-4" />
-                          Edit Strategy
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Copy className="mr-2 h-4 w-4" />
-                          Clone Strategy
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-red-600">
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete Strategy
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">PnL</p>
+                      <p className={`font-semibold ${strategy.pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {strategy.pnl >= 0 ? '+' : ''}${strategy.pnl.toLocaleString()}
+                      </p>
+                      <p className={`text-xs ${strategy.pnlPercent >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {strategy.pnlPercent >= 0 ? '+' : ''}{strategy.pnlPercent}%
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Allocation</p>
+                      <p className="font-semibold">{(strategy.allocation * 100).toFixed(0)}%</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Trades</p>
+                      <p className="font-semibold">{strategy.trades}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Win Rate</p>
+                      <p className="font-semibold">{strategy.winRate}%</p>
+                    </div>
                   </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">PnL</p>
-                    <p className={`font-semibold ${strategy.pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                      {strategy.pnl >= 0 ? '+' : ''}${strategy.pnl.toLocaleString()}
-                    </p>
-                    <p className={`text-xs ${strategy.pnlPercent >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                      {strategy.pnlPercent >= 0 ? '+' : ''}{strategy.pnlPercent}%
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Allocation</p>
-                    <p className="font-semibold">{(strategy.allocation * 100).toFixed(0)}%</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Trades</p>
-                    <p className="font-semibold">{strategy.trades}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Win Rate</p>
-                    <p className="font-semibold">{strategy.winRate}%</p>
-                  </div>
-                </div>
 
-                <Separator className="my-4" />
+                  <Separator className="my-4" />
 
-                <div className="flex items-center justify-between">
-                  <div className="text-xs text-muted-foreground">
-                    <span>Updated {strategy.lastUpdate}</span>
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-muted-foreground">
+                      <span>Updated {strategy.lastUpdate}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center gap-2">
+                              <Switch 
+                                checked={strategy.status === 'running'} 
+                                disabled={strategy.status === 'stopped'}
+                              />
+                              <span className="text-sm">Active</span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Toggle strategy on/off</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      <Button variant="outline" size="sm">
+                        <Settings className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="flex items-center gap-2">
-                            <Switch 
-                              checked={strategy.status === 'running'} 
-                              disabled={strategy.status === 'stopped'}
-                            />
-                            <span className="text-sm">Active</span>
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Toggle strategy on/off</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    <Button variant="outline" size="sm">
-                      <Settings className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </ScrollArea>
+      )}
+
+      {/* Empty State when no strategies but no error */}
+      {!strategiesLoading && !strategiesError && strategies.length === 0 && (
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <div className="text-muted-foreground mb-4">
+              <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p className="text-lg font-medium">No strategies running</p>
+              <p className="text-sm">Deploy your first strategy to get started</p>
+            </div>
+            <Button 
+              variant="outline" 
+              className="mt-4"
+              onClick={fetchStrategies}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Deploy Strategy
+            </Button>
+          </div>
         </div>
-      </ScrollArea>
+      )}
     </div>
   );
 

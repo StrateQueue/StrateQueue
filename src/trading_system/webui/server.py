@@ -13,8 +13,9 @@ import subprocess
 import threading
 import time
 import webbrowser
+import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any, List
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -31,6 +32,132 @@ def get_webui_path() -> Path:
 def get_frontend_path() -> Path:
     """Get the path to the frontend directory."""
     return get_webui_path() / "frontend"
+
+
+def get_strategies_from_cli() -> Dict[str, Any]:
+    """
+    Get strategies from the CLI command 'stratequeue list strategy'.
+    
+    Returns:
+        Dictionary containing strategies data or error information
+    """
+    try:
+        # Run the CLI command to get strategies
+        result = subprocess.run(
+            ["stratequeue", "list", "strategy"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        # Check if command succeeded
+        if result.returncode != 0:
+            # No daemon running or other error
+            return {
+                "success": False,
+                "error": "No trading system is currently running",
+                "message": result.stderr.strip() if result.stderr else "Unknown error",
+                "strategies": []
+            }
+        
+        # Parse the CLI output to extract strategy information
+        # The CLI output is text-based, so we need to parse it
+        output_lines = result.stdout.strip().split('\n')
+        
+        # Look for strategy information in the output
+        strategies = []
+        current_strategy = None
+        
+        for line in output_lines:
+            line = line.strip()
+            
+            # Skip empty lines and headers
+            if not line or line.startswith('📋') or line.startswith('=') or line.startswith('🔗') or line.startswith('📊') or line.startswith('✅') or line.startswith('🎯') or line.startswith('💰') or line.startswith('🔧') or line.startswith('INFO:'):
+                continue
+            
+            # Strategy entry starts with an emoji indicator
+            if line.startswith('🟢') or line.startswith('⏸️') or line.startswith('🔴') or line.startswith('🟡') or line.startswith('⚪'):
+                # New strategy found
+                if current_strategy:
+                    strategies.append(current_strategy)
+                
+                # Extract strategy name (after the emoji and space)
+                strategy_name = line.split(' ', 1)[1] if ' ' in line else line[2:]
+                current_strategy = {
+                    "id": len(strategies) + 1,
+                    "name": strategy_name,
+                    "file": "unknown",
+                    "symbols": [],
+                    "status": "unknown",
+                    "pnl": 0.0,
+                    "pnlPercent": 0.0,
+                    "trades": 0,
+                    "winRate": 0.0,
+                    "lastUpdate": "unknown",
+                    "allocation": 0.0
+                }
+                
+                # Determine status from emoji
+                if line.startswith('🟢'):
+                    current_strategy["status"] = "running"
+                elif line.startswith('⏸️'):
+                    current_strategy["status"] = "paused"
+                elif line.startswith('🔴'):
+                    current_strategy["status"] = "error"
+                elif line.startswith('🟡'):
+                    current_strategy["status"] = "initialized"
+                
+            elif current_strategy and ':' in line:
+                # Parse strategy details
+                key, value = line.split(':', 1)
+                key = key.strip()
+                value = value.strip()
+                
+                if key == "Status":
+                    current_strategy["status"] = value.lower()
+                elif key == "Allocation":
+                    try:
+                        # Convert percentage to decimal (e.g., "40%" -> 0.4)
+                        allocation_str = value.replace('%', '')
+                        current_strategy["allocation"] = float(allocation_str) / 100
+                    except ValueError:
+                        current_strategy["allocation"] = 0.0
+                elif key == "Symbols":
+                    current_strategy["symbols"] = [s.strip() for s in value.split(',')]
+                elif key == "Path":
+                    current_strategy["file"] = value
+        
+        # Add the last strategy if exists
+        if current_strategy:
+            strategies.append(current_strategy)
+        
+        return {
+            "success": True,
+            "strategies": strategies,
+            "total": len(strategies)
+        }
+        
+    except subprocess.TimeoutExpired:
+        return {
+            "success": False,
+            "error": "Command timeout",
+            "message": "CLI command took too long to respond",
+            "strategies": []
+        }
+    except FileNotFoundError:
+        return {
+            "success": False,
+            "error": "CLI not found",
+            "message": "Could not find stratequeue CLI command",
+            "strategies": []
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": "Unexpected error",
+            "message": str(e),
+            "strategies": []
+        }
 
 
 def build_frontend() -> bool:
@@ -128,6 +255,38 @@ async def get_status():
         "frontend_connected": True,
         "version": "1.0.0"
     }
+
+
+@app.get("/api/strategies")
+async def get_strategies():
+    """Get live strategies from the CLI command."""
+    try:
+        result = get_strategies_from_cli()
+        
+        if not result["success"]:
+            # Return error but don't raise HTTP exception for better UX
+            return {
+                "success": False,
+                "error": result["error"],
+                "message": result["message"],
+                "strategies": [],
+                "fallback_available": True  # Frontend can show a message about starting daemon
+            }
+        
+        return {
+            "success": True,
+            "strategies": result["strategies"],
+            "total": result["total"],
+            "last_updated": time.time()
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": "Server error",
+            "message": f"Failed to fetch strategies: {str(e)}",
+            "strategies": []
+        }
 
 
 def start_webui_server(port: int = 8080, open_browser: bool = True):
