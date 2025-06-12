@@ -109,7 +109,7 @@ const AnimatedSubtitle = () => {
     }
 
     // Start auto-cycling
-    intervalRef.current = setInterval(cycleToNext, 4000);
+    intervalRef.current = setInterval(cycleToNext, 1500);
 
     return () => {
       if (intervalRef.current) {
