@@ -48,7 +48,7 @@ if ALPACA_AVAILABLE:
             return symbol.upper()
         
         # Convert single symbol to USD pair for crypto
-        crypto_symbols = ['BTC', 'ETH', 'LTC', 'BCH', 'DOGE', 'SHIB', 'AVAX', 'UNI', 'LINK', 'MATIC']
+        crypto_symbols = ['BTC', 'ETH', 'LTC', 'BCH', 'DOGE', 'SHIB', 'AVAX', 'UNI', 'LINK', 'MATIC', 'AAVE']
         symbol_upper = symbol.upper()
         
         if symbol_upper in crypto_symbols:
