@@ -100,7 +100,7 @@ def create_inline_strategy_config(args: Namespace) -> Optional[str]:
     """
     if not hasattr(args, '_strategies') or len(args._strategies) <= 1:
         return None
-    
+
     # Parse symbols for potential 1:1 mapping
     symbols = parse_symbols(args.symbol)
     
@@ -113,8 +113,14 @@ def create_inline_strategy_config(args: Namespace) -> Optional[str]:
             ""
         ]
         
+        # Use symbol-aware strategy ID generation for better uniqueness
+        if not hasattr(args, '_strategy_ids') or not args._strategy_ids:
+            unique_strategy_ids = generate_strategy_ids_with_symbols(args._strategies, symbols)
+        else:
+            unique_strategy_ids = args._strategy_ids
+        
         for i, strategy_path in enumerate(args._strategies):
-            strategy_id = args._strategy_ids[i]
+            strategy_id = unique_strategy_ids[i]
             allocation = args._allocations[i]
             symbol = symbols[i]
             
@@ -128,8 +134,14 @@ def create_inline_strategy_config(args: Namespace) -> Optional[str]:
             ""
         ]
         
+        # Use regular unique strategy ID generation
+        if not hasattr(args, '_strategy_ids') or not args._strategy_ids:
+            unique_strategy_ids = generate_strategy_ids(args._strategies)
+        else:
+            unique_strategy_ids = args._strategy_ids
+        
         for i, strategy_path in enumerate(args._strategies):
-            strategy_id = args._strategy_ids[i]
+            strategy_id = unique_strategy_ids[i]
             allocation = args._allocations[i]
             
             config_lines.append(f"{strategy_path},{strategy_id},{allocation}")
@@ -139,20 +151,90 @@ def create_inline_strategy_config(args: Namespace) -> Optional[str]:
 
 def generate_strategy_ids(strategies: List[str]) -> List[str]:
     """
-    Generate strategy IDs from strategy file paths
+    Generate strategy IDs from strategy file paths with automatic uniqueness
     
     Args:
         strategies: List of strategy file paths
         
     Returns:
-        List of strategy IDs derived from filenames
+        List of unique strategy IDs derived from filenames
     """
     strategy_ids = []
+    seen_ids = set()
+    
     for strategy_path in strategies:
-        # Use filename without extension as default strategy ID
+        # Use filename without extension as base strategy ID
         strategy_filename = os.path.basename(strategy_path)
-        strategy_id = os.path.splitext(strategy_filename)[0]
+        base_strategy_id = os.path.splitext(strategy_filename)[0]
+        
+        # Check for duplicates and generate unique ID if needed
+        strategy_id = base_strategy_id
+        if strategy_id in seen_ids:
+            # Generate unique ID with timestamp
+            import time
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%y%m%d_%H%M")
+            strategy_id = f"{base_strategy_id}_{timestamp}"
+            
+            # Final safety check for extreme edge cases
+            counter = 1
+            original_unique_id = strategy_id
+            while strategy_id in seen_ids:
+                strategy_id = f"{original_unique_id}_{counter}"
+                counter += 1
+        
         strategy_ids.append(strategy_id)
+        seen_ids.add(strategy_id)
+    
+    return strategy_ids
+
+
+def generate_strategy_ids_with_symbols(strategies: List[str], symbols: List[str]) -> List[str]:
+    """
+    Generate strategy IDs with symbol-based uniqueness for 1:1 mapping
+    
+    Args:
+        strategies: List of strategy file paths
+        symbols: List of symbols for 1:1 mapping
+        
+    Returns:
+        List of unique strategy IDs with symbol integration
+    """
+    if len(strategies) != len(symbols):
+        # Fallback to regular generation if not 1:1 mapping
+        return generate_strategy_ids(strategies)
+    
+    strategy_ids = []
+    seen_ids = set()
+    
+    for i, strategy_path in enumerate(strategies):
+        # Use filename without extension as base strategy ID
+        strategy_filename = os.path.basename(strategy_path)
+        base_strategy_id = os.path.splitext(strategy_filename)[0]
+        symbol = symbols[i]
+        
+        # Check for duplicates and generate unique ID if needed
+        strategy_id = base_strategy_id
+        if strategy_id in seen_ids:
+            # For 1:1 mapping, append symbol first
+            strategy_id = f"{base_strategy_id}_{symbol}"
+            
+            # If still conflicts, add timestamp
+            if strategy_id in seen_ids:
+                from datetime import datetime
+                timestamp = datetime.now().strftime("%y%m%d_%H%M")
+                strategy_id = f"{base_strategy_id}_{symbol}_{timestamp}"
+                
+                # Final safety check
+                counter = 1
+                original_unique_id = strategy_id
+                while strategy_id in seen_ids:
+                    strategy_id = f"{original_unique_id}_{counter}"
+                    counter += 1
+        
+        strategy_ids.append(strategy_id)
+        seen_ids.add(strategy_id)
+    
     return strategy_ids
 
 

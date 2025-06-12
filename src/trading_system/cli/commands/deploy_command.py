@@ -306,15 +306,19 @@ class DeployCommand(BaseCommand):
         try:
             # Parse new strategy info
             strategy_path = args._strategies[0]
-            strategy_id = os.path.basename(strategy_path).replace('.py', '')
+            base_strategy_id = os.path.basename(strategy_path).replace('.py', '')
             symbols = parse_symbols(args.symbol)
             
-            # Check if strategy already exists
+            # Check if strategy already exists and generate unique ID if needed
             existing_strategies = system_info.get('strategies', {})
-            if strategy_id in existing_strategies:
-                print(f"❌ Strategy '{strategy_id}' already exists in daemon")
-                print("💡 Use a different strategy file name or stop the existing strategy first")
-                return 1
+            strategy_id = self._generate_unique_strategy_id(base_strategy_id, symbols, existing_strategies)
+            
+            # Show strategy ID information
+            if strategy_id != base_strategy_id:
+                print(f"🔄 Strategy ID auto-generated: '{strategy_id}' (base: '{base_strategy_id}')")
+                print(f"💡 This avoids conflicts with existing strategies")
+            else:
+                print(f"📝 Using strategy ID: '{strategy_id}'")
             
             # Use specified allocation from command line arguments
             num_existing = len(existing_strategies)
@@ -362,6 +366,44 @@ class DeployCommand(BaseCommand):
             logger.error(f"Error adding strategy to daemon: {e}")
             print(f"❌ Error adding strategy to daemon: {e}")
             return 1
+    
+    def _generate_unique_strategy_id(self, base_strategy_id: str, symbols: list, existing_strategies: dict) -> str:
+        """
+        Generate a unique strategy ID by appending symbol and timestamp if needed
+        
+        Args:
+            base_strategy_id: Base strategy ID from filename
+            symbols: List of symbols for this strategy
+            existing_strategies: Dictionary of existing strategy IDs
+            
+        Returns:
+            Unique strategy ID
+        """
+        # First, try the base strategy ID
+        if base_strategy_id not in existing_strategies:
+            return base_strategy_id
+        
+        # If conflict, generate unique ID with symbol and timestamp
+        import time
+        from datetime import datetime
+        
+        # Use first symbol for naming
+        symbol = symbols[0] if symbols else "MULTI"
+        
+        # Generate timestamp (compact format: YYMMDD_HHMM)
+        timestamp = datetime.now().strftime("%y%m%d_%H%M")
+        
+        # Create enhanced strategy ID: base_symbol_timestamp
+        unique_id = f"{base_strategy_id}_{symbol}_{timestamp}"
+        
+        # Final safety check - if somehow this still conflicts, add a counter
+        counter = 1
+        original_unique_id = unique_id
+        while unique_id in existing_strategies:
+            unique_id = f"{original_unique_id}_{counter}"
+            counter += 1
+        
+        return unique_id
     
     def _create_daemon_system_info(self, args: Namespace) -> dict:
         """Create basic system info for daemon storage"""
