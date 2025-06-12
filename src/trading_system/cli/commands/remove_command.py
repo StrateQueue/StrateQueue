@@ -95,16 +95,29 @@ class RemoveCommand(BaseCommand):
                 print("💡 Make sure a trading system is running with daemon mode (--daemon)")
                 return 1
             
+            # Get LIVE strategy data via IPC instead of stale pickled data
+            print("🔍 Getting live strategy data...")
+            ipc_command = {'type': 'get_status'}
+            ipc_response = self.daemon_manager.ipc.send_command(ipc_command)
+            
+            if not ipc_response.get('success'):
+                print(f"❌ Failed to get live strategy data: {ipc_response.get('error', 'Unknown IPC error')}")
+                print("⚠️  Falling back to cached data (may be outdated)")
+                strategies = system_info.get('strategies', {})
+            else:
+                live_status = ipc_response.get('status', {})
+                strategies = live_status.get('strategies', {})
+                print(f"✅ Retrieved live data: {len(strategies)} strategies")
+            
             # Validate strategy exists
-            if not self._strategy_exists_in_system(args.strategy_id, system_info):
+            if args.strategy_id not in strategies:
                 print(f"❌ Strategy '{args.strategy_id}' not found in the system")
-                available_strategies = list(system_info.get('strategies', {}).keys())
+                available_strategies = list(strategies.keys())
                 if available_strategies:
                     print(f"📋 Available strategies: {', '.join(available_strategies)}")
                 return 1
             
             # Check if this is the only strategy
-            strategies = system_info.get('strategies', {})
             if len(strategies) <= 1:
                 print(f"⚠️  Cannot remove '{args.strategy_id}' - it's the only strategy in the system")
                 print("💡 Use 'stratequeue stop' to stop the entire system")
@@ -118,10 +131,11 @@ class RemoveCommand(BaseCommand):
                 
                 strategy_info = strategies[args.strategy_id]
                 if 'allocation' in strategy_info:
-                    print(f"  Current allocation: {strategy_info['allocation']}")
+                    allocation = strategy_info['allocation']
+                    print(f"  Current allocation: {allocation:.1%}")
                 
                 remaining_strategies = [s for s in strategies.keys() if s != args.strategy_id]
-                print(f"  Remaining strategies: {', '.join(remaining_strategies)}")
+                print(f"  Remaining strategies ({len(remaining_strategies)}): {', '.join(remaining_strategies)}")
                 return 0
             
             # Remove strategy from live system
@@ -154,10 +168,7 @@ class RemoveCommand(BaseCommand):
             print(f"❌ Error removing strategy: {e}")
             return 1
     
-    def _strategy_exists_in_system(self, strategy_id: str, system_info: dict) -> bool:
-        """Check if strategy exists in the running system"""
-        strategies = system_info.get('strategies', {})
-        return strategy_id in strategies
+
     
     def _remove_strategy_from_system(self, trading_system: any, strategy_id: str, 
                                    liquidate: bool = False, rebalance: bool = False) -> bool:

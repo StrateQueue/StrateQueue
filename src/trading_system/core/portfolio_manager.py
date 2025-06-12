@@ -184,11 +184,18 @@ class SimplePortfolioManager:
             True if rebalancing was successful
         """
         try:
-            # Validate new allocations
+            # Validate new allocations (allow ≤ 100% for cash reserves)
             total_allocation = sum(new_allocations.values())
-            if abs(total_allocation - 1.0) > 0.01:
-                logger.error(f"New allocations sum to {total_allocation:.1%}, not 100%")
+            if total_allocation > 1.0:
+                logger.error(f"New allocations sum to {total_allocation:.1%}, which exceeds 100%")
                 return False
+            elif total_allocation <= 0.0:
+                logger.error(f"New allocations sum to {total_allocation:.1%}, which must be positive")
+                return False
+            elif total_allocation < 1.0:
+                cash_reserve = 1.0 - total_allocation
+                logger.info(f"New allocations sum to {total_allocation:.1%}. "
+                           f"Keeping {cash_reserve:.1%} in cash reserves.")
             
             # Check if all strategies exist
             for strategy_id in new_allocations:

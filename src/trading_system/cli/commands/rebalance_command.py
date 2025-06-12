@@ -85,10 +85,12 @@ class RebalanceCommand(BaseCommand):
                 if any(a <= 0 for a in allocations):
                     errors.append("All allocations must be positive")
                 
-                # Check sum is reasonable (allowing for minor rounding)
+                # Check sum is reasonable (can be less than 1.0 for cash reserves, but not more than 1.0)
                 total = sum(allocations)
-                if abs(total - 1.0) > 0.01:
-                    errors.append(f"Allocations must sum to 1.0 (got {total:.3f})")
+                if total > 1.0:
+                    errors.append(f"Allocations cannot exceed 1.0 (got {total:.3f})")
+                elif total <= 0.0:
+                    errors.append(f"Total allocation must be positive (got {total:.3f})")
                     
             except ValueError:
                 errors.append("Allocations must be comma-separated decimal numbers (e.g., 0.4,0.3,0.3)")
@@ -115,10 +117,26 @@ class RebalanceCommand(BaseCommand):
                 print("💡 Make sure a trading system is running with daemon mode (--daemon)")
                 return 1
             
-            # Get current strategies
-            strategies = system_info.get('strategies', {})
+            # Get LIVE strategy data via IPC instead of stale pickled data
+            print("🔍 Getting live strategy data...")
+            ipc_command = {'type': 'get_status'}
+            ipc_response = self.daemon_manager.ipc.send_command(ipc_command)
+            
+            if not ipc_response.get('success'):
+                print(f"❌ Failed to get live strategy data: {ipc_response.get('error', 'Unknown IPC error')}")
+                print("⚠️  Falling back to cached data (may be outdated)")
+                strategies = system_info.get('strategies', {})
+            else:
+                live_status = ipc_response.get('status', {})
+                strategies = live_status.get('strategies', {})
+                print(f"✅ Retrieved live data: {len(strategies)} strategies")
+            
+            # Check if we have enough strategies to rebalance
             if len(strategies) < 2:
                 print("⚠️  Cannot rebalance - need at least 2 strategies in the system")
+                if len(strategies) == 1:
+                    print(f"💡 Currently have 1 strategy: {list(strategies.keys())[0]}")
+                    print("💡 Add more strategies with: stratequeue deploy --strategy <strategy.py> --daemon")
                 return 1
             
             strategy_ids = list(strategies.keys())
@@ -138,9 +156,8 @@ class RebalanceCommand(BaseCommand):
                 print(f"  Liquidate excess: {args.liquidate_excess}")
                 return 0
             
-            # Perform rebalancing
-            success = self._rebalance_system(
-                system_info['system'],
+            # Perform rebalancing via IPC
+            success = self._rebalance_system_via_ipc(
                 new_allocations,
                 target=args.target,
                 liquidate_excess=args.liquidate_excess
@@ -148,9 +165,6 @@ class RebalanceCommand(BaseCommand):
             
             if success:
                 print("✅ Successfully rebalanced portfolio")
-                
-                # Update daemon info
-                self.daemon_manager.store_daemon_system(system_info['system'])
                 return 0
             else:
                 print("❌ Failed to rebalance portfolio")
@@ -198,6 +212,11 @@ class RebalanceCommand(BaseCommand):
         print("Strategy".ljust(20) + "Current".ljust(12) + "New".ljust(12) + "Change")
         print("-" * 50)
         
+        # Calculate totals
+        current_total = sum(current_strategies.get(sid, {}).get('allocation', 0.0) for sid in new_allocations.keys())
+        new_total = sum(new_allocations.values())
+        
+        # Show individual strategy allocations
         for strategy_id in new_allocations.keys():
             current_alloc = current_strategies.get(strategy_id, {}).get('allocation', 0.0)
             new_alloc = new_allocations[strategy_id]
@@ -205,26 +224,49 @@ class RebalanceCommand(BaseCommand):
             
             change_str = f"{change:+.1%}" if change != 0 else "unchanged"
             print(f"{strategy_id:<20}{current_alloc:<12.1%}{new_alloc:<12.1%}{change_str}")
+        
+        # Show totals and cash reserves
+        print("-" * 50)
+        print(f"{'TOTAL ALLOCATED':<20}{current_total:<12.1%}{new_total:<12.1%}")
+        
+        if new_total < 1.0:
+            cash_reserve = 1.0 - new_total
+            print(f"{'💰 CASH RESERVE':<20}{'':<12}{cash_reserve:<12.1%}")
+            print(f"💡 Keeping {cash_reserve:.1%} of capital in cash reserves")
     
-    def _rebalance_system(self, trading_system: any, new_allocations: Dict[str, float], 
-                         target: str = 'both', liquidate_excess: bool = False) -> bool:
-        """Perform actual rebalancing in the trading system"""
+    def _rebalance_system_via_ipc(self, new_allocations: Dict[str, float], 
+                                  target: str = 'both', liquidate_excess: bool = False) -> bool:
+        """Perform actual rebalancing via IPC to the live system"""
         try:
-            print("\n🔧 Applying new allocations...")
+            print("\n🔧 Applying new allocations via IPC...")
             
-            if target in ['portfolio', 'both']:
-                print("📈 Updating portfolio allocations...")
-                # TODO: Implement portfolio allocation updates
-                # trading_system.update_strategy_allocations(new_allocations)
+            # Send rebalance command to daemon via IPC
+            ipc_command = {
+                'type': 'rebalance_portfolio',
+                'new_allocations': new_allocations,
+                'target': target,
+                'liquidate_excess': liquidate_excess
+            }
             
-            if target in ['positions', 'both']:
-                print("💰 Rebalancing positions...")
-                # TODO: Implement position rebalancing
-                # trading_system.rebalance_positions(new_allocations, liquidate_excess)
+            print(f"📡 Sending rebalance command to daemon...")
+            ipc_response = self.daemon_manager.ipc.send_command(ipc_command)
             
-            print("⚖️  Rebalancing completed successfully")
-            return True
+            if ipc_response.get('success'):
+                message = ipc_response.get('message', 'Portfolio rebalanced successfully')
+                print(f"✅ {message}")
+                
+                # Show the applied allocations
+                applied_allocations = ipc_response.get('allocations', new_allocations)
+                print(f"⚖️  Applied allocations:")
+                for strategy_id, allocation in applied_allocations.items():
+                    print(f"   • {strategy_id}: {allocation:.1%}")
+                
+                return True
+            else:
+                error_msg = ipc_response.get('error', 'Unknown IPC error')
+                print(f"❌ Failed to rebalance via IPC: {error_msg}")
+                return False
             
         except Exception as e:
-            print(f"⚠️  Rebalancing simulation: {e}")
+            print(f"❌ Error rebalancing via IPC: {e}")
             return False 

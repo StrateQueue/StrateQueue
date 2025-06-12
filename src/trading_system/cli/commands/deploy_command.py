@@ -623,20 +623,62 @@ class DeployCommand(BaseCommand):
             # Extract from multi-strategy runner if available
             if hasattr(system, 'multi_strategy_runner'):
                 runner = system.multi_strategy_runner
-                if hasattr(runner, 'config_manager'):
-                    config_manager = runner.config_manager
-                    if hasattr(config_manager, 'strategy_configs'):
-                        for strategy_id, config in config_manager.strategy_configs.items():
-                            strategies[strategy_id] = {
-                                'class': strategy_id,
-                                'status': 'active',
-                                'allocation': config.allocation,
-                                'symbols': args.symbol.split(',') if isinstance(args.symbol, str) else [args.symbol],
-                                'path': config.file_path
-                            }
+                
+                print(f"🔍 Extracting strategies from multi-strategy runner...")
+                
+                # Use proper API methods instead of direct attribute access
+                try:
+                    # Get strategy configs using proper API
+                    strategy_configs = runner.get_strategy_configs()
+                    strategy_statuses = runner.get_all_strategy_statuses()
+                    
+                    print(f"📋 Found {len(strategy_configs)} strategy configs")
+                    
+                    for strategy_id, config in strategy_configs.items():
+                        # Get real status from signal coordinator
+                        status = strategy_statuses.get(strategy_id, 'active')
+                        
+                        # Get current allocation from portfolio manager
+                        try:
+                            allocation = runner.get_strategy_allocation(strategy_id)
+                        except:
+                            allocation = getattr(config, 'allocation', 1.0)
+                        
+                        # Get symbols for this strategy
+                        if hasattr(config, 'symbol') and config.symbol:
+                            symbols = [config.symbol]
+                        elif hasattr(runner, 'symbols') and runner.symbols:
+                            symbols = runner.symbols
+                        else:
+                            symbols = args.symbol.split(',') if isinstance(args.symbol, str) else [args.symbol]
+                        
+                        strategies[strategy_id] = {
+                            'class': strategy_id,
+                            'status': status,
+                            'allocation': allocation,
+                            'symbols': symbols,
+                            'path': getattr(config, 'file_path', 'unknown')
+                        }
+                        print(f"   📋 {strategy_id}: {status}, {allocation:.1%}, {symbols}")
+                        
+                except Exception as api_error:
+                    print(f"⚠️  Failed to use API methods, falling back to direct access: {api_error}")
+                    # Fallback to direct access if API methods fail
+                    if hasattr(runner, 'config_manager'):
+                        config_manager = runner.config_manager
+                        if hasattr(config_manager, 'strategy_configs'):
+                            for strategy_id, config in config_manager.strategy_configs.items():
+                                strategies[strategy_id] = {
+                                    'class': strategy_id,
+                                    'status': 'active',
+                                    'allocation': getattr(config, 'allocation', 1.0),
+                                    'symbols': args.symbol.split(',') if isinstance(args.symbol, str) else [args.symbol],
+                                    'path': getattr(config, 'file_path', 'unknown')
+                                }
             
             # Fallback: single strategy from args
             if not strategies:
+                print("🔍 No multi-strategy runner found, using single strategy from args")
                 strategy_path = args._strategies[0]
                 strategy_id = os.path.basename(strategy_path).replace('.py', '')
                 strategies[strategy_id] = {
@@ -646,15 +688,18 @@ class DeployCommand(BaseCommand):
                     'symbols': args.symbol.split(',') if isinstance(args.symbol, str) else [args.symbol],
                     'path': strategy_path
                 }
+                print(f"   📋 {strategy_id}: active, 100%, {strategies[strategy_id]['symbols']}")
             
+            print(f"✅ Successfully extracted {len(strategies)} strategies for daemon storage")
             return strategies
             
         except Exception as e:
             logger.warning(f"Could not extract strategy info: {e}")
-            # Return basic info from args
+            print(f"⚠️  Warning: Could not extract strategy info: {e}")
+            # Return basic info from args as final fallback
             strategy_path = args._strategies[0]
             strategy_id = os.path.basename(strategy_path).replace('.py', '')
-            return {
+            fallback_strategy = {
                 strategy_id: {
                     'class': strategy_id,
                     'status': 'active',
@@ -663,6 +708,8 @@ class DeployCommand(BaseCommand):
                     'path': strategy_path
                 }
             }
+            print(f"   📋 Fallback: {strategy_id}: active, 100%, {fallback_strategy[strategy_id]['symbols']}")
+            return fallback_strategy
     
     async def _run_trading_system(self, args: Namespace) -> int:
         """

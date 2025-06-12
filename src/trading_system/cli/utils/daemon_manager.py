@@ -102,6 +102,8 @@ class DaemonIPC:
             return self._handle_pause_strategy(command)
         elif cmd_type == 'resume_strategy':
             return self._handle_resume_strategy(command)
+        elif cmd_type == 'rebalance_portfolio':
+            return self._handle_rebalance_portfolio(command)
         elif cmd_type == 'get_status':
             return self._handle_get_status(command)
         else:
@@ -185,9 +187,39 @@ class DaemonIPC:
         except Exception as e:
             return {'success': False, 'error': str(e)}
     
-    def _handle_get_status(self, command: dict) -> dict:
-        """Handle get status command"""
+    def _handle_rebalance_portfolio(self, command: dict) -> dict:
+        """Handle portfolio rebalance command"""
         try:
+            new_allocations = command['new_allocations']
+            target = command.get('target', 'both')
+            liquidate_excess = command.get('liquidate_excess', False)
+            
+            logger.info(f"Rebalancing portfolio via IPC: {new_allocations}, target={target}, liquidate_excess={liquidate_excess}")
+            
+            if not hasattr(self.system_instance, 'rebalance_portfolio_runtime'):
+                return {
+                    'success': False,
+                    'error': 'System does not support portfolio rebalancing'
+                }
+            
+            # Call the system's rebalance method
+            result = self.system_instance.rebalance_portfolio_runtime(new_allocations)
+            
+            return {
+                'success': result,
+                'message': f'Portfolio {"rebalanced successfully" if result else "failed to rebalance"}',
+                'allocations': new_allocations
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in _handle_rebalance_portfolio: {e}")
+            return {'success': False, 'error': str(e)}
+    
+    def _handle_get_status(self, command: dict) -> dict:
+        """Handle get status command - FIXED VERSION"""
+        try:
+            include_statistics = command.get('include_statistics', False)
+            
             # Get basic system status
             status = {
                 'mode': 'multi-strategy' if hasattr(self.system_instance, 'multi_strategy_runner') else 'single-strategy',
@@ -195,18 +227,55 @@ class DaemonIPC:
                 'running': True
             }
             
-            # Try to get strategy information
+            # Get live strategy information using proper APIs
             if hasattr(self.system_instance, 'get_deployed_strategies'):
                 strategy_ids = self.system_instance.get_deployed_strategies()
-                for sid in strategy_ids:
-                    status['strategies'][sid] = {
-                        'status': 'active',  # Could enhance this
-                        'allocation': 1.0 / len(strategy_ids)  # Simplified
+                logger.info(f"IPC: Found {len(strategy_ids)} deployed strategies: {strategy_ids}")
+                
+                for strategy_id in strategy_ids:
+                    # Get real status from multi-strategy runner
+                    strategy_status = 'active'
+                    allocation = 1.0 / len(strategy_ids)  # Default
+                    
+                    if hasattr(self.system_instance, 'multi_strategy_runner'):
+                        runner = self.system_instance.multi_strategy_runner
+                        
+                        # Get real status
+                        if hasattr(runner, 'get_strategy_status'):
+                            strategy_status = runner.get_strategy_status(strategy_id)
+                        
+                        # Get real allocation
+                        if hasattr(runner, 'get_strategy_allocation'):
+                            try:
+                                allocation = runner.get_strategy_allocation(strategy_id)
+                            except:
+                                pass
+                    
+                    status['strategies'][strategy_id] = {
+                        'status': strategy_status,
+                        'allocation': allocation
                     }
+                    logger.info(f"IPC: Strategy {strategy_id}: {strategy_status}, {allocation:.1%}")
             
+            # Get statistics if requested
+            if include_statistics and hasattr(self.system_instance, 'statistics_manager'):
+                try:
+                    stats_manager = self.system_instance.statistics_manager
+                    status['statistics'] = {
+                        'pnl': stats_manager.get_pnl_stats(),
+                        'winloss': stats_manager.get_win_loss_stats(),
+                        'total_portfolio_value': getattr(self.system_instance, 'total_portfolio_value', 10000.0)
+                    }
+                    logger.info(f"Retrieved statistics for IPC: {list(status['statistics'].keys())}")
+                except Exception as e:
+                    logger.error(f"Error retrieving statistics for IPC: {e}")
+                    status['statistics'] = {}
+            
+            logger.info(f"IPC returning status with {len(status['strategies'])} strategies")
             return {'success': True, 'status': status}
             
         except Exception as e:
+            logger.error(f"Error in _handle_get_status: {e}")
             return {'success': False, 'error': str(e)}
     
     def send_command(self, command: dict, timeout: int = 10) -> dict:

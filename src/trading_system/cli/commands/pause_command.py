@@ -83,9 +83,24 @@ class PauseCommand(BaseCommand):
                 print("💡 Make sure a trading system is running with daemon mode (--daemon)")
                 return 1
             
+            # Get LIVE strategy data via IPC to validate strategy exists
+            ipc_command = {'type': 'get_status'}
+            ipc_response = self.daemon_manager.ipc.send_command(ipc_command)
+            
+            if not ipc_response.get('success'):
+                print(f"❌ Failed to get live strategy data: {ipc_response.get('error', 'Unknown IPC error')}")
+                print("⚠️  Falling back to cached data (may be outdated)")
+                strategies = system_info.get('strategies', {})
+            else:
+                live_status = ipc_response.get('status', {})
+                strategies = live_status.get('strategies', {})
+            
             # Validate strategy exists
-            if not self._strategy_exists_in_system(args.strategy_id, system_info):
+            if args.strategy_id not in strategies:
                 print(f"❌ Strategy '{args.strategy_id}' not found in the system")
+                available_strategies = list(strategies.keys())
+                if available_strategies:
+                    print(f"📋 Available strategies: {', '.join(available_strategies)}")
                 return 1
             
             if args.dry_run:
@@ -111,10 +126,7 @@ class PauseCommand(BaseCommand):
             print(f"❌ Error pausing strategy: {e}")
             return 1
     
-    def _strategy_exists_in_system(self, strategy_id: str, system_info: dict) -> bool:
-        """Check if strategy exists in the running system"""
-        strategies = system_info.get('strategies', {})
-        return strategy_id in strategies
+
     
     def _pause_strategy_in_system(self, system_info: dict, strategy_id: str) -> bool:
         """Pause strategy in live trading system"""
