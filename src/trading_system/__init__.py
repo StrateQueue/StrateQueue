@@ -59,56 +59,11 @@ try:
         BrokerFactory, detect_broker_type, get_supported_brokers, auto_create_broker,
         validate_broker_credentials, AlpacaBroker
     )
-except ImportError:
-    # Create dummy classes if broker dependencies are not available
-    class BaseBroker:
-        def __init__(self, *args, **kwargs):
-            raise ImportError("Broker dependencies not installed. Install with: pip install stratequeue[trading]")
-    
-    class BrokerConfig:
-        def __init__(self, *args, **kwargs):
-            raise ImportError("Broker dependencies not installed. Install with: pip install stratequeue[trading]")
-    
-    class BrokerInfo:
-        def __init__(self, *args, **kwargs):
-            raise ImportError("Broker dependencies not installed. Install with: pip install stratequeue[trading]")
-    
-    class AccountInfo:
-        def __init__(self, *args, **kwargs):
-            raise ImportError("Broker dependencies not installed. Install with: pip install stratequeue[trading]")
-    
-    class Position:
-        def __init__(self, *args, **kwargs):
-            raise ImportError("Broker dependencies not installed. Install with: pip install stratequeue[trading]")
-    
-    class OrderResult:
-        def __init__(self, *args, **kwargs):
-            raise ImportError("Broker dependencies not installed. Install with: pip install stratequeue[trading]")
-    
-    class BrokerFactory:
-        @staticmethod
-        def create_broker(*args, **kwargs):
-            raise ImportError("Broker dependencies not installed. Install with: pip install stratequeue[trading]")
-        
-        @staticmethod 
-        def get_supported_brokers(*args, **kwargs):
-            raise ImportError("Broker dependencies not installed. Install with: pip install stratequeue[trading]")
-    
-    class AlpacaBroker:
-        def __init__(self, *args, **kwargs):
-            raise ImportError("Broker dependencies not installed. Install with: pip install stratequeue[trading]")
-    
-    def detect_broker_type(*args, **kwargs):
-        raise ImportError("Broker dependencies not installed. Install with: pip install stratequeue[trading]")
-    
-    def get_supported_brokers(*args, **kwargs):
-        raise ImportError("Broker dependencies not installed. Install with: pip install stratequeue[trading]")
-    
-    def auto_create_broker(*args, **kwargs):
-        raise ImportError("Broker dependencies not installed. Install with: pip install stratequeue[trading]")
-    
-    def validate_broker_credentials(*args, **kwargs):
-        raise ImportError("Broker dependencies not installed. Install with: pip install stratequeue[trading]")
+except ImportError as e:
+    raise ImportError(
+        "Broker dependencies are required but could not be imported. "
+        "Install with: pip install stratequeue[trading]"
+    ) from e
 
 from .core.strategy_loader import StrategyLoader
 from .live_system import LiveTradingSystem
