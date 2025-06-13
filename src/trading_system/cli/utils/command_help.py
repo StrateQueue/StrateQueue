@@ -60,9 +60,6 @@ def create_deploy_epilog() -> str:
     lines.append(f"  {_formatter.muted('# Deploy multiple strategies with custom allocations')}")
     lines.append(f"  {_formatter.command('stratequeue deploy --strategy sma.py,rsi.py --allocation 0.7,0.3')}")
     lines.append("")
-    lines.append(f"  {_formatter.muted('# Run in background for remote management')}")
-    lines.append(f"  {_formatter.command('stratequeue deploy --strategy trend.py --daemon')}")
-    lines.append("")
     
     # Key configuration tips
     lines.append(_formatter.subtitle("⚙️  Configuration Tips:"))
@@ -71,7 +68,6 @@ def create_deploy_epilog() -> str:
     lines.append(f"  • {_formatter.description('Default symbols: AAPL')}")
     lines.append(f"  • {_formatter.description('Default data source: demo (use --data-source for real data)')}")
     lines.append(f"  • {_formatter.description('Default duration: 60 minutes (use --duration to change)')}")
-    lines.append(f"  • {_formatter.description('Use --daemon for background execution with remote control')}")
     lines.append("")
     
     # Footer

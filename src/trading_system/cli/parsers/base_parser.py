@@ -164,33 +164,6 @@ class BaseParser:
         return parser
     
     @staticmethod
-    def add_daemon_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-        """
-        Add daemon/background execution arguments
-        
-        Args:
-            parser: ArgumentParser to configure
-            
-        Returns:
-            Configured parser
-        """
-        daemon_group = parser.add_argument_group('Execution Options')
-        
-        daemon_group.add_argument(
-            '--daemon',
-            action='store_true',
-            help='Run in background/daemon mode'
-        )
-        
-        daemon_group.add_argument(
-            '--pid-file',
-            type=str,
-            help='PID file for daemon mode'
-        )
-        
-        return parser
-    
-    @staticmethod
     def parse_comma_separated(value: str) -> List[str]:
         """
         Parse comma-separated values

@@ -42,7 +42,6 @@ class DeployCommand(BaseCommand):
         BaseParser.add_symbol_arguments(parser)
         BaseParser.add_data_source_arguments(parser)
         BaseParser.add_broker_arguments(parser)
-        BaseParser.add_daemon_arguments(parser)
         
         # Deploy-specific arguments
         parser.add_argument(
@@ -89,9 +88,6 @@ class DeployCommand(BaseCommand):
         print(BaseFormatter.format_info(f"Strategy: {args.strategy}"))
         print(BaseFormatter.format_info(f"Symbols: {args.symbol}"))
         print(BaseFormatter.format_info(f"Data Source: {args.data_source}"))
-        
-        if args.daemon:
-            print(BaseFormatter.format_info("Running in daemon mode"))
         
         # Placeholder for actual deployment logic
         print("\n" + BaseFormatter.format_success("Deployment completed successfully"))

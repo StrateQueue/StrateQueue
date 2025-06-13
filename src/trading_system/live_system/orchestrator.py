@@ -20,7 +20,6 @@ from ..core.granularity import parse_granularity
 from .data_manager import DataManager
 from .trading_processor import TradingProcessor
 from .display_manager import DisplayManager
-from ..statistics import StatisticsManager
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +59,7 @@ class LiveTradingSystem:
         self.data_config, self.trading_config = load_config()
         
         # Initialize statistics manager
-        self.statistics_manager = StatisticsManager()
+        self.statistics_manager = None
         
         # Initialize strategy components
         self._initialize_strategies(strategy_path, multi_strategy_config)
@@ -102,8 +101,7 @@ class LiveTradingSystem:
             self.multi_strategy_runner = MultiStrategyRunner(
                 multi_strategy_config, 
                 self.symbols,
-                self.lookback_override,
-                self.statistics_manager
+                self.lookback_override
             )
             self.multi_strategy_runner.initialize_strategies()
             
@@ -277,6 +275,9 @@ class LiveTradingSystem:
     
     def _record_hypothetical_signals(self, signals):
         """Record hypothetical trades from signals for statistics tracking"""
+        if not self.statistics_manager:
+            return
+        
         if self.is_multi_strategy:
             # Multi-strategy signals: Dict[symbol, Dict[strategy_id, signal]]
             for symbol, strategy_signals in signals.items():
@@ -312,7 +313,7 @@ class LiveTradingSystem:
                 logger.error(f"Error updating post-trade price for {symbol}: {e}")
         
         # Update statistics manager with current prices
-        if current_prices:
+        if current_prices and self.statistics_manager:
             self.statistics_manager.update_market_prices(current_prices)
 
     async def _execute_signals(self, signals):
