@@ -382,7 +382,9 @@ class LiveTradingSystem:
         
         return status
     
-    # HOT SWAP METHODS (Multi-strategy mode only)
+    # RUNTIME STRATEGY METHODS (Multi-strategy mode only)
+    # Note: These methods are available for programmatic use but not accessible via CLI
+    # since daemon mode has been removed. They could be used by custom applications.
     
     def deploy_strategy_runtime(self, strategy_path: str, strategy_id: str, 
                               allocation_percentage: float, symbol: Optional[str] = None) -> bool:

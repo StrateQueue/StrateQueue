@@ -52,7 +52,7 @@ def get_strategies_from_cli() -> Dict[str, Any]:
         
         # Check if command succeeded
         if result.returncode != 0:
-            # No daemon running or other error
+            # No trading system running or other error
             return {
                 "success": False,
                 "error": "No trading system is currently running",
@@ -270,7 +270,7 @@ async def get_strategies():
                 "error": result["error"],
                 "message": result["message"],
                 "strategies": [],
-                "fallback_available": True  # Frontend can show a message about starting daemon
+                "fallback_available": True  # Frontend can show a message about starting system
             }
         
         return {

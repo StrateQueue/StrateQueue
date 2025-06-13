@@ -247,9 +247,8 @@ def format_examples_section() -> str:
         ("Check system and broker status", "stratequeue status"),
         ("List all supported brokers", "stratequeue list brokers"),
         ("Setup broker credentials", "stratequeue setup broker alpaca"),
-        # Removed daemon example – daemon mode deprecated
-        ("Pause a running strategy", "stratequeue pause my_strategy"),
-        ("Rebalance portfolio allocations", "stratequeue rebalance --allocations=equal"),
+        ("Live trading (be careful!)", "stratequeue deploy --strategy sma.py --symbol AAPL --live"),
+        ("Multi-strategy deployment", "stratequeue deploy --strategy sma.py,momentum.py --allocation 0.6,0.4"),
     ]
     
     for description, command in examples:

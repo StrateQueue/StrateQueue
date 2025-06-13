@@ -1,21 +1,22 @@
 """
 List Command
 
-Command for listing available options like brokers, granularities, strategies, etc.
+Command for listing available options and resources.
+This includes brokers, granularities, and strategies.
 """
 
 import argparse
 from typing import Optional, List
 
 from .base_command import BaseCommand
-from ..formatters import InfoFormatter
+from ..formatters.info_formatter import InfoFormatter
 
 
 class ListCommand(BaseCommand):
     """
     List command implementation
     
-    Shows available options like supported brokers, data granularities, and live strategies.
+    Handles listing of various system resources and options.
     """
     
     def __init__(self):
@@ -27,11 +28,11 @@ class ListCommand(BaseCommand):
     
     @property
     def description(self) -> str:
-        return "List available options (brokers, granularities, strategies, etc.)"
+        return "List available options and resources"
     
     @property
     def aliases(self) -> List[str]:
-        return ["ls", "show"]
+        return ["ls"]
     
     def setup_parser(self, parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         """Configure list command arguments"""
@@ -40,18 +41,7 @@ class ListCommand(BaseCommand):
             'list_type',
             nargs='?',
             choices=['brokers', 'granularities', 'strategies', 'strategy'],
-            help='Type of information to list'
-        )
-        
-        parser.add_argument(
-            '--verbose', '-v',
-            action='store_true',
-            help='Show detailed information'
-        )
-        
-        parser.add_argument(
-            '--config',
-            help='Multi-strategy config file to identify the running system'
+            help='Type of resource to list'
         )
         
         return parser
@@ -78,12 +68,23 @@ class ListCommand(BaseCommand):
             return 0
             
         elif args.list_type in ['strategies', 'strategy']:
-            print("❌ Listing live strategies is no longer supported (daemon mode removed).")
-            return 1
+            return self._list_strategies(args)
             
         else:
             # This shouldn't happen due to choices constraint, but handle gracefully
             print(InfoFormatter.format_error(f"Unknown list type: {args.list_type}"))
             print("💡 Available options: brokers, granularities, strategies")
-            print("💡 Try: stratequeue list strategies")
-            return 1 
+            return 1
+    
+    def _list_strategies(self, args: argparse.Namespace) -> int:
+        """List strategies (simplified version)"""
+        print("📊 Strategy Listing")
+        print("")
+        print("Strategy listing is not available in this simplified version.")
+        print("Previously this required daemon mode, which has been removed.")
+        print("")
+        print("💡 To see your strategies:")
+        print("  • Check your strategy files directory")
+        print("  • Use 'stratequeue deploy --strategy <file>' to run strategies")
+        print("")
+        return 0 

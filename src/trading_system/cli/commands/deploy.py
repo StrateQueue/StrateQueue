@@ -89,6 +89,8 @@ class DeployCommand(BaseCommand):
         print(BaseFormatter.format_info(f"Symbols: {args.symbol}"))
         print(BaseFormatter.format_info(f"Data Source: {args.data_source}"))
         
+        print(BaseFormatter.format_info("Running in terminal mode"))
+        
         # Placeholder for actual deployment logic
         print("\n" + BaseFormatter.format_success("Deployment completed successfully"))
         

@@ -8,7 +8,7 @@ from .base_command import BaseCommand
 from .list import ListCommand
 from .status import StatusCommand
 from .setup import SetupCommand
-from .deploy import DeployCommand
+from .deploy_command import DeployCommand
 from .webui_command import WebuiCommand
 
 __all__ = [

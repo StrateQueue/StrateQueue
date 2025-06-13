@@ -65,31 +65,24 @@ stratequeue deploy --strategy examples/strategies/sma.py --symbol AAPL --granula
 stratequeue deploy --strategy examples/strategies/sma.py --symbol AAPL --granularity 1m --live
 ```
 
-### 4. Real-Time Management
+### 4. Live Trading
 ```bash
-# Deploy in background for remote management
-stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m --daemon
+# Start live trading (real money - be careful!)
+stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m --live
 
-# Now manage from same terminal:
-stratequeue pause sma          # Pause strategy (keeps positions)
-stratequeue resume sma         # Resume strategy
-stratequeue stop               # Stop entire system
+# Monitor in terminal - system shows real-time signals and trades
+# Use Ctrl+C to stop gracefully
 ```
 
 ## 🎮 Command Overview
 
-StrateQueue provides a comprehensive CLI with 10 core commands for complete trading system management:
+StrateQueue provides a comprehensive CLI with core commands for trading system management:
 
 ### **📚 Core Commands**
 
 | Command | Description | Example |
 |---------|-------------|---------|
 | `deploy` | Start strategies with market data | `stratequeue deploy --strategy sma.py` |
-| `pause` | Pause a running strategy | `stratequeue pause my_strategy` |
-| `resume` | Resume a paused strategy | `stratequeue resume my_strategy` |
-| `stop` | Shutdown the trading system | `stratequeue stop` |
-| `remove` | Remove strategy from system | `stratequeue remove old_strategy` |
-| `rebalance` | Adjust portfolio allocations | `stratequeue rebalance --allocations=0.6,0.4` |
 | `list` | Discover available options | `stratequeue list brokers` |
 | `status` | Check system health | `stratequeue status` |
 | `setup` | Configure brokers/settings | `stratequeue setup broker alpaca` |
@@ -122,8 +115,8 @@ stratequeue deploy --strategy momentum.py --symbol MSFT --granularity 1h --paper
 # Live trading with custom broker
 stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m --broker alpaca --live
 
-# Run in background for remote management
-stratequeue deploy --strategy trend.py --symbol GOOGL --granularity 1m --daemon
+# Live trading with real money (be careful!)
+stratequeue deploy --strategy trend.py --symbol GOOGL --granularity 1m --live
 ```
 
 ### **📊 Multi-Strategy Portfolios**
@@ -144,31 +137,19 @@ stratequeue deploy --strategy scalper.py,swing.py --allocation 0.4,0.6 --granula
 - `--granularity` - Time intervals (1s, 1m, 5m, 1h, 1d)
 - `--broker` - Trading broker (auto-detected from environment)
 - `--duration` - Runtime in minutes (default: 60)
-- `--daemon` - Background mode for remote management
+- `--verbose` - Enable detailed logging output
 
-## 🎛️ Real-Time Strategy Management
+## 🎛️ Runtime Control
 
-Once deployed in daemon mode, manage your strategies without stopping the system:
-
-### **⏸️ Pause/Resume Strategies**
-```bash
-# Pause a strategy (stops signals, keeps positions)
-stratequeue pause momentum_strategy
-
-# Resume when ready
-stratequeue resume momentum_strategy
-
-# Preview actions with dry-run
-stratequeue pause risky_strategy --dry-run
-```
+Control your trading system during execution:
 
 ### **🛑 System Control**
 ```bash
-# Graceful shutdown (preserves positions)
-stratequeue stop
+# Graceful shutdown (use Ctrl+C in terminal)
+# This preserves positions and stops cleanly
 
-# Force immediate shutdown
-stratequeue stop --force
+# Monitor system output for real-time feedback
+# All signals and trades are displayed in the terminal
 
 # Liquidate all positions before stopping
 stratequeue stop --liquidate
@@ -191,14 +172,8 @@ stratequeue remove old_strategy --rebalance
 # Equal weight rebalancing
 stratequeue rebalance --allocations=equal
 
-# Custom allocations
-stratequeue rebalance --allocations=0.5,0.3,0.2
-
-# Specify strategy order
-stratequeue rebalance --allocations=0.6,0.4 --strategy-ids=sma,momentum
-
-# Rebalance positions only (keep allocation percentages)
-stratequeue rebalance --allocations=equal --target=positions
+# Multiple strategies run with their own allocations
+# No runtime rebalancing - restart to change allocations
 ```
 
 ## 🔍 Discovery and Setup Commands
@@ -330,7 +305,7 @@ stratequeue deploy --strategy new_idea.py --symbol AAPL --granularity 1m --paper
 stratequeue deploy --strategy tested_strategy.py --symbol AAPL --granularity 1m --live --duration 30
 
 # 4. Full deployment
-stratequeue deploy --strategy proven_strategy.py --symbol AAPL --granularity 1m --live --daemon
+stratequeue deploy --strategy proven_strategy.py --symbol AAPL --granularity 1m --live
 ```
 
 ## 📋 Complete Command Examples
@@ -349,29 +324,8 @@ stratequeue deploy --strategy scalper.py --symbol BTC --granularity 1s --data-so
 # Multi-strategy portfolio
 stratequeue deploy --strategy sma.py,momentum.py,mean_revert.py --allocation 0.4,0.35,0.25 --symbol AAPL,MSFT --granularity 1m
 
-# Background deployment for remote management
-stratequeue deploy --strategy trend.py --symbol GOOGL --granularity 1m --daemon --duration 480
-```
-
-### **🎛️ Management Examples**
-```bash
-# Deploy in background
-stratequeue deploy --strategy sma.py,momentum.py --allocation 0.6,0.4 --granularity 1m --daemon
-
-# Pause risky strategy during volatility
-stratequeue pause momentum
-
-# Add new strategy to running system
-stratequeue deploy --strategy new_algo.py --granularity 1m --daemon
-
-# Rebalance portfolio
-stratequeue rebalance --allocations=0.5,0.3,0.2
-
-# Remove underperforming strategy
-stratequeue remove poor_performer --liquidate
-
-# Stop everything gracefully
-stratequeue stop
+# Live deployment with extended duration
+stratequeue deploy --strategy trend.py --symbol GOOGL --granularity 1m --live --duration 480
 ```
 
 ### **🔍 Discovery Examples**
@@ -535,16 +489,12 @@ stratequeue deploy --strategy examples/strategies/sma.py --symbol AAPL --granula
 stratequeue deploy --strategy examples/strategies/sma.py,examples/strategies/momentum.py --allocation 0.6,0.4 --symbol AAPL --granularity 1m --paper
 ```
 
-### **4. 🎛️ Learn Real-Time Management**
+### **4. 🔄 Run Multi-Strategy**
 ```bash
-# Deploy in background and practice management
-stratequeue deploy --strategy sma.py,momentum.py --allocation 0.6,0.4 --daemon
+# Deploy multiple strategies together
+stratequeue deploy --strategy sma.py,momentum.py --allocation 0.6,0.4 --symbol AAPL
 
-# Practice commands
-stratequeue pause momentum
-stratequeue resume momentum
-stratequeue rebalance --allocations=0.5,0.5
-stratequeue stop
+# Monitor in terminal and use Ctrl+C to stop
 ```
 
 ### **5. 💰 Go Live (When Ready!)**
@@ -578,8 +528,8 @@ stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m --lookback 1
 # Verbose logging for debugging
 stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m --verbose
 
-# Custom PID file location for daemon mode
-stratequeue deploy --strategy sma.py --daemon --pid-file /custom/path/stratequeue.pid
+# Custom lookback period for strategy
+stratequeue deploy --strategy sma.py --symbol AAPL --lookback 200
 ```
 
 ### **🎯 Specialized Deployments**

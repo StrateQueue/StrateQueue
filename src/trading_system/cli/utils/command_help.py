@@ -55,7 +55,7 @@ def create_deploy_epilog() -> str:
     lines.append(f"  {_formatter.command('stratequeue deploy --strategy sma.py --no-trading')}")
     lines.append("")
     lines.append(f"  {_formatter.muted('# Paper trade with specific symbol and broker')}")
-    lines.append(f"  {_formatter.command('stratequeue deploy --strategy momentum.py --symbols AAPL --broker alpaca')}")
+    lines.append(f"  {_formatter.command('stratequeue deploy --strategy momentum.py --symbol AAPL --broker alpaca --paper')}")
     lines.append("")
     lines.append(f"  {_formatter.muted('# Deploy multiple strategies with custom allocations')}")
     lines.append(f"  {_formatter.command('stratequeue deploy --strategy sma.py,rsi.py --allocation 0.7,0.3')}")
@@ -64,15 +64,10 @@ def create_deploy_epilog() -> str:
     # Key configuration tips
     lines.append(_formatter.subtitle("⚙️  Configuration Tips:"))
     lines.append("")
-    lines.append(f"  • {_formatter.description('Default mode: --no-trading (signals only)')}")
-    lines.append(f"  • {_formatter.description('Default symbols: AAPL')}")
-    lines.append(f"  • {_formatter.description('Default data source: demo (use --data-source for real data)')}")
-    lines.append(f"  • {_formatter.description('Default duration: 60 minutes (use --duration to change)')}")
+    lines.append(f"  • {_formatter.description('Default symbol is AAPL, granularity is 1 minute')}")
+    lines.append(f"  • {_formatter.description('Use --verbose for detailed logging output')}")
+    lines.append(f"  • {_formatter.description('Multi-strategy mode activates automatically with multiple strategies')}")
     lines.append("")
-    
-    # Footer
-    lines.append(_formatter.muted("─" * 80))
-    lines.append(_formatter.success("💡 Safe by default! No-trading mode ensures you test strategies first."))
     
     return "\n".join(lines)
 
@@ -343,30 +338,20 @@ def create_list_epilog() -> str:
     """Create enhanced epilog for list command"""
     lines = []
     
-    lines.append(_formatter.subtitle("📋 Available Categories:"))
+    lines.append(_formatter.subtitle("📋 Available List Types:"))
     lines.append("")
-    lines.append(f"  {_formatter.highlight('brokers')}        {_formatter.description('Trading brokers (alpaca, kraken, etc.)')}")
-    lines.append(f"  {_formatter.highlight('granularities')}  {_formatter.description('Time intervals (1m, 5m, 1h, etc.)')}")
+    lines.append(f"  {_formatter.highlight('brokers')}       {_formatter.description('Show supported trading brokers')}")
+    lines.append(f"  {_formatter.highlight('granularities')} {_formatter.description('Show supported data granularities')}")
+    lines.append(f"  {_formatter.highlight('strategies')}    {_formatter.description('Show available strategies')}")
     lines.append("")
     
-    lines.append(_formatter.subtitle("💡 Discovery Commands:"))
+    lines.append(_formatter.subtitle("💡 Examples:"))
     lines.append("")
     lines.append(f"  {_formatter.muted('# See all supported brokers')}")
     lines.append(f"  {_formatter.command('stratequeue list brokers')}")
     lines.append("")
-    lines.append(f"  {_formatter.muted('# See available time granularities')}")
+    lines.append(f"  {_formatter.muted('# Check available data granularities')}")
     lines.append(f"  {_formatter.command('stratequeue list granularities')}")
-    lines.append("")
-    
-    lines.append(_formatter.subtitle("🔄 Workflow:"))
-    lines.append("")
-    lines.append(f"  1. {_formatter.description('Use list to discover options')}")
-    lines.append(f"  2. {_formatter.description('Use')} {_formatter.command('setup')} {_formatter.description('to configure brokers')}")
-    lines.append(f"  3. {_formatter.description('Use')} {_formatter.command('deploy')} {_formatter.description('with discovered options')}")
-    lines.append("")
-    
-    lines.append(_formatter.subtitle("🔄 Aliases:"))
-    lines.append(f"  {_formatter.command('ls')}, {_formatter.command('show')}")
     lines.append("")
     
     return "\n".join(lines)
@@ -392,19 +377,18 @@ def create_status_epilog() -> str:
     """Create enhanced epilog for status command"""
     lines = []
     
-    lines.append(_formatter.subtitle("💡 Examples:"))
+    lines.append(_formatter.subtitle("🔍 Status Information:"))
     lines.append("")
-    lines.append(f"  {_formatter.muted('# Check overall system status')}")
-    lines.append(f"  {_formatter.command('stratequeue status')}")
-    lines.append("")
-    lines.append(f"  {_formatter.muted('# Check specific broker')}")
-    lines.append(f"  {_formatter.command('stratequeue status --broker alpaca')}")
+    lines.append(f"  • {_formatter.description('System health and connectivity')}")
+    lines.append(f"  • {_formatter.description('Broker authentication status')}")
+    lines.append(f"  • {_formatter.description('Data source connectivity')}")
+    lines.append(f"  • {_formatter.description('Configuration validation')}")
     lines.append("")
     
-    lines.append(_formatter.subtitle("🎯 Aliases:"))
+    lines.append(_formatter.subtitle("💡 Options:"))
     lines.append("")
-    lines.append(f"  {_formatter.command('stratequeue check')}")
-    lines.append(f"  {_formatter.command('stratequeue health')}")
+    lines.append(f"  {_formatter.highlight('--verbose')}     {_formatter.description('Show detailed status information')}")
+    lines.append(f"  {_formatter.highlight('--broker')}      {_formatter.description('Check specific broker status')}")
     lines.append("")
     
     return "\n".join(lines)
@@ -430,19 +414,19 @@ def create_setup_epilog() -> str:
     """Create enhanced epilog for setup command"""
     lines = []
     
-    lines.append(_formatter.subtitle("💡 Examples:"))
+    lines.append(_formatter.subtitle("⚙️  Setup Categories:"))
     lines.append("")
-    lines.append(f"  {_formatter.muted('# Interactive setup wizard')}")
-    lines.append(f"  {_formatter.command('stratequeue setup')}")
-    lines.append("")
-    lines.append(f"  {_formatter.muted('# Setup specific broker')}")
-    lines.append(f"  {_formatter.command('stratequeue setup broker alpaca')}")
+    lines.append(f"  {_formatter.highlight('broker')}        {_formatter.description('Configure trading broker credentials')}")
+    lines.append(f"  {_formatter.highlight('data')}          {_formatter.description('Setup data source API keys')}")
     lines.append("")
     
-    lines.append(_formatter.subtitle("🎯 Aliases:"))
+    lines.append(_formatter.subtitle("💡 Examples:"))
     lines.append("")
-    lines.append(f"  {_formatter.command('stratequeue config')}")
-    lines.append(f"  {_formatter.command('stratequeue configure')}")
+    lines.append(f"  {_formatter.muted('# Setup Alpaca broker')}")
+    lines.append(f"  {_formatter.command('stratequeue setup broker alpaca')}")
+    lines.append("")
+    lines.append(f"  {_formatter.muted('# Configure Polygon data source')}")
+    lines.append(f"  {_formatter.command('stratequeue setup data polygon')}")
     lines.append("")
     
     return "\n".join(lines)
@@ -468,19 +452,18 @@ def create_webui_epilog() -> str:
     """Create enhanced epilog for webui command"""
     lines = []
     
-    lines.append(_formatter.subtitle("💡 Examples:"))
+    lines.append(_formatter.subtitle("🌐 Web Dashboard:"))
     lines.append("")
-    lines.append(f"  {_formatter.muted('# Start web interface (default port 8000)')}")
-    lines.append(f"  {_formatter.command('stratequeue webui')}")
-    lines.append("")
-    lines.append(f"  {_formatter.muted('# Custom port')}")
-    lines.append(f"  {_formatter.command('stratequeue webui --port 9000')}")
+    lines.append(f"  • {_formatter.description('Real-time strategy monitoring')}")
+    lines.append(f"  • {_formatter.description('Portfolio performance tracking')}")
+    lines.append(f"  • {_formatter.description('Interactive trade history')}")
+    lines.append(f"  • {_formatter.description('System health visualization')}")
     lines.append("")
     
-    lines.append(_formatter.subtitle("🎯 Aliases:"))
+    lines.append(_formatter.subtitle("💡 Options:"))
     lines.append("")
-    lines.append(f"  {_formatter.command('stratequeue web')}")
-    lines.append(f"  {_formatter.command('stratequeue ui')}")
+    lines.append(f"  {_formatter.highlight('--port')}        {_formatter.description('Custom port (default: 8080)')}")
+    lines.append(f"  {_formatter.highlight('--no-browser')}  {_formatter.description('Do not auto-open browser')}")
     lines.append("")
     
     return "\n".join(lines)
