@@ -48,7 +48,7 @@ def create_main_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--version', 
         action='version',
-        version='%(prog)s 1.0.0'
+        version='%(prog)s 0.0.1'
     )
     
     # Create subparsers for commands (hide the auto-generated list, show enhanced version in epilog)

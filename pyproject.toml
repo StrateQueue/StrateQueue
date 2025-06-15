@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "StrateQueue"
-version = "0.0.2"
+version = "0.0.1"
 description = "Deploy any backtested strategy in seconds."
 readme = "README.md"
 license = {text = "AGPL-3.0"}
@@ -30,14 +30,12 @@ classifiers = [
     "Intended Audience :: Developers",
     "Topic :: Office/Business :: Financial :: Investment",
     "Topic :: Scientific/Engineering :: Information Analysis",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
     "Operating System :: OS Independent",
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.11"
 dependencies = [
     "numpy>=1.24.0",
     "pandas>=2.0.0",
@@ -89,11 +87,11 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/Live-Trading-Infrastructure"
-Documentation = "https://github.com/yourusername/Live-Trading-Infrastructure#readme"
-Repository = "https://github.com/yourusername/Live-Trading-Infrastructure"
-Issues = "https://github.com/yourusername/Live-Trading-Infrastructure/issues"
-Changelog = "https://github.com/yourusername/Live-Trading-Infrastructure/releases"
+Homepage = "https://github.com/StrateQueue/StrateQueue"
+Documentation = "https://github.com/StrateQueue/StrateQueue#readme"
+Repository = "https://github.com/StrateQueue/StrateQueue"
+Issues = "https://github.com/StrateQueue/StrateQueue/issues"
+Changelog = "https://github.com/StrateQueue/StrateQueue/releases"
 
 [project.scripts]
 stratequeue = "trading_system.cli:main"

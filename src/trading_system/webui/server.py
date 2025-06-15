@@ -229,7 +229,7 @@ def start_next_dev_server() -> Optional[subprocess.Popen]:
 
 
 # FastAPI app for API endpoints
-app = FastAPI(title="Stratequeue Web UI", version="1.0.0")
+app = FastAPI(title="Stratequeue Web UI", version="0.0.1")
 
 # Add CORS middleware
 app.add_middleware(
@@ -253,7 +253,7 @@ async def get_status():
     return {
         "webui_running": True,
         "frontend_connected": True,
-        "version": "1.0.0"
+        "version": "0.0.1"
     }
 
 

@@ -31,7 +31,7 @@ Usage:
     cli_main(['--strategies', 'strategies.txt', '--symbols', 'AAPL,MSFT'])
 """
 
-__version__ = "1.0.0"
+__version__ = "0.0.1"
 __author__ = "Trading System Contributors"
 
 # Data Provider Factory imports - new standardized interface
