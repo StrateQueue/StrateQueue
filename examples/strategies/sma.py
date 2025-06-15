@@ -1,6 +1,4 @@
 # Strategy Configuration
-LOOKBACK = 3  # Need at least 3 bars for the longer moving average (n2)
-
 from backtesting import Backtest, Strategy
 from backtesting.lib import crossover
 

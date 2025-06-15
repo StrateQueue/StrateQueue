@@ -38,7 +38,7 @@ class LiveTradingSystem:
             symbols: List of symbols to trade
             data_source: Data source ("demo", "polygon", "coinmarketcap") 
             granularity: Data granularity (e.g., "1m", "5m", "1h")
-            lookback_override: Override calculated lookback period
+            lookback_override: Override default lookback period
             enable_trading: Enable actual trading execution
             multi_strategy_config: Path to multi-strategy config file (multi-strategy mode)
             broker_type: Broker type to use for trading (auto-detected if None)
@@ -124,9 +124,8 @@ class LiveTradingSystem:
             original_strategy = StrategyLoader.load_strategy_from_file(strategy_path)
             self.strategy_class = StrategyLoader.convert_to_signal_strategy(original_strategy)
             
-            # Calculate lookback
-            self.lookback_period = (self.lookback_override or 
-                                   StrategyLoader.calculate_lookback_period(original_strategy, strategy_path))
+            # Set lookback period
+            self.lookback_period = self.lookback_override or 60
             
             # Multi-strategy attributes set to None
             self.multi_strategy_runner = None

@@ -1,6 +1,4 @@
 # Strategy Configuration
-LOOKBACK = 1  # Random strategy needs at least 1 bar
-
 from backtesting import Backtest, Strategy
 import random
 

@@ -4,8 +4,7 @@ Strategy Loading and Conversion
 This module handles:
 1. Dynamically loading strategy scripts
 2. Converting backtesting strategies to signal-generating strategies
-3. Calculating required lookback periods
-4. Parsing strategy configuration
+3. Parsing strategy configuration
 """
 
 import importlib.util
@@ -239,89 +238,4 @@ class StrategyLoader:
         ConvertedSignalStrategy.__name__ = f"Signal{original_strategy.__name__}"
         return ConvertedSignalStrategy
 
-    @staticmethod
-    def calculate_lookback_period(strategy_class: Type, strategy_path: str = None, default_lookback: int = 50) -> int:
-        """
-        Calculate required lookback period for a strategy
-        
-        Args:
-            strategy_class: The strategy class
-            strategy_path: Path to the strategy file (for parsing LOOKBACK config)
-            default_lookback: Default lookback if none specified
-            
-        Returns:
-            Required lookback period
-        """
-        
-        # First, try to parse LOOKBACK configuration from the strategy file
-        if strategy_path:
-            try:
-                lookback_from_file = StrategyLoader._parse_lookback_from_file(strategy_path)
-                if lookback_from_file is not None:
-                    logger.info(f"Using LOOKBACK={lookback_from_file} from strategy file")
-                    return lookback_from_file
-            except Exception as e:
-                logger.warning(f"Could not parse LOOKBACK from strategy file: {e}")
-        
-        # Fallback to automatic detection from class attributes
-        try:
-            # Look for common indicator period attributes
-            max_period = 0
-            
-            # Check for moving average periods
-            for attr in ['n1', 'n2', 'n3', 'short_period', 'long_period', 'period', 'window']:
-                if hasattr(strategy_class, attr):
-                    value = getattr(strategy_class, attr)
-                    if isinstance(value, int) and value > max_period:
-                        max_period = value
-            
-            # Check for RSI periods (common default is 14)
-            if hasattr(strategy_class, 'rsi_period'):
-                rsi_period = getattr(strategy_class, 'rsi_period')
-                if isinstance(rsi_period, int):
-                    max_period = max(max_period, rsi_period)
-            
-            # Add buffer for indicator calculation
-            if max_period > 0:
-                calculated_lookback = max_period + 10  # Add 10 bar buffer
-                logger.info(f"Calculated lookback period: {calculated_lookback} (based on max period {max_period})")
-                return calculated_lookback
-            
-        except Exception as e:
-            logger.warning(f"Error in automatic lookback calculation: {e}")
-        
-        # Final fallback
-        logger.info(f"Using default lookback period: {default_lookback}")
-        return default_lookback
-    
-    @staticmethod
-    def _parse_lookback_from_file(strategy_path: str) -> Optional[int]:
-        """
-        Parse LOOKBACK configuration from strategy file
-        
-        Args:
-            strategy_path: Path to strategy file
-            
-        Returns:
-            LOOKBACK value if found, None otherwise
-        """
-        try:
-            with open(strategy_path, 'r') as f:
-                content = f.read()
-            
-            # Look for LOOKBACK = <number> pattern
-            
-            # Match patterns like "LOOKBACK = 20" or "LOOKBACK=20"
-            pattern = r'^\s*LOOKBACK\s*=\s*(\d+)'
-            
-            for line in content.split('\n'):
-                match = re.match(pattern, line.strip())
-                if match:
-                    lookback_value = int(match.group(1))
-                    return lookback_value
-            
-            return None
-            
-        except Exception as e:
-            logger.warning(f"Error parsing lookback from {strategy_path}: {e}")
-            return None 
+ 

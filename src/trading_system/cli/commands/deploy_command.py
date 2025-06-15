@@ -89,8 +89,9 @@ class DeployCommand(BaseCommand):
         
         parser.add_argument(
             '--lookback', 
-            type=int, 
-            help='Override calculated lookback period'
+            type=int,
+            default=60,
+            help='Lookback period for historical data (default: 60 bars)'
         )
         
         # Execution mode options

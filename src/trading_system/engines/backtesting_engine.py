@@ -31,16 +31,11 @@ class BacktestingEngineStrategy(EngineStrategy):
     
     def __init__(self, strategy_class: Type, strategy_params: Dict[str, Any] = None):
         super().__init__(strategy_class, strategy_params)
-        self.lookback_period = None
         
     def get_lookback_period(self) -> int:
         """Get the minimum number of bars required by this strategy"""
-        if self.lookback_period is not None:
-            return self.lookback_period
-        
-        # Try to extract from class attributes or calculate from indicators
-        # This is a simplified version - more sophisticated analysis could be added
-        return getattr(self.strategy_class, 'LOOKBACK', 50)  # Default fallback
+        # Return a simple default - lookback is now handled by CLI
+        return 60
     
     def get_strategy_name(self) -> str:
         """Get a human-readable name for this strategy"""
@@ -197,10 +192,6 @@ class BacktestingEngine(TradingEngine):
             # Create wrapper
             engine_strategy = BacktestingEngineStrategy(strategy_class)
             
-            # Calculate lookback period
-            lookback = self.calculate_lookback_period(strategy_path)
-            engine_strategy.lookback_period = lookback
-            
             return engine_strategy
             
         except Exception as e:
@@ -238,70 +229,4 @@ class BacktestingEngine(TradingEngine):
         except Exception:
             return False
     
-    def calculate_lookback_period(self, strategy_path: str, default_lookback: int = 50) -> int:
-        """Calculate required lookback period for strategy"""
-        try:
-            # First try to find LOOKBACK variable in file
-            lookback = self._parse_lookback_from_file(strategy_path)
-            if lookback is not None:
-                logger.debug(f"Found LOOKBACK={lookback} in {strategy_path}")
-                return lookback
-            
-            # Try to analyze indicator usage (simplified approach)
-            with open(strategy_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            # Look for common moving average periods
-            ma_periods = []
-            
-            # Search for patterns like SMA(data, 20) or self.n1 = 10
-            patterns = [
-                r'SMA\([^,]+,\s*(\d+)\)',
-                r'EMA\([^,]+,\s*(\d+)\)',
-                r'RSI\([^,]+,\s*(\d+)\)',
-                r'self\.n\d*\s*=\s*(\d+)',
-                r'n\d*\s*=\s*(\d+)',
-                r'period\s*=\s*(\d+)',
-                r'window\s*=\s*(\d+)'
-            ]
-            
-            for pattern in patterns:
-                matches = re.findall(pattern, content)
-                for match in matches:
-                    try:
-                        period = int(match)
-                        if 1 <= period <= 500:  # Reasonable range
-                            ma_periods.append(period)
-                    except ValueError:
-                        continue
-            
-            if ma_periods:
-                # Use the maximum period found plus some buffer
-                calculated_lookback = max(ma_periods) + 10
-                logger.debug(f"Calculated lookback={calculated_lookback} from indicators: {ma_periods}")
-                return calculated_lookback
-            
-            logger.debug(f"Using default lookback={default_lookback} for {strategy_path}")
-            return default_lookback
-            
-        except Exception as e:
-            logger.warning(f"Error calculating lookback for {strategy_path}: {e}")
-            return default_lookback
-    
-    def _parse_lookback_from_file(self, strategy_path: str) -> Optional[int]:
-        """Parse LOOKBACK variable from strategy file"""
-        try:
-            with open(strategy_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            # Look for LOOKBACK = number pattern
-            lookback_pattern = r'^LOOKBACK\s*=\s*(\d+)'
-            match = re.search(lookback_pattern, content, re.MULTILINE)
-            
-            if match:
-                return int(match.group(1))
-                
-        except Exception as e:
-            logger.warning(f"Error parsing LOOKBACK from {strategy_path}: {e}")
-        
-        return None 
+ 

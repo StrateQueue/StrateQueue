@@ -68,7 +68,7 @@ def _extract_classes(content: str) -> List[str]:
 
 def _extract_variables(content: str) -> List[str]:
     """Extract top-level variable assignments from file content"""
-    # Look for LOOKBACK and other common strategy variables
+            # Look for common strategy variables
     var_pattern = r'^([A-Z_][A-Z0-9_]*)\s*='
     variables = re.findall(var_pattern, content, re.MULTILINE)
     return variables
@@ -99,7 +99,7 @@ def _detect_engine_indicators(content: str) -> Dict[str, List[str]]:
         (r'self\.buy\(', 'uses self.buy()'),
         (r'self\.sell\(', 'uses self.sell()'),
         (r'crossover\(', 'uses crossover function'),
-        (r'LOOKBACK\s*=', 'has LOOKBACK variable')
+
     ]
     
     # Zipline indicators
@@ -155,28 +155,4 @@ def detect_engine_from_analysis(analysis: Dict[str, any]) -> str:
         return 'unknown'
 
 
-def get_strategy_lookback_from_file(strategy_path: str) -> Optional[int]:
-    """
-    Extract LOOKBACK variable from strategy file if present
-    
-    Args:
-        strategy_path: Path to the strategy file
-        
-    Returns:
-        LOOKBACK value if found, None otherwise
-    """
-    try:
-        with open(strategy_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # Look for LOOKBACK = number pattern
-        lookback_pattern = r'^LOOKBACK\s*=\s*(\d+)'
-        match = re.search(lookback_pattern, content, re.MULTILINE)
-        
-        if match:
-            return int(match.group(1))
-            
-    except Exception as e:
-        logger.warning(f"Error extracting LOOKBACK from {strategy_path}: {e}")
-    
-    return None 
+ 

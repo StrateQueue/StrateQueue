@@ -5,7 +5,6 @@ Handles loading, parsing, and validation of multi-strategy configurations:
 - Strategy config file parsing
 - Path resolution and validation
 - Allocation validation and normalization
-- Lookback period calculation
 """
 
 import os
@@ -24,7 +23,7 @@ class StrategyConfig:
     strategy_id: str
     file_path: str
     allocation: float
-    lookback_period: int = 20
+    lookback_period: int = 60
     strategy_class: Optional[type] = None
     signal_extractor: Optional[object] = None  # Will be LiveSignalExtractor
     symbol: Optional[str] = None  # Optional symbol for 1:1 strategy-symbol mapping
@@ -38,12 +37,12 @@ class ConfigManager:
         
         Args:
             config_file_path: Path to strategy configuration file
-            lookback_override: Override all calculated lookback periods with this value
+            lookback_override: Override default lookback period with this value
         """
         self.config_file_path = config_file_path
         self.lookback_override = lookback_override
         self.strategy_configs: Dict[str, StrategyConfig] = {}
-        self.max_lookback_period = 20  # Default fallback
+        self.max_lookback_period = 60  # Default fallback
         
     def load_configurations(self) -> Dict[str, StrategyConfig]:
         """
@@ -160,52 +159,24 @@ class ConfigManager:
         # Try relative to current working directory
         return file_path
     
-    def calculate_lookback_periods(self) -> int:
+    def set_lookback_periods(self, lookback_period: int) -> int:
         """
-        Calculate lookback period for each strategy and determine maximum
+        Set lookback period for all strategies
         
+        Args:
+            lookback_period: Lookback period to use for all strategies
+            
         Returns:
-            Maximum lookback period required across all strategies
+            The lookback period that was set
         """
-        max_lookback = 0
-        
         for strategy_id, config in self.strategy_configs.items():
-            try:
-                # Load strategy class to calculate lookback (cache it to avoid reloading)
-                if config.strategy_class is None:
-                    original_strategy = StrategyLoader.load_strategy_from_file(config.file_path)
-                    config.strategy_class = original_strategy
-                else:
-                    original_strategy = config.strategy_class
-                
-                # Calculate individual strategy lookback
-                if self.lookback_override:
-                    strategy_lookback = self.lookback_override
-                    logger.info(f"Strategy {strategy_id}: Using override lookback = {strategy_lookback}")
-                else:
-                    strategy_lookback = StrategyLoader.calculate_lookback_period(
-                        original_strategy, config.file_path
-                    )
-                    logger.info(f"Strategy {strategy_id}: Calculated lookback = {strategy_lookback}")
-                
-                # Update config with calculated lookback
-                config.lookback_period = strategy_lookback
-                
-                # Track maximum
-                max_lookback = max(max_lookback, strategy_lookback)
-                
-            except Exception as e:
-                logger.error(f"Failed to calculate lookback for {strategy_id}: {e}")
-                # Use default lookback for this strategy
-                default_lookback = self.lookback_override or 20
-                config.lookback_period = default_lookback
-                max_lookback = max(max_lookback, default_lookback)
-                logger.warning(f"Strategy {strategy_id}: Using default lookback = {default_lookback}")
+            config.lookback_period = lookback_period
+            logger.info(f"Strategy {strategy_id}: Set lookback = {lookback_period}")
         
-        self.max_lookback_period = max_lookback
-        logger.info(f"Maximum lookback across all strategies: {max_lookback} bars")
+        self.max_lookback_period = lookback_period
+        logger.info(f"Lookback period set to {lookback_period} bars for all strategies")
         
-        return max_lookback
+        return lookback_period
     
     def get_strategy_configs(self) -> Dict[str, StrategyConfig]:
         """Get all loaded strategy configurations"""

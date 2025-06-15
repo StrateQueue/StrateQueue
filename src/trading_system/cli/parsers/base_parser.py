@@ -125,7 +125,8 @@ class BaseParser:
         data_group.add_argument(
             '--lookback',
             type=int,
-            help='Lookback period for historical data'
+            default=60,
+            help='Lookback period for historical data (default: 60 bars)'
         )
         
         return parser

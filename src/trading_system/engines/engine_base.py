@@ -131,17 +131,4 @@ class TradingEngine(ABC):
         """
         pass
     
-    @abstractmethod
-    def calculate_lookback_period(self, strategy_path: str, 
-                                default_lookback: int = 50) -> int:
-        """
-        Calculate the required lookback period for a strategy
-        
-        Args:
-            strategy_path: Path to the strategy file
-            default_lookback: Default lookback to use if calculation fails
-            
-        Returns:
-            Required lookback period in bars
-        """
-        pass 
+ 

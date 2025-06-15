@@ -36,7 +36,7 @@ class MultiStrategyRunner:
         Args:
             config_file_path: Path to strategy configuration file
             symbols: List of symbols to trade across all strategies
-            lookback_override: Override all calculated lookback periods with this value
+            lookback_override: Override default lookback period with this value
         """
         self.config_file_path = config_file_path
         self.symbols = symbols
@@ -48,8 +48,8 @@ class MultiStrategyRunner:
         # Load strategy configurations
         strategy_configs = self.config_manager.load_configurations()
         
-        # Calculate lookback periods
-        self.max_lookback_period = self.config_manager.calculate_lookback_periods()
+        # Set lookback periods
+        self.max_lookback_period = self.config_manager.set_lookback_periods(self.lookback_override or 60)
         
         # Initialize signal coordinator
         self.signal_coordinator = SignalCoordinator(strategy_configs)
@@ -239,11 +239,8 @@ class MultiStrategyRunner:
             # Load and validate strategy file
             original_strategy = StrategyLoader.load_strategy_from_file(strategy_path)
             
-            # Calculate lookback period
-            if self.lookback_override:
-                lookback_period = self.lookback_override
-            else:
-                lookback_period = StrategyLoader.calculate_lookback_period(original_strategy, strategy_path)
+            # Set lookback period
+            lookback_period = self.lookback_override or 60
             
             # Create strategy configuration
             config = StrategyConfig(
