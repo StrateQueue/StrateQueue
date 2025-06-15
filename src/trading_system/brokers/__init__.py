@@ -11,70 +11,25 @@ Main Components:
 """
 
 from .broker_base import BaseBroker, BrokerConfig, BrokerInfo, AccountInfo, Position, OrderResult
-from .broker_factory import BrokerFactory, detect_broker_type, get_supported_brokers, auto_create_broker, validate_broker_credentials
+from .broker_factory import BrokerFactory, detect_broker_type, auto_create_broker, validate_broker_credentials, list_broker_features
 
-
-def list_broker_features():
-    """List features of all supported brokers"""
-    return {
-        'alpaca': BrokerInfo(
-            name="Alpaca",
-            version="2.0.0",
-            description="Commission-free stock and crypto trading", 
-            supported_markets=['stocks', 'crypto'],
-            paper_trading=True,
-            supported_features={
-                'market_orders': True,
-                'limit_orders': True, 
-                'stop_orders': True,
-                'crypto_trading': True,
-                'multi_strategy': True,
-                'portfolio_management': True
-            }
-        ),
-        'interactive_brokers': BrokerInfo(
-            name="Interactive Brokers",
-            version="1.0.0",
-            description="Professional trading platform with global market access",
-            supported_markets=['stocks', 'options', 'futures', 'forex', 'bonds'],
-            paper_trading=True,
-            supported_features={
-                'market_orders': True,
-                'limit_orders': True,
-                'stop_orders': True,
-                'options_trading': True,
-                'futures_trading': True,
-                'forex_trading': True,
-                'multi_strategy': True,
-                'portfolio_management': True
-            }
-        ),
-        'td_ameritrade': BrokerInfo(
-            name="TD Ameritrade",
-            version="1.0.0", 
-            description="Full-service brokerage with comprehensive trading tools",
-            supported_markets=['stocks', 'options', 'futures'],
-            paper_trading=True,
-            supported_features={
-                'market_orders': True,
-                'limit_orders': True,
-                'stop_orders': True,
-                'options_trading': True,
-                'futures_trading': True,
-                'multi_strategy': True,
-                'portfolio_management': True
-            }
-        )
-    }
-
-# Try importing Alpaca broker - if alpaca isn't installed, provide graceful fallback
+# Try importing Alpaca broker - if alpaca isn't installed, it won't be available
 try:
     from .alpaca_broker import AlpacaBroker
+    _ALPACA_AVAILABLE = True
 except ImportError:
-    # Create dummy class if alpaca is not installed
-    class AlpacaBroker:
-        def __init__(self, *args, **kwargs):
-            raise ImportError("alpaca-trade-api not installed. Please reinstall the package: pip install stratequeue")
+    _ALPACA_AVAILABLE = False
+
+
+def get_supported_brokers():
+    """
+    Get list of supported broker types
+    
+    Returns:
+        List of broker type names
+    """
+    return BrokerFactory.get_supported_brokers()
+
 
 __all__ = [
     'BaseBroker',
@@ -89,5 +44,8 @@ __all__ = [
     'auto_create_broker',
     'validate_broker_credentials',
     'list_broker_features',
-    'AlpacaBroker'
-] 
+]
+
+# Only add AlpacaBroker to __all__ if it's available
+if _ALPACA_AVAILABLE:
+    __all__.append('AlpacaBroker') 

@@ -222,16 +222,6 @@ def auto_create_broker(portfolio_manager=None, statistics_manager=None) -> BaseB
     return BrokerFactory.create_broker(broker_type, portfolio_manager=portfolio_manager, statistics_manager=statistics_manager)
 
 
-def get_supported_brokers() -> List[str]:
-    """
-    Get list of supported broker types
-    
-    Returns:
-        List of broker type names
-    """
-    return BrokerFactory.get_supported_brokers()
-
-
 def validate_broker_credentials(broker_type: str = None) -> bool:
     """
     Validate broker credentials
@@ -268,7 +258,7 @@ def list_broker_features() -> Dict[str, BrokerInfo]:
     Returns:
         Dictionary mapping broker type to BrokerInfo
     """
-    supported_brokers = get_supported_brokers()
+    supported_brokers = BrokerFactory.get_supported_brokers()
     broker_features = {}
     
     for broker_type in supported_brokers:
