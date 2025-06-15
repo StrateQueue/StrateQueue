@@ -125,43 +125,6 @@ class BaseValidator:
         return None
     
     @staticmethod
-    def validate_granularity(granularity: str) -> Optional[str]:
-        """
-        Validate granularity format
-        
-        Args:
-            granularity: Granularity string (e.g., '1m', '5m', '1h', '1d')
-            
-        Returns:
-            Error message if invalid, None if valid
-        """
-        if not granularity:
-            return None  # Optional parameter
-        
-        # Import here to avoid circular imports
-        try:
-            from ...core.granularity import validate_granularity as core_validate
-            return core_validate(granularity)
-        except ImportError:
-            # Fallback basic validation
-            valid_units = ['s', 'm', 'h', 'd']
-            if len(granularity) < 2:
-                return f"Invalid granularity format: {granularity}"
-            
-            unit = granularity[-1].lower()
-            if unit not in valid_units:
-                return f"Invalid granularity unit: {unit}. Must be one of: {valid_units}"
-            
-            try:
-                value = int(granularity[:-1])
-                if value <= 0:
-                    return f"Granularity value must be positive: {value}"
-            except ValueError:
-                return f"Invalid granularity value: {granularity[:-1]}"
-        
-        return None
-    
-    @staticmethod
     def validate_data_source(data_source: str) -> Optional[str]:
         """
         Validate data source
