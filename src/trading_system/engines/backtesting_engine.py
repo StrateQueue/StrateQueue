@@ -205,28 +205,7 @@ class BacktestingEngine(TradingEngine):
     
     def validate_strategy_file(self, strategy_path: str) -> bool:
         """Check if strategy file is compatible with backtesting.py"""
-        try:
-            if not os.path.exists(strategy_path):
-                return False
-            
-            with open(strategy_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            # Check for backtesting.py imports
-            if 'from backtesting import' not in content:
-                return False
-            
-            # Check for Strategy class inheritance
-            if not re.search(r'class\s+\w+\(Strategy\)', content):
-                return False
-            
-            # Check for required methods
-            if 'def init(' not in content or 'def next(' not in content:
-                return False
-            
-            return True
-            
-        except Exception:
-            return False
+        from .engine_helpers import validate_strategy_file_for_engine
+        return validate_strategy_file_for_engine(strategy_path, "backtesting")
     
  

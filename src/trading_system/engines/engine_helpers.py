@@ -155,4 +155,55 @@ def detect_engine_from_analysis(analysis: Dict[str, any]) -> str:
         return 'unknown'
 
 
+def validate_strategy_file_for_engine(strategy_path: str, expected_engine: str) -> bool:
+    """
+    Return True iff the strategy located at `strategy_path` most likely targets
+    the engine named in `expected_engine`.
+
+    This consolidates the heuristics so each TradingEngine implementation
+    doesn't have to copy-paste its own validation code.
+    
+    Args:
+        strategy_path: Path to the strategy file
+        expected_engine: Expected engine name ('backtesting', 'zipline', etc.)
+        
+    Returns:
+        True if the file is compatible with the expected engine
+    """
+    try:
+        analysis = analyze_strategy_file(strategy_path)
+        detected_engine = detect_engine_from_analysis(analysis)
+        return detected_engine == expected_engine
+    except Exception as e:
+        logger.warning(f"Engine validation failed for {strategy_path}: {e}")
+        return False
+
+
+def get_strategy_lookback_from_file(strategy_path: str) -> Optional[int]:
+    """
+    Extract LOOKBACK variable from strategy file if present
+    
+    Args:
+        strategy_path: Path to the strategy file
+        
+    Returns:
+        LOOKBACK value if found, None otherwise
+    """
+    try:
+        with open(strategy_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Look for LOOKBACK = number pattern
+        lookback_pattern = r'^LOOKBACK\s*=\s*(\d+)'
+        match = re.search(lookback_pattern, content, re.MULTILINE)
+        
+        if match:
+            return int(match.group(1))
+            
+    except Exception as e:
+        logger.warning(f"Error extracting LOOKBACK from {strategy_path}: {e}")
+    
+    return None
+
+
  
