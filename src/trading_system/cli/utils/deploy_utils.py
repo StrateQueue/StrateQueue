@@ -69,23 +69,8 @@ def parse_symbols(symbols_str: str) -> List[str]:
     return [s.strip().upper() for s in symbols_str.split(',') if s.strip()]
 
 
-def setup_logging(verbose: bool = False):
-    """
-    Setup logging configuration
-    
-    Args:
-        verbose: Enable verbose (DEBUG) logging
-    """
-    level = logging.DEBUG if verbose else logging.INFO
-    
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler('trading_system.log')
-        ]
-    )
+# Re-export the canonical setup_logging function
+from .logging_setup import setup_logging
 
 
 def create_inline_strategy_config(args: Namespace) -> Optional[str]:

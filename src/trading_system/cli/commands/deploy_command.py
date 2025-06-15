@@ -147,7 +147,7 @@ class DeployCommand(BaseCommand):
         """
         # Setup logging if verbose mode
         if hasattr(args, 'verbose') and args.verbose:
-            setup_logging(verbose=True)
+            setup_logging(verbose=True, log_file='trading_system.log')
         
         # Validate arguments
         is_valid, errors = self.validator.validate(args)
