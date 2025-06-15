@@ -20,7 +20,8 @@ from backtesting import Backtest, Strategy
 from backtesting.lib import crossover
 
 from .engine_base import TradingEngine, EngineStrategy, EngineSignalExtractor, EngineInfo
-from ..core.signal_extractor import TradingSignal, SignalType
+from ..core.signal_extractor import TradingSignal, SignalType, SignalExtractorStrategy
+from ..core.strategy_loader import StrategyLoader
 
 logger = logging.getLogger(__name__)
 
@@ -65,77 +66,7 @@ class BacktestingEngineStrategy(EngineStrategy):
         return params
 
 
-class SignalExtractorStrategy(Strategy):
-    """
-    Modified backtesting.py strategy that captures signals instead of executing trades.
-    This allows us to extract the current signal from the last timestep.
-    """
-    
-    def __init__(self, *args, **kwargs):
-        # Initialize with any arguments backtesting.py provides
-        super().__init__(*args, **kwargs)
-        
-        self.current_signal = SignalType.HOLD
-        self.signal_confidence = 0.0
-        self.indicators_values = {}
-        self.signal_history = []
-        
-    def next(self):
-        """
-        Override this method in your strategy to:
-        1. Calculate indicators
-        2. Determine signal
-        3. Store signal instead of executing trades
-        """
-        # This will be overridden by actual strategy implementations
-        pass
-    
-    def set_signal(self, signal: SignalType, confidence: float = 1.0, metadata: Dict[str, Any] = None, 
-                   size: Optional[float] = None, limit_price: Optional[float] = None,
-                   stop_price: Optional[float] = None, trail_percent: Optional[float] = None,
-                   trail_price: Optional[float] = None, time_in_force: str = "gtc"):
-        """Set the current signal instead of calling buy/sell"""
-        self.current_signal = signal
-        self.signal_confidence = confidence
-        
-        # Store signal with current data
-        signal_obj = TradingSignal(
-            signal=signal,
-            confidence=confidence,
-            price=self.data.Close[-1],
-            timestamp=self.data.index[-1] if hasattr(self.data.index, '__getitem__') else pd.Timestamp.now(),
-            indicators=self.indicators_values.copy(),
-            metadata=metadata or {},
-            size=size,
-            limit_price=limit_price,
-            stop_price=stop_price,
-            trail_percent=trail_percent,
-            trail_price=trail_price,
-            time_in_force=time_in_force
-        )
-        
-        self.signal_history.append(signal_obj)
-        
-    def set_limit_buy_signal(self, limit_price: float, confidence: float = 1.0, size: Optional[float] = None, metadata: Dict[str, Any] = None):
-        """Set a limit buy signal with specified limit price"""
-        self.set_signal(SignalType.LIMIT_BUY, confidence, metadata, size, limit_price)
-        
-    def set_limit_sell_signal(self, limit_price: float, confidence: float = 1.0, size: Optional[float] = None, metadata: Dict[str, Any] = None):
-        """Set a limit sell signal with specified limit price"""
-        self.set_signal(SignalType.LIMIT_SELL, confidence, metadata, size, limit_price)
-    
-    def get_current_signal(self) -> TradingSignal:
-        """Get the most recent signal"""
-        if self.signal_history:
-            return self.signal_history[-1]
-        else:
-            return TradingSignal(
-                signal=SignalType.HOLD,
-                confidence=0.0,
-                price=self.data.Close[-1] if len(self.data.Close) > 0 else 0.0,
-                timestamp=pd.Timestamp.now(),
-                indicators=self.indicators_values.copy()
-            )
+
 
 
 class BacktestingSignalExtractor(EngineSignalExtractor):
@@ -148,7 +79,7 @@ class BacktestingSignalExtractor(EngineSignalExtractor):
         self.min_bars_required = min_bars_required
         
         # Create the signal-extracting version of the strategy
-        self.signal_strategy_class = self._convert_to_signal_strategy(engine_strategy.strategy_class)
+        self.signal_strategy_class = StrategyLoader.convert_to_signal_strategy(engine_strategy.strategy_class)
         
     def extract_signal(self, historical_data: pd.DataFrame) -> TradingSignal:
         """Extract trading signal from historical data"""
@@ -211,107 +142,7 @@ class BacktestingSignalExtractor(EngineSignalExtractor):
         """Get minimum number of bars needed for signal extraction"""
         return max(self.min_bars_required, self.engine_strategy.get_lookback_period())
     
-    def _convert_to_signal_strategy(self, original_strategy: Type) -> Type[SignalExtractorStrategy]:
-        """Convert a regular backtesting.py strategy to a signal-extracting strategy"""
-        
-        class ConvertedSignalStrategy(SignalExtractorStrategy):
-            """Dynamically converted signal strategy"""
-            
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                # Copy only safe class attributes from original strategy
-                for attr_name in dir(original_strategy):
-                    if (not attr_name.startswith('_') and 
-                        not callable(getattr(original_strategy, attr_name)) and
-                        not hasattr(self, attr_name) and  # Don't override existing attributes
-                        attr_name not in ['closed_trades', 'trades', 'data', 'broker', 'position']):
-                        try:
-                            setattr(self, attr_name, getattr(original_strategy, attr_name))
-                        except (AttributeError, TypeError):
-                            pass
-            
-            def init(self):
-                # Call original init method
-                if hasattr(original_strategy, 'init'):
-                    original_init = getattr(original_strategy, 'init')
-                    original_init(self)
-            
-            def next(self):
-                # Mock trading methods to capture signals
-                buy_called = False
-                sell_called = False
-                close_called = False
-                trade_params = {}
-                
-                def mock_buy(*args, **kwargs):
-                    nonlocal buy_called, trade_params
-                    buy_called = True
-                    trade_params = kwargs
-                    if args:
-                        if 'price' not in kwargs and len(args) > 0:
-                            trade_params['price'] = args[0]
-                    return None
-                
-                def mock_sell(*args, **kwargs):
-                    nonlocal sell_called, trade_params
-                    sell_called = True
-                    trade_params = kwargs
-                    if args:
-                        if 'price' not in kwargs and len(args) > 0:
-                            trade_params['price'] = args[0]
-                    return None
-                
-                def mock_close(*args, **kwargs):
-                    nonlocal close_called
-                    close_called = True
-                    return None
-                
-                # Replace methods temporarily
-                original_buy = getattr(self, 'buy', None)
-                original_sell = getattr(self, 'sell', None)
-                original_close = getattr(self.position, 'close', None) if hasattr(self, 'position') else None
-                
-                self.buy = mock_buy
-                self.sell = mock_sell
-                if hasattr(self, 'position'):
-                    self.position.close = mock_close
-                
-                # Call original next method
-                if hasattr(original_strategy, 'next'):
-                    original_next = getattr(original_strategy, 'next')
-                    original_next(self)
-                
-                # Determine signal based on what was called
-                signal_size = trade_params.get('size')
-                limit_price = trade_params.get('limit')
-                stop_price = trade_params.get('stop')
-                
-                if buy_called:
-                    if limit_price is not None:
-                        self.set_signal(SignalType.LIMIT_BUY, confidence=0.8, size=signal_size, 
-                                      limit_price=limit_price)
-                    else:
-                        self.set_signal(SignalType.BUY, confidence=0.8, size=signal_size)
-                elif sell_called:
-                    if limit_price is not None:
-                        self.set_signal(SignalType.LIMIT_SELL, confidence=0.8, size=signal_size, 
-                                      limit_price=limit_price)
-                    else:
-                        self.set_signal(SignalType.SELL, confidence=0.8, size=signal_size)
-                elif close_called:
-                    self.set_signal(SignalType.CLOSE, confidence=0.8)
-                else:
-                    self.set_signal(SignalType.HOLD, confidence=0.1)
-                
-                # Restore original methods
-                if original_buy:
-                    self.buy = original_buy
-                if original_sell:
-                    self.sell = original_sell
-                if original_close and hasattr(self, 'position'):
-                    self.position.close = original_close
-        
-        return ConvertedSignalStrategy
+
 
 
 class BacktestingEngine(TradingEngine):
