@@ -54,15 +54,7 @@ class BaseDataIngestion(ABC):
         """
         pass
     
-    async def fetch_historical_data_legacy(self, symbol: str, days_back: int = 30, 
-                                         timespan: str = "minute", multiplier: int = 1) -> pd.DataFrame:
-        """
-        Legacy method for backward compatibility
-        Converts old timespan/multiplier format to new granularity format
-        """
-        # Convert legacy parameters to granularity string
-        granularity_str = f"{multiplier}{timespan[0]}"  # e.g., "1m", "5m"
-        return await self.fetch_historical_data(symbol, days_back, granularity_str)
+
     
     @abstractmethod
     def subscribe_to_symbol(self, symbol: str):

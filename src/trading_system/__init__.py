@@ -83,7 +83,7 @@ __all__ = [
     "validate_provider_credentials",
     "list_provider_features",
     
-    # Backward compatibility data functions
+    # Data functions
     "setup_data_ingestion",
     "create_data_source",
     "BaseDataIngestion",

@@ -13,6 +13,7 @@ import logging
 import pandas as pd
 from datetime import datetime
 from typing import Dict, List
+from ..data.provider_factory import create_data_source
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,6 @@ class DataManager:
     def setup_data_ingestion(self):
         """Setup data ingestion based on data source"""
         import os
-        from ..data.ingestion import create_data_source
         
         # Get API key if needed
         api_key = None

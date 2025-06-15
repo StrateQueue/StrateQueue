@@ -450,11 +450,10 @@ def list_provider_features() -> Dict[str, DataProviderInfo]:
     return features
 
 
-# Backward compatibility functions
 def create_data_source(data_source: str, api_key: Optional[str] = None, 
                       granularity: str = "1m") -> BaseDataIngestion:
     """
-    Backward compatibility function for create_data_source
+    Create a data source instance
     
     Args:
         data_source: Type of data source ('polygon', 'coinmarketcap', 'demo')
@@ -470,35 +469,4 @@ def create_data_source(data_source: str, api_key: Optional[str] = None,
         granularity=granularity
     )
     
-    return DataProviderFactory.create_provider(data_source, config)
-
-
-def list_supported_granularities(data_source: str) -> List[str]:
-    """
-    Backward compatibility function for list_supported_granularities
-    
-    Args:
-        data_source: Data source name
-        
-    Returns:
-        List of supported granularity strings
-    """
-    return GranularityParser.get_supported_granularities(data_source)
-
-
-def get_default_granularity(data_source: str) -> str:
-    """
-    Backward compatibility function for get_default_granularity
-    
-    Args:
-        data_source: Data source name
-        
-    Returns:
-        Default granularity string
-    """
-    defaults = {
-        "polygon": "1m",
-        "coinmarketcap": "1d",  # Daily historical, but can do intraday real-time
-        "demo": "1m"
-    }
-    return defaults.get(data_source, "1m") 
+    return DataProviderFactory.create_provider(data_source, config) 

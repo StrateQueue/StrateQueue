@@ -20,7 +20,7 @@ def old_way_example():
     print("-" * 30)
     
     # Old data source creation
-    from trading_system.data.ingestion import create_data_source
+    from trading_system.data.provider_factory import create_data_source
     
     provider = create_data_source('demo', granularity='1m')
     print(f"✅ Created provider: {type(provider).__name__}")

@@ -1,8 +1,7 @@
 """
-Data Ingestion Factory and Utilities
+Data Ingestion Utilities
 
-Factory functions to create and configure data sources.
-This module now delegates to the standardized DataProviderFactory for consistency.
+High-level utilities for setting up data ingestion with historical data fetching.
 """
 
 import os
@@ -19,16 +18,9 @@ from .sources import (
     CoinMarketCapDataIngestion, 
     TestDataIngestion
 )
-from ..core.granularity import validate_granularity, GranularityParser
 
-# Import the new factory system
-from .provider_factory import (
-    DataProviderFactory,
-    DataProviderConfig,
-    create_data_source as factory_create_data_source,
-    list_supported_granularities as factory_list_supported_granularities,
-    get_default_granularity as factory_get_default_granularity
-)
+# Import the factory system
+from .provider_factory import create_data_source
 
 # Load environment variables from .env file  
 from dotenv import load_dotenv
@@ -36,57 +28,6 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-def create_data_source(data_source: str, api_key: Optional[str] = None, 
-                      granularity: str = "1m") -> BaseDataIngestion:
-    """
-    Factory function to create the appropriate data ingestion source
-    
-    This function now delegates to the standardized DataProviderFactory
-    for consistency with brokers and engines.
-    
-    Args:
-        data_source: Type of data source ('polygon', 'coinmarketcap', 'demo')
-        api_key: API key for external data sources (not needed for demo)
-        granularity: Data granularity (e.g., '1s', '1m', '5m', '1h', '1d')
-        
-    Returns:
-        Configured data ingestion instance
-        
-    Raises:
-        ValueError: If data source is invalid or granularity is not supported
-    """
-    logger.info(f"Creating data source '{data_source}' with granularity '{granularity}' using factory pattern")
-    
-    # Use the new factory system
-    return factory_create_data_source(data_source, api_key, granularity)
-
-
-def list_supported_granularities(data_source: str) -> List[str]:
-    """
-    Get list of supported granularities for a data source
-        
-    Args:
-        data_source: Data source name
-            
-    Returns:
-        List of supported granularity strings
-    """
-    return factory_list_supported_granularities(data_source)
-
-
-def get_default_granularity(data_source: str) -> str:
-    """
-    Get the default granularity for a data source
-    
-    Args:
-        data_source: Data source name
-        
-    Returns:
-        Default granularity string
-    """
-    return factory_get_default_granularity(data_source)
 
 
 def setup_data_ingestion(data_source: str, symbols: List[str], days_back: int = 30,
@@ -105,7 +46,7 @@ def setup_data_ingestion(data_source: str, symbols: List[str], days_back: int = 
         Configured and initialized data ingestion instance
     """
     
-    # Create data source using the new factory
+    # Create data source using the factory
     data_ingestion = create_data_source(data_source, api_key, granularity)
     
     # Fetch historical data for all symbols
@@ -132,21 +73,6 @@ def setup_data_ingestion(data_source: str, symbols: List[str], days_back: int = 
     logger.info(f"Data ingestion setup complete for {data_source} with granularity {granularity}")
     return data_ingestion
 
-
-# Legacy compatibility function
-def setup_data_ingestion_legacy(data_source: str, symbols: List[str], days_back: int = 30,
-                               timespan: str = "minute", multiplier: int = 1,
-                               api_key: Optional[str] = None) -> BaseDataIngestion:
-    """
-    Legacy setup function for backward compatibility
-    Converts old timespan/multiplier format to new granularity format
-    """
-    # Convert legacy parameters to granularity string
-    granularity_str = f"{multiplier}{timespan[0]}"  # e.g., "1m", "5m", "1h", "1d"
-    
-    logger.info(f"Converting legacy timespan={timespan}, multiplier={multiplier} to granularity={granularity_str}")
-    
-    return setup_data_ingestion(data_source, symbols, days_back, api_key, granularity_str)
 
 
 class MinimalSignalGenerator:
@@ -340,4 +266,5 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             print("Stopping data ingestion...")
         except Exception as e:
-            logger.error(f"Error: {e}") 
+            logger.error(f"Error: {e}")
+
