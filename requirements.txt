@@ -18,9 +18,9 @@ asyncio>=3.4.3
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 
-# Trading and backtesting (optional - install as needed)
-# backtesting>=0.3.3
-# alpaca-trade-api>=3.0.0
+# Trading and backtesting
+backtesting>=0.3.3
+# alpaca-trade-api>=3.0.0  # Optional - install as needed
 
 # Optional: Database support for production
 # psycopg2-binary>=2.9.7  # PostgreSQL

@@ -72,7 +72,6 @@ from .core.strategy_loader import StrategyLoader
 from .live_system import LiveTradingSystem
 from .multi_strategy import MultiStrategyRunner
 from .core.portfolio_manager import SimplePortfolioManager
-from .utils.mocks import Order
 from .cli.cli import main as cli_main
 
 __all__ = [
@@ -133,6 +132,5 @@ __all__ = [
     "LiveTradingSystem",
     "MultiStrategyRunner",
     "SimplePortfolioManager",
-    "Order",
     "cli_main"
 ] 

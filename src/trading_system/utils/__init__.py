@@ -10,11 +10,8 @@ from .config import (
     TradingConfig
 )
 
-from .mocks import Order
-
 __all__ = [
     "load_config",
     "DataConfig", 
-    "TradingConfig",
-    "Order"
+    "TradingConfig"
 ] 

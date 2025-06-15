@@ -21,7 +21,6 @@ from backtesting.lib import crossover
 
 from .base import TradingEngine, EngineStrategy, EngineSignalExtractor, EngineInfo
 from ..core.signal_extractor import TradingSignal, SignalType
-from ..utils.mocks import Order
 
 logger = logging.getLogger(__name__)
 
@@ -343,8 +342,7 @@ class BacktestingEngine(TradingEngine):
             spec = importlib.util.spec_from_file_location("strategy_module", strategy_path)
             module = importlib.util.module_from_spec(spec)
             
-            # Inject Order class into module namespace before execution
-            module.Order = Order
+            # No need to inject Order class - backtesting.py uses different order syntax
             
             spec.loader.exec_module(module)
             
