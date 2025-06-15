@@ -87,11 +87,13 @@ class DeployCommand(BaseCommand):
             help='Broker(s) for trading. Single value applies to all, or comma-separated list matching strategies (e.g., alpaca or alpaca,kraken)'
         )
         
+        from ...multi_strategy.strategy_config import DEFAULT_LOOKBACK_PERIOD
+        
         parser.add_argument(
             '--lookback', 
             type=int,
-            default=60,
-            help='Lookback period for historical data (default: 60 bars)'
+            default=DEFAULT_LOOKBACK_PERIOD,
+            help=f'Lookback period for historical data (default: {DEFAULT_LOOKBACK_PERIOD} bars)'
         )
         
         # Execution mode options

@@ -35,7 +35,8 @@ class BacktestingEngineStrategy(EngineStrategy):
     def get_lookback_period(self) -> int:
         """Get the minimum number of bars required by this strategy"""
         # Return a simple default - lookback is now handled by CLI
-        return 60
+        from ..multi_strategy.strategy_config import DEFAULT_LOOKBACK_PERIOD
+        return DEFAULT_LOOKBACK_PERIOD
     
     def get_strategy_name(self) -> str:
         """Get a human-readable name for this strategy"""

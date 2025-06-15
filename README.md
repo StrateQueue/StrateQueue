@@ -363,8 +363,6 @@ CMC_API_KEY=your_coinmarketcap_key
 ### **Strategy Development**
 ```python
 # my_strategy.py
-LOOKBACK = 20  # Historical bars needed
-
 from backtesting import Strategy
 from backtesting.lib import crossover
 from backtesting.test import SMA

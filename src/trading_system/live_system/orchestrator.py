@@ -125,7 +125,8 @@ class LiveTradingSystem:
             self.strategy_class = StrategyLoader.convert_to_signal_strategy(original_strategy)
             
             # Set lookback period
-            self.lookback_period = self.lookback_override or 60
+            from ..multi_strategy.strategy_config import DEFAULT_LOOKBACK_PERIOD
+            self.lookback_period = self.lookback_override or DEFAULT_LOOKBACK_PERIOD
             
             # Multi-strategy attributes set to None
             self.multi_strategy_runner = None

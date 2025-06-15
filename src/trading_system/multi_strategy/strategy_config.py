@@ -17,13 +17,16 @@ from ..core.strategy_loader import StrategyLoader
 
 logger = logging.getLogger(__name__)
 
+# Default lookback period for strategies (in bars)
+DEFAULT_LOOKBACK_PERIOD = 60
+
 @dataclass
 class StrategyConfig:
     """Configuration for a single strategy"""
     strategy_id: str
     file_path: str
     allocation: float
-    lookback_period: int = 60
+    lookback_period: int = DEFAULT_LOOKBACK_PERIOD
     strategy_class: Optional[type] = None
     signal_extractor: Optional[object] = None  # Will be LiveSignalExtractor
     symbol: Optional[str] = None  # Optional symbol for 1:1 strategy-symbol mapping
@@ -42,7 +45,7 @@ class ConfigManager:
         self.config_file_path = config_file_path
         self.lookback_override = lookback_override
         self.strategy_configs: Dict[str, StrategyConfig] = {}
-        self.max_lookback_period = 60  # Default fallback
+        self.max_lookback_period = DEFAULT_LOOKBACK_PERIOD  # Default fallback
         
     def load_configurations(self) -> Dict[str, StrategyConfig]:
         """

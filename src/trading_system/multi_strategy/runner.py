@@ -49,7 +49,8 @@ class MultiStrategyRunner:
         strategy_configs = self.config_manager.load_configurations()
         
         # Set lookback periods
-        self.max_lookback_period = self.config_manager.set_lookback_periods(self.lookback_override or 60)
+        from .strategy_config import DEFAULT_LOOKBACK_PERIOD
+        self.max_lookback_period = self.config_manager.set_lookback_periods(self.lookback_override or DEFAULT_LOOKBACK_PERIOD)
         
         # Initialize signal coordinator
         self.signal_coordinator = SignalCoordinator(strategy_configs)
@@ -240,7 +241,8 @@ class MultiStrategyRunner:
             original_strategy = StrategyLoader.load_strategy_from_file(strategy_path)
             
             # Set lookback period
-            lookback_period = self.lookback_override or 60
+            from .strategy_config import DEFAULT_LOOKBACK_PERIOD
+            lookback_period = self.lookback_override or DEFAULT_LOOKBACK_PERIOD
             
             # Create strategy configuration
             config = StrategyConfig(
