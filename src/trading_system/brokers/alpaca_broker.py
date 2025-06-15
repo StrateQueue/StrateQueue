@@ -79,7 +79,7 @@ class AlpacaBroker(BaseBroker):
             statistics_manager: Optional statistics manager for trade tracking
         """
         if not ALPACA_AVAILABLE:
-            raise ImportError("alpaca-trade-api not installed. Install with: pip install stratequeue[trading]")
+            raise ImportError("alpaca-trade-api not installed. Please reinstall the package: pip install stratequeue")
         
         super().__init__(config, portfolio_manager)
         

@@ -248,7 +248,7 @@ class DeployValidator(BaseValidator):
                 print("💰 Please ensure you have tested your strategy thoroughly in paper trading first.")
                 
         except ImportError:
-            errors.append("Trading functionality not available (missing dependencies). Install with: pip install stratequeue[trading]")
+            errors.append("Trading functionality not available (missing dependencies). Please reinstall the package: pip install stratequeue")
         
         return errors
     

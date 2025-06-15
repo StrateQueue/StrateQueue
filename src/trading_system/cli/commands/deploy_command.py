@@ -223,7 +223,7 @@ class DeployCommand(BaseCommand):
         except ImportError as e:
             logger.error(f"Trading system not available: {e}")
             print(f"❌ Trading system not available: {e}")
-            print("💡 Install with: pip install stratequeue[trading]")
+            print("💡 Please reinstall the package: pip install stratequeue")
             return 1
         except Exception as e:
             logger.error(f"Error running trading system: {e}")

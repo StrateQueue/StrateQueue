@@ -74,7 +74,7 @@ except ImportError:
     # Create dummy class if alpaca is not installed
     class AlpacaBroker:
         def __init__(self, *args, **kwargs):
-            raise ImportError("alpaca-trade-api not installed. Install with: pip install stratequeue[trading]")
+            raise ImportError("alpaca-trade-api not installed. Please reinstall the package: pip install stratequeue")
 
 __all__ = [
     'BaseBroker',

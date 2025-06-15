@@ -62,7 +62,7 @@ try:
 except ImportError as e:
     raise ImportError(
         "Broker dependencies are required but could not be imported. "
-        "Install with: pip install stratequeue[trading]"
+        "Please reinstall the package: pip install stratequeue"
     ) from e
 
 from .core.strategy_loader import StrategyLoader

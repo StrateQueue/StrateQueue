@@ -177,7 +177,7 @@ class LiveTradingSystem:
             except ImportError:
                 # Broker factory not available
                 logger.error("Broker factory not available - no broker dependencies installed")
-                logger.warning("Install broker dependencies with: pip install stratequeue[trading]")
+                logger.warning("Broker dependencies missing. Please reinstall the package: pip install stratequeue")
                 return None
                 
         except Exception as e:

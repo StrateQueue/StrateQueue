@@ -44,13 +44,10 @@ dependencies = [
     "requests>=2.31.0",
     "websocket-client>=1.6.0",
     "python-dotenv>=1.0.0",
+    "alpaca-trade-api>=3.0.0",
 ]
 
 [project.optional-dependencies]
-# Core trading functionality
-trading = [
-    "alpaca-trade-api>=3.0.0",
-]
 # Backtesting support
 backtesting = [
     "backtesting>=0.3.3",
@@ -82,7 +79,6 @@ dev = [
 ]
 # All optional dependencies
 all = [
-    "alpaca-trade-api>=3.0.0",
     "backtesting>=0.3.3",
     "scipy>=1.11.0",
     "ta-lib>=0.4.0",
