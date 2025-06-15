@@ -20,7 +20,7 @@ def old_way_example():
     print("-" * 30)
     
     # Old data source creation
-    from trading_system.data.provider_factory import create_data_source
+    from StrateQueue.data.provider_factory import create_data_source
     
     provider = create_data_source('demo', granularity='1m')
     print(f"✅ Created provider: {type(provider).__name__}")
@@ -33,7 +33,7 @@ def new_factory_way_example():
     print("-" * 35)
     
     # New factory approach
-    from trading_system.data import (
+    from StrateQueue.data import (
         DataProviderFactory, 
         DataProviderConfig,
         auto_create_provider,
@@ -75,14 +75,14 @@ def comprehensive_factory_example():
     print("-" * 35)
     
     # Data Provider Factory
-    from trading_system.data import DataProviderFactory, DataProviderConfig
+    from StrateQueue.data import DataProviderFactory, DataProviderConfig
     data_config = DataProviderConfig(provider_type='demo', granularity='1m')
     data_provider = DataProviderFactory.create_provider('demo', data_config)
     print(f"📊 Data Provider: {type(data_provider).__name__}")
     
     # Broker Factory
     try:
-        from trading_system.brokers import BrokerFactory, BrokerConfig
+        from StrateQueue.brokers import BrokerFactory, BrokerConfig
         broker_config = BrokerConfig(broker_type='alpaca', paper_trading=True)
         # Note: This would fail without actual Alpaca credentials, but shows the pattern
         print(f"💰 Broker Factory available: {BrokerFactory.get_supported_brokers()}")
@@ -91,7 +91,7 @@ def comprehensive_factory_example():
     
     # Engine Factory
     try:
-        from trading_system.engines import EngineFactory
+        from StrateQueue.engines import EngineFactory
         engine = EngineFactory.create_engine('backtesting')
         print(f"⚙️  Engine: {type(engine).__name__}")
     except Exception as e:
@@ -106,7 +106,7 @@ async def advanced_data_usage_example():
     print("-" * 35)
     
     # Create provider using factory
-    from trading_system.data import DataProviderFactory, DataProviderConfig
+    from StrateQueue.data import DataProviderFactory, DataProviderConfig
     
     config = DataProviderConfig(
         provider_type='demo',
@@ -137,7 +137,7 @@ def error_handling_example():
     print("🚨 Error Handling Examples:")
     print("-" * 28)
     
-    from trading_system.data import DataProviderFactory
+    from StrateQueue.data import DataProviderFactory
     
     # Test invalid provider
     try:

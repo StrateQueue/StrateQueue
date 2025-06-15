@@ -14,7 +14,7 @@ Usage:
     python3.10 main.py deploy --strategy examples/strategies/sma.py --symbol DOGE --granularity 1s --allocation 0.2 --data-source demo --lookback 60
 """
 
-from src.trading_system import cli_main
+from src.StrateQueue import cli_main
 
 if __name__ == "__main__":
     exit(cli_main()) 
