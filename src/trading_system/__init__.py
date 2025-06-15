@@ -53,7 +53,7 @@ from .engines import (
 )
 
 from .core.signal_extractor import LiveSignalExtractor, SignalExtractorStrategy, TradingSignal, SignalType
-from .utils.config import load_config, DataConfig, TradingConfig
+from .utils.system_config import load_config, DataConfig, TradingConfig
 
 # Broker Factory imports - unified broker interface
 try:

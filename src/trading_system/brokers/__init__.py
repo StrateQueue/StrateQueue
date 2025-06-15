@@ -10,7 +10,7 @@ Main Components:
 - BrokerFactory: Factory for creating brokers and detecting broker types
 """
 
-from .base import BaseBroker, BrokerConfig, BrokerInfo, AccountInfo, Position, OrderResult
+from .broker_base import BaseBroker, BrokerConfig, BrokerInfo, AccountInfo, Position, OrderResult
 from .broker_factory import BrokerFactory, detect_broker_type, get_supported_brokers, auto_create_broker, validate_broker_credentials
 
 

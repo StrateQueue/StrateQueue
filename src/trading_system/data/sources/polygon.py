@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
-from .base import BaseDataIngestion, MarketData
+from .data_source_base import BaseDataIngestion, MarketData
 
 logger = logging.getLogger(__name__)
 

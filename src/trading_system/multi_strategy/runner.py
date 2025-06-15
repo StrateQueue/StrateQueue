@@ -12,7 +12,7 @@ Main coordinator for multi-strategy trading that orchestrates:
 import logging
 from typing import Dict, List, Optional
 
-from .config import ConfigManager, StrategyConfig
+from .strategy_config import ConfigManager, StrategyConfig
 from .signal_coordinator import SignalCoordinator
 from .portfolio_integrator import PortfolioIntegrator
 from ..core.signal_extractor import TradingSignal

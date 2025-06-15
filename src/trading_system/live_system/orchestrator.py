@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict
 
-from ..utils.config import load_config
+from ..utils.system_config import load_config
 from ..core.signal_extractor import SignalType
 from ..core.strategy_loader import StrategyLoader
 from ..multi_strategy import MultiStrategyRunner
@@ -145,7 +145,7 @@ class LiveTradingSystem:
             # Try new broker factory first
             try:
                 from ..brokers import auto_create_broker, BrokerFactory
-                from ..brokers.base import BrokerConfig
+                from ..brokers.broker_base import BrokerConfig
                 
                 if self.broker_type:
                     # Use specified broker

@@ -19,7 +19,7 @@ from pathlib import Path
 from backtesting import Backtest, Strategy
 from backtesting.lib import crossover
 
-from .base import TradingEngine, EngineStrategy, EngineSignalExtractor, EngineInfo
+from .engine_base import TradingEngine, EngineStrategy, EngineSignalExtractor, EngineInfo
 from ..core.signal_extractor import TradingSignal, SignalType
 
 logger = logging.getLogger(__name__)

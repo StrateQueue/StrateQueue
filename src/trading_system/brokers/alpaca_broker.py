@@ -22,7 +22,7 @@ except ImportError:
     class APIError(Exception):
         pass
 
-from .base import BaseBroker, BrokerConfig, BrokerInfo, AccountInfo, Position, OrderResult, OrderType, OrderSide
+from .broker_base import BaseBroker, BrokerConfig, BrokerInfo, AccountInfo, Position, OrderResult, OrderType, OrderSide
 from ..core.signal_extractor import TradingSignal, SignalType
 
 # Define Alpaca-specific components inline since legacy code was removed

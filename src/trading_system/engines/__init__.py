@@ -11,7 +11,7 @@ Main Components:
 - EngineFactory: Factory for creating engines and detecting engine types
 """
 
-from .base import TradingEngine, EngineStrategy, EngineSignalExtractor
+from .engine_base import TradingEngine, EngineStrategy, EngineSignalExtractor
 from .engine_factory import EngineFactory, detect_engine_type, get_supported_engines, auto_create_engine, validate_strategy_compatibility
 from .backtesting_engine import BacktestingEngine
 

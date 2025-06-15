@@ -4,7 +4,7 @@ Utilities and configuration for trading system
 Contains configuration management, mocks, and other utility functions.
 """
 
-from .config import (
+from .system_config import (
     load_config,
     DataConfig,
     TradingConfig

@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from collections import defaultdict
 
-from .base import BaseDataIngestion, MarketData
+from .data_source_base import BaseDataIngestion, MarketData
 
 logger = logging.getLogger(__name__)
 

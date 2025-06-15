@@ -10,7 +10,7 @@ import os
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 
-from .sources.base import BaseDataIngestion, MarketData
+from .sources.data_source_base import BaseDataIngestion, MarketData
 from ..core.granularity import validate_granularity, GranularityParser
 
 # Load environment variables from .env file  

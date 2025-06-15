@@ -14,7 +14,7 @@ from typing import Dict, List, Tuple, Optional
 
 from ..core.strategy_loader import StrategyLoader
 from ..core.signal_extractor import LiveSignalExtractor, TradingSignal, SignalType
-from .config import StrategyConfig
+from .strategy_config import StrategyConfig
 
 logger = logging.getLogger(__name__)
 

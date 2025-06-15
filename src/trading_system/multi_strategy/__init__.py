@@ -16,7 +16,7 @@ Public API:
 """
 
 from .runner import MultiStrategyRunner
-from .config import StrategyConfig, ConfigManager
+from .strategy_config import StrategyConfig, ConfigManager
 from .signal_coordinator import SignalCoordinator
 from .portfolio_integrator import PortfolioIntegrator
 

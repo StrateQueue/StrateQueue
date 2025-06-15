@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional
 import os
 
-from .base import BaseDataIngestion, MarketData
+from .data_source_base import BaseDataIngestion, MarketData
 from ...core.granularity import TimeUnit
 
 logger = logging.getLogger(__name__)
