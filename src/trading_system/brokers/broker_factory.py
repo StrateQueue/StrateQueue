@@ -9,7 +9,7 @@ import logging
 from typing import Dict, List, Optional
 
 from .base import BaseBroker, BrokerConfig, BrokerInfo
-from .utils import detect_broker_from_environment, validate_broker_environment, get_broker_config_from_env, get_alpaca_config_from_env
+from .broker_helpers import detect_broker_from_environment, validate_broker_environment, get_broker_config_from_env, get_alpaca_config_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +98,7 @@ class BrokerFactory:
         # For Alpaca, get credentials appropriate for the trading mode
         if broker_type == 'alpaca' and not config.credentials:
             try:
-                from .utils import get_alpaca_config_from_env
+                from .broker_helpers import get_alpaca_config_from_env
                 alpaca_config = get_alpaca_config_from_env(config.paper_trading)
                 config.credentials = alpaca_config
             except Exception as e:

@@ -8,7 +8,7 @@ a strategy file is designed for.
 import logging
 from typing import Dict, List, Optional
 from .base import TradingEngine
-from .utils import analyze_strategy_file, detect_engine_from_analysis
+from .engine_helpers import analyze_strategy_file, detect_engine_from_analysis
 
 logger = logging.getLogger(__name__)
 

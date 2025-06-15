@@ -133,7 +133,7 @@ class InfoFormatter(BaseFormatter):
             
             # Try to get actual broker status
             try:
-                from ...brokers.utils import get_broker_environment_status
+                from ...brokers.broker_helpers import get_broker_environment_status
                 status = get_broker_environment_status()
                 
                 for broker, broker_info in status.items():
@@ -189,7 +189,7 @@ class InfoFormatter(BaseFormatter):
         output.append("=" * 50)
         
         try:
-            from ...brokers.utils import get_setup_instructions
+            from ...brokers.broker_helpers import get_setup_instructions
             
             if broker_type and broker_type != 'all':
                 instructions = get_setup_instructions(broker_type)
