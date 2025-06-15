@@ -13,7 +13,7 @@ import importlib.util
 import inspect
 import re
 import logging
-from typing import Type, Optional, Dict, Any
+from typing import Type, Dict, Any
 from pathlib import Path
 
 from backtesting import Backtest, Strategy
@@ -62,9 +62,6 @@ class BacktestingEngineStrategy(EngineStrategy):
         return params
 
 
-
-
-
 class BacktestingSignalExtractor(EngineSignalExtractor):
     """Signal extractor for backtesting.py strategies"""
     
@@ -74,11 +71,13 @@ class BacktestingSignalExtractor(EngineSignalExtractor):
         self.strategy_params = strategy_params
         self.min_bars_required = min_bars_required
         
-        # Create the signal-extracting version of the strategy
-        self.signal_strategy_class = StrategyLoader.convert_to_signal_strategy(engine_strategy.strategy_class)
+        # Convert original strategy to signal extractor
+        self.signal_strategy_class = StrategyLoader.convert_to_signal_strategy(
+            engine_strategy.strategy_class
+        )
         
     def extract_signal(self, historical_data: pd.DataFrame) -> TradingSignal:
-        """Extract trading signal from historical data"""
+        """Extract trading signal from historical data using full backtest approach"""
         try:
             # Ensure we have enough data
             if len(historical_data) < self.min_bars_required:
@@ -99,28 +98,8 @@ class BacktestingSignalExtractor(EngineSignalExtractor):
             
             data = historical_data[required_columns].copy()
             
-            # Create a backtest instance but don't run full backtest
-            bt = Backtest(data, self.signal_strategy_class, 
-                         cash=10000,  # Dummy cash amount
-                         commission=0.0,  # No commission for signal extraction
-                         **self.strategy_params)
-            
-            # Run the backtest to initialize strategy and process all historical data
-            results = bt.run()
-            
-            # Extract the strategy instance to get the current signal
-            strategy_instance = results._strategy
-            
-            # Get the current signal
-            current_signal = strategy_instance.get_current_signal()
-            
-            self.last_signal = current_signal
-            
-            logger.debug(f"Extracted signal: {current_signal.signal.value} "
-                        f"(confidence: {current_signal.confidence:.2f}) "
-                        f"at price: ${current_signal.price:.2f}")
-            
-            return current_signal
+            # Use the reliable full backtest approach
+            return self._extract_signal_legacy(data)
             
         except Exception as e:
             logger.error(f"Error extracting signal: {e}")
@@ -138,7 +117,27 @@ class BacktestingSignalExtractor(EngineSignalExtractor):
         """Get minimum number of bars needed for signal extraction"""
         return max(self.min_bars_required, self.engine_strategy.get_lookback_period())
     
-
+    def _extract_signal_legacy(self, data: pd.DataFrame) -> TradingSignal:
+        """Legacy signal extraction method (full backtest each time)"""
+        # Create a backtest instance and run full backtest
+        bt = Backtest(data, self.signal_strategy_class, 
+                     cash=10000,  # Dummy cash amount
+                     commission=0.0)  # No commission for signal extraction
+        
+        # Run the backtest to initialize strategy and process all historical data
+        results = bt.run()
+        
+        # Extract the strategy instance to get the current signal
+        strategy_instance = results._strategy
+        
+        # Get the current signal
+        current_signal = strategy_instance.get_current_signal()
+        
+        logger.debug(f"Extracted signal: {current_signal.signal.value} "
+                    f"(confidence: {current_signal.confidence:.2f}) "
+                    f"at price: ${current_signal.price:.2f}")
+        
+        return current_signal
 
 
 class BacktestingEngine(TradingEngine):
@@ -201,12 +200,15 @@ class BacktestingEngine(TradingEngine):
     
     def create_signal_extractor(self, engine_strategy: BacktestingEngineStrategy, 
                               **kwargs) -> BacktestingSignalExtractor:
-        """Create a signal extractor for backtesting.py strategy"""
+        """Create a signal extractor for the given strategy"""
         return BacktestingSignalExtractor(engine_strategy, **kwargs)
     
     def validate_strategy_file(self, strategy_path: str) -> bool:
-        """Check if strategy file is compatible with backtesting.py"""
-        from .engine_helpers import validate_strategy_file_for_engine
-        return validate_strategy_file_for_engine(strategy_path, "backtesting")
-    
+        """Validate that a strategy file is compatible with this engine"""
+        try:
+            self.load_strategy_from_file(strategy_path)
+            return True
+        except Exception as e:
+            logger.error(f"Strategy validation failed: {e}")
+            return False
  
