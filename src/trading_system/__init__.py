@@ -39,9 +39,12 @@ from .data import (
     DataProviderFactory, DataProviderConfig, DataProviderInfo,
     detect_provider_type, auto_create_provider, get_supported_providers,
     validate_provider_credentials, list_provider_features,
-    setup_data_ingestion, create_data_source, BaseDataIngestion,
+    setup_data_ingestion, BaseDataIngestion,
     PolygonDataIngestion, CoinMarketCapDataIngestion, TestDataIngestion, MarketData
 )
+
+# Import create_data_source from provider factory for backward compatibility
+from .data.provider_factory import create_data_source
 
 # Engine Factory imports - standardized engine interface
 from .engines import (

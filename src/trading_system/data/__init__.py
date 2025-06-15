@@ -14,13 +14,13 @@ from .provider_factory import (
     auto_create_provider,
     get_supported_providers,
     validate_provider_credentials,
-    list_provider_features,
-    create_data_source
+    list_provider_features
 )
 
-# Import utilities
+# Import backward compatibility functions
 from .ingestion import (
     setup_data_ingestion, 
+    IngestionInit,
     MinimalSignalGenerator
 )
 
@@ -42,10 +42,10 @@ __all__ = [
     "get_supported_providers",
     "validate_provider_credentials",
     "list_provider_features",
-    "create_data_source",
     
-    # Utilities
+    # Backward compatibility functions
     "setup_data_ingestion",
+    "IngestionInit",
     "MinimalSignalGenerator",
     
     # Base classes and data structures

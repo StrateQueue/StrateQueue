@@ -10,6 +10,7 @@ import time
 import logging
 from typing import Dict, Optional, List
 from collections import defaultdict
+from enum import Enum, auto
 
 from .sources import (
     BaseDataIngestion, 
@@ -30,47 +31,70 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+class IngestionInit(Enum):
+    """Initialization modes for data ingestion setup"""
+    FULL = auto()       # build object, start real-time feed, subscribe, fetch history
+    ONLINE = auto()     # build + start feed + subscribe, caller will fetch history later  
+    CONSTRUCT = auto()  # only build object, caller does the rest
+
+
 def setup_data_ingestion(data_source: str, symbols: List[str], days_back: int = 30,
-                        api_key: Optional[str] = None, granularity: str = "1m") -> BaseDataIngestion:
+                        api_key: Optional[str] = None, granularity: str = "1m",
+                        mode: IngestionInit = IngestionInit.FULL) -> BaseDataIngestion:
     """
-    Set up and initialize a data ingestion source with historical data
+    Set up and initialize a data ingestion source with configurable initialization
     
     Args:
         data_source: Type of data source ('polygon', 'coinmarketcap', 'demo')
         symbols: List of symbols to fetch data for
-        days_back: Number of days of historical data to fetch
+        days_back: Number of days of historical data to fetch (only used in FULL mode)
         api_key: API key for external data sources
         granularity: Data granularity (e.g., '1s', '1m', '5m', '1h', '1d')
+        mode: Initialization mode:
+            - FULL: Complete setup with historical data (default, backward compatible)
+            - ONLINE: Setup real-time feed but skip historical data fetch
+            - CONSTRUCT: Only create the data source object, no additional setup
         
     Returns:
-        Configured and initialized data ingestion instance
+        Configured data ingestion instance
     """
     
     # Create data source using the factory
     data_ingestion = create_data_source(data_source, api_key, granularity)
     
-    # Fetch historical data for all symbols
-    async def fetch_all_historical():
-        tasks = []
-        for symbol in symbols:
-            task = data_ingestion.fetch_historical_data(symbol, days_back, granularity)
-            tasks.append(task)
+    # Start real-time feed and subscribe to symbols for FULL and ONLINE modes
+    if mode in (IngestionInit.FULL, IngestionInit.ONLINE):
+        data_ingestion.start_realtime_feed()
         
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # For live data sources, subscribe to symbols
+        if data_source != "demo":
+            for symbol in symbols:
+                data_ingestion.subscribe_to_symbol(symbol)
+    
+    # Fetch historical data only for FULL mode
+    if mode == IngestionInit.FULL:
+        # Fetch historical data for all symbols
+        async def fetch_all_historical():
+            tasks = []
+            for symbol in symbols:
+                task = data_ingestion.fetch_historical_data(symbol, days_back, granularity)
+                tasks.append(task)
+            
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            for symbol, result in zip(symbols, results):
+                if isinstance(result, Exception):
+                    logger.error(f"Failed to fetch historical data for {symbol}: {result}")
+                else:
+                    logger.info(f"Successfully fetched {len(result)} bars for {symbol}")
         
-        for symbol, result in zip(symbols, results):
-            if isinstance(result, Exception):
-                logger.error(f"Failed to fetch historical data for {symbol}: {result}")
-            else:
-                logger.info(f"Successfully fetched {len(result)} bars for {symbol}")
+        # Run the historical data fetching
+        try:
+            asyncio.run(fetch_all_historical())
+        except Exception as e:
+            logger.error(f"Error during historical data setup: {e}")
     
-    # Run the historical data fetching
-    try:
-        asyncio.run(fetch_all_historical())
-    except Exception as e:
-        logger.error(f"Error during historical data setup: {e}")
-    
-    logger.info(f"Data ingestion setup complete for {data_source} with granularity {granularity}")
+    logger.info(f"Data ingestion setup complete for {data_source} with granularity {granularity} (mode: {mode.name})")
     return data_ingestion
 
 
@@ -121,7 +145,7 @@ def demo_test_data_ingestion():
         data_source="demo",
         symbols=['AAPL', 'MSFT', 'TSLA'],
         days_back=5,
-        granularity="minute"
+        granularity="1m"
     )
     
     # Setup signal generator
@@ -136,7 +160,7 @@ def demo_test_data_ingestion():
         historical_data = asyncio.run(data_ingestion.fetch_historical_data(
             symbol, 
             days_back=5,  # Shorter for demo
-            timespan="minute"
+            granularity="1m"
         ))
         print(f"Generated {len(historical_data)} historical bars for {symbol}")
         if len(historical_data) > 0:

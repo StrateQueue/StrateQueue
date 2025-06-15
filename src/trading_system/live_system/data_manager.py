@@ -13,7 +13,7 @@ import logging
 import pandas as pd
 from datetime import datetime
 from typing import Dict, List
-from ..data.provider_factory import create_data_source
+from ..data.ingestion import setup_data_ingestion, IngestionInit
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +39,8 @@ class DataManager:
         self.cumulative_data = {}
         self.data_ingester = None
         
-    def setup_data_ingestion(self):
-        """Setup data ingestion based on data source"""
+    def initialize_data_source(self):
+        """Initialize data ingestion source with real-time feed setup"""
         import os
         
         # Get API key if needed
@@ -50,13 +50,15 @@ class DataManager:
         elif self.data_source == "coinmarketcap":
             api_key = os.getenv('CMC_API_KEY')
         
-        # Create data source with granularity support
-        self.data_ingester = create_data_source(self.data_source, api_key, self.granularity)
-        
-        # For live data, start real-time feed and subscribe to symbols
-        if self.data_source != "demo":
-            for symbol in self.symbols:
-                self.data_ingester.subscribe_to_symbol(symbol)
+        # Use the public helper with ONLINE mode (real-time feed + subscribe, no historical)
+        self.data_ingester = setup_data_ingestion(
+            data_source=self.data_source,
+            symbols=self.symbols,
+            days_back=max(5, self.lookback_period // 100),  # Not used in ONLINE mode
+            api_key=api_key,
+            granularity=self.granularity,
+            mode=IngestionInit.ONLINE
+        )
                 
         return self.data_ingester
     

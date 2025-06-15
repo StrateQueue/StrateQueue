@@ -84,7 +84,7 @@ class LiveTradingSystem:
         self.display_manager = DisplayManager(self.is_multi_strategy, self.statistics_manager)
         
         # Initialize data ingestion
-        self.data_ingester = self.data_manager.setup_data_ingestion()
+        self.data_ingester = self.data_manager.initialize_data_source()
         
         # Initialize broker executor if trading is enabled
         self.broker_executor = self._initialize_trading()
