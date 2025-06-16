@@ -8,6 +8,12 @@ This replaces the monolithic cli.py with a clean, modular approach.
 import argparse
 import sys
 from typing import List, Optional
+from pathlib import Path
+
+# Load environment variables from .env file and user credentials
+from dotenv import load_dotenv
+load_dotenv()  # Load from current directory
+load_dotenv(Path.home() / ".stratequeue" / "credentials.env")  # Load user credentials
 
 from .command_factory import CommandFactory, get_supported_commands, create_command
 from .utils import setup_logging, get_cli_logger
@@ -34,7 +40,7 @@ def create_main_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog='stratequeue',
         description=format_help_header(),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         epilog=create_enhanced_help_epilog(supported_commands)
     )
     
@@ -55,7 +61,7 @@ def create_main_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(
         dest='command',
         help=argparse.SUPPRESS,  # Hide the auto-generated command list
-        metavar='COMMAND'
+        metavar=''  # Remove "{command} ..." footer
     )
     
     # Register command parsers

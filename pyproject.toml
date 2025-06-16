@@ -43,9 +43,14 @@ dependencies = [
     "websocket-client>=1.6.0",
     "python-dotenv>=1.0.0",
     "alpaca-trade-api>=3.0.0",
+    "questionary>=1.10.0",
 ]
 
 [project.optional-dependencies]
+# Interactive CLI setup (included in main dependencies)
+interactive = [
+    "questionary>=1.10.0",
+]
 # Backtesting support
 backtesting = [
     "backtesting>=0.3.3",
@@ -84,6 +89,7 @@ all = [
     "redis>=4.6.0",
     "prometheus-client>=0.17.0",
     "structlog>=23.1.0",
+    "questionary>=1.10.0",
 ]
 
 [project.urls]

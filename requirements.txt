@@ -20,7 +20,10 @@ uvicorn[standard]>=0.24.0
 
 # Trading and backtesting
 backtesting>=0.3.3
-# alpaca-trade-api>=3.0.0  # Optional - install as needed
+alpaca-trade-api>=3.0.0     # Broker support (Alpaca)
+
+# Interactive CLI widgets
+questionary>=1.10.0          # interactive CLI widgets
 
 # Optional: Database support for production
 # psycopg2-binary>=2.9.7  # PostgreSQL

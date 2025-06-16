@@ -6,14 +6,27 @@ This refactors the existing AlpacaExecutor to fit the new broker factory pattern
 """
 
 import logging
+import os
+import sys
 from typing import Dict, Optional, List, Any
 from datetime import datetime
 
 try:
+    # Filter out the bin directory from sys.path during import to avoid conflicts
+    # This prevents conflicts with unrelated alpaca.py files in system bin directories
+    original_path = sys.path[:]
+    sys.path = [p for p in sys.path if '/bin' not in p]
+    
     from alpaca.trading.client import TradingClient
     from alpaca.common.exceptions import APIError
+    
+    # Restore original path
+    sys.path = original_path
+    
     ALPACA_AVAILABLE = True
-except ImportError:
+except ImportError as e:
+    # Restore original path in case of error
+    sys.path = original_path if 'original_path' in locals() else sys.path
     ALPACA_AVAILABLE = False
     # Create dummy classes for graceful fallback
     class TradingClient:

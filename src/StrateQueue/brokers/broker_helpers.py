@@ -13,25 +13,36 @@ logger = logging.getLogger(__name__)
 
 def detect_broker_from_environment() -> Optional[str]:
     """
-    Detect broker type from environment variables
+    Detect which broker to use based on environment variables
     
     Returns:
-        Broker type string or None if no broker detected
+        Broker type name ('alpaca', 'interactive_brokers', etc.) or None if no broker detected
     """
-    # Check for Alpaca credentials
-    if (os.getenv('ALPACA_API_KEY') or os.getenv('PAPER_KEY')) and \
-       (os.getenv('ALPACA_SECRET_KEY') or os.getenv('PAPER_SECRET')):
+    
+    # Check for Alpaca credentials (support multiple environment variable names)
+    paper_key = (
+        os.getenv('PAPER_KEY') or
+        os.getenv('PAPER_API_KEY') or
+        os.getenv('ALPACA_API_KEY')
+    )
+    paper_secret = (
+        os.getenv('PAPER_SECRET') or
+        os.getenv('PAPER_SECRET_KEY') or
+        os.getenv('ALPACA_SECRET_KEY')
+    )
+    live_key = os.getenv('ALPACA_API_KEY')
+    live_secret = os.getenv('ALPACA_SECRET_KEY')
+    
+    if (paper_key and paper_secret) or (live_key and live_secret):
         return 'alpaca'
     
-    # Check for Interactive Brokers
+    # Check for Interactive Brokers credentials
     if os.getenv('IB_TWS_PORT') or os.getenv('IB_CLIENT_ID'):
         return 'interactive_brokers'
     
-    # Check for TD Ameritrade
+    # Check for TD Ameritrade credentials
     if os.getenv('TD_CLIENT_ID') or os.getenv('TD_REFRESH_TOKEN'):
         return 'td_ameritrade'
-    
-    # Check for other brokers...
     
     return None
 
@@ -45,9 +56,21 @@ def detect_all_brokers_from_environment() -> List[str]:
     """
     detected_brokers = []
     
-    # Check for Alpaca credentials
-    if (os.getenv('ALPACA_API_KEY') or os.getenv('PAPER_KEY')) and \
-       (os.getenv('ALPACA_SECRET_KEY') or os.getenv('PAPER_SECRET')):
+    # Check for Alpaca credentials (support multiple environment variable names)
+    paper_key = (
+        os.getenv('PAPER_KEY') or
+        os.getenv('PAPER_API_KEY') or
+        os.getenv('ALPACA_API_KEY')
+    )
+    paper_secret = (
+        os.getenv('PAPER_SECRET') or
+        os.getenv('PAPER_SECRET_KEY') or
+        os.getenv('ALPACA_SECRET_KEY')
+    )
+    live_key = os.getenv('ALPACA_API_KEY')
+    live_secret = os.getenv('ALPACA_SECRET_KEY')
+    
+    if (paper_key and paper_secret) or (live_key and live_secret):
         detected_brokers.append('alpaca')
     
     # Check for Interactive Brokers
@@ -73,9 +96,24 @@ def get_alpaca_config_from_env(paper_trading: bool = None) -> Dict[str, Any]:
     """
     config = {}
     
+    # Normalize environment variable spelling (support common variations)
+    paper_key = (
+        os.getenv("PAPER_KEY") or
+        os.getenv("PAPER_API_KEY") or           # common variation
+        os.getenv("ALPACA_API_KEY")             # fallback
+    )
+    paper_secret = (
+        os.getenv("PAPER_SECRET") or
+        os.getenv("PAPER_SECRET_KEY") or        # user typo we saw in issue
+        os.getenv("ALPACA_SECRET_KEY")          # fallback
+    )
+    
+    live_key = os.getenv("ALPACA_API_KEY")
+    live_secret = os.getenv("ALPACA_SECRET_KEY")
+    
     # Check what credentials are available
-    has_paper_creds = bool(os.getenv('PAPER_KEY') and os.getenv('PAPER_SECRET'))
-    has_live_creds = bool(os.getenv('ALPACA_API_KEY') and os.getenv('ALPACA_SECRET_KEY'))
+    has_paper_creds = bool(paper_key and paper_secret)
+    has_live_creds = bool(live_key and live_secret)
     
     # Determine trading mode
     if paper_trading is None:
@@ -91,8 +129,8 @@ def get_alpaca_config_from_env(paper_trading: bool = None) -> Dict[str, Any]:
     # Select appropriate credentials
     if paper_trading:
         if has_paper_creds:
-            config['api_key'] = os.getenv('PAPER_KEY')
-            config['secret_key'] = os.getenv('PAPER_SECRET')
+            config['api_key'] = paper_key
+            config['secret_key'] = paper_secret
             config['base_url'] = os.getenv('PAPER_ENDPOINT', 'https://paper-api.alpaca.markets')
         else:
             # Fall back to live credentials for paper trading if no paper creds
