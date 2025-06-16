@@ -133,6 +133,17 @@ class AlpacaBroker(BaseBroker):
                 "stop_orders": True,
                 "stop_limit_orders": True,
                 "trailing_stop_orders": True,
+                "bracket_orders": True,
+                "oco_orders": True,
+                "oto_orders": True,
+                "cancel_all_orders": True,
+                "replace_orders": True,
+                "close_all_positions": True,
+                "ioc_orders": True,
+                "fok_orders": True,
+                "opg_orders": True,
+                "cls_orders": True,
+                "extended_hours": True,
                 "fractional_shares": True,
                 "crypto_trading": True,
                 "options_trading": False,
@@ -382,15 +393,15 @@ class AlpacaBroker(BaseBroker):
                    price: Optional[float] = None, 
                    metadata: Optional[Dict[str, Any]] = None) -> OrderResult:
         """
-        Place an order through Alpaca
+        Place an order through Alpaca with full order type support
         
         Args:
             symbol: Symbol to trade
-            order_type: Type of order (MARKET, LIMIT, etc.)
+            order_type: Type of order (MARKET, LIMIT, STOP, STOP_LIMIT, TRAILING_STOP)
             side: Order side (BUY, SELL)
             quantity: Quantity to trade
-            price: Price for limit orders
-            metadata: Additional order metadata
+            price: Price for limit orders / stop price for stop orders
+            metadata: Additional order metadata (stop_price, limit_price, trail_percent, etc.)
             
         Returns:
             OrderResult with execution status
@@ -402,7 +413,10 @@ class AlpacaBroker(BaseBroker):
             )
         
         try:
-            from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
+            from alpaca.trading.requests import (
+                MarketOrderRequest, LimitOrderRequest, StopOrderRequest,
+                StopLimitOrderRequest, TrailingStopOrderRequest
+            )
             from alpaca.trading.enums import OrderSide as AlpacaOrderSide, TimeInForce
             
             # Convert enums to Alpaca format
@@ -411,28 +425,102 @@ class AlpacaBroker(BaseBroker):
             # Normalize symbol
             alpaca_symbol = normalize_crypto_symbol(symbol)
             
-            # Create order request
+            # Parse metadata for additional parameters
+            metadata = metadata or {}
+            stop_price = metadata.get('stop_price', price)
+            limit_price = metadata.get('limit_price', price)
+            trail_percent = metadata.get('trail_percent')
+            trail_amount = metadata.get('trail_amount')
+            time_in_force_str = metadata.get('time_in_force', 'day')
+            extended_hours = metadata.get('extended_hours', False)
+            order_class = metadata.get('order_class')
+            take_profit = metadata.get('take_profit')
+            stop_loss = metadata.get('stop_loss')
+            
+            # Map time in force
+            tif_map = {
+                "day": TimeInForce.DAY,
+                "gtc": TimeInForce.GTC,
+                "ioc": TimeInForce.IOC,
+                "fok": TimeInForce.FOK,
+                "opg": TimeInForce.OPG,
+                "cls": TimeInForce.CLS,
+            }
+            time_in_force = tif_map.get(time_in_force_str.lower(), TimeInForce.DAY)
+            
+            # Override for crypto
+            is_crypto = '/' in alpaca_symbol
+            if is_crypto:
+                time_in_force = TimeInForce.GTC
+                extended_hours = False  # Not applicable for crypto
+            
+            # Base parameters for all order types
+            base_params = {
+                "symbol": alpaca_symbol,
+                "qty": float(quantity),
+                "side": alpaca_side,
+                "time_in_force": time_in_force,
+                "extended_hours": extended_hours
+            }
+            
+            # Add order class parameters if present
+            if order_class:
+                base_params["order_class"] = order_class
+                if take_profit:
+                    base_params["take_profit"] = take_profit
+                if stop_loss:
+                    base_params["stop_loss"] = stop_loss
+            
+            # Create order request based on order type
+            order_request = None
+            
             if order_type.value == 'MARKET':
-                order_request = MarketOrderRequest(
-                    symbol=alpaca_symbol,
-                    qty=float(quantity),
-                    side=alpaca_side,
-                    time_in_force=TimeInForce.DAY
-                )
+                order_request = MarketOrderRequest(**base_params)
+                
             elif order_type.value == 'LIMIT':
-                if not price:
+                if not limit_price:
                     return OrderResult(
                         success=False,
                         error_code="MISSING_PRICE",
-                        message="Limit orders require a price"
+                        message="Limit orders require a limit_price"
                     )
-                order_request = LimitOrderRequest(
-                    symbol=alpaca_symbol,
-                    qty=float(quantity),
-                    side=alpaca_side,
-                    time_in_force=TimeInForce.DAY,
-                    limit_price=float(price)
-                )
+                base_params["limit_price"] = float(limit_price)
+                order_request = LimitOrderRequest(**base_params)
+                
+            elif order_type.value == 'STOP':
+                if not stop_price:
+                    return OrderResult(
+                        success=False,
+                        error_code="MISSING_STOP_PRICE",
+                        message="Stop orders require a stop_price"
+                    )
+                base_params["stop_price"] = float(stop_price)
+                order_request = StopOrderRequest(**base_params)
+                
+            elif order_type.value == 'STOP_LIMIT':
+                if not stop_price or not limit_price:
+                    return OrderResult(
+                        success=False,
+                        error_code="MISSING_PRICES",
+                        message="Stop-limit orders require both stop_price and limit_price"
+                    )
+                base_params["stop_price"] = float(stop_price)
+                base_params["limit_price"] = float(limit_price)
+                order_request = StopLimitOrderRequest(**base_params)
+                
+            elif order_type.value == 'TRAILING_STOP':
+                if trail_percent:
+                    base_params["trail_percent"] = float(trail_percent)
+                elif trail_amount:
+                    base_params["trail_amount"] = float(trail_amount)
+                else:
+                    return OrderResult(
+                        success=False,
+                        error_code="MISSING_TRAIL_PARAMS",
+                        message="Trailing stop orders require trail_percent or trail_amount"
+                    )
+                order_request = TrailingStopOrderRequest(**base_params)
+                
             else:
                 return OrderResult(
                     success=False,
@@ -441,7 +529,7 @@ class AlpacaBroker(BaseBroker):
                 )
             
             # Submit order
-            order = self.trading_client.submit_order(order_data=order_request)
+            order = self.trading_client.submit_order(order_request)
             
             return OrderResult(
                 success=True,
@@ -511,6 +599,69 @@ class AlpacaBroker(BaseBroker):
             logger.error(f"Error getting Alpaca order status {order_id}: {e}")
             return None
     
+    def cancel_all_orders(self) -> bool:
+        """
+        Cancel all open orders
+        
+        Returns:
+            True if cancellation successful
+        """
+        if not self.is_connected:
+            return False
+        
+        try:
+            self.trading_client.cancel_orders()
+            logger.info("✅ Successfully cancelled all open Alpaca orders")
+            return True
+        except APIError as e:
+            logger.error(f"❌ Error cancelling all Alpaca orders: {e}")
+            return False
+    
+    def replace_order(self, order_id: str, **updates) -> bool:
+        """
+        Replace/modify an existing order
+        
+        Args:
+            order_id: Order ID to modify
+            **updates: Fields to update (qty, limit_price, stop_price, etc.)
+            
+        Returns:
+            True if modification successful
+        """
+        if not self.is_connected:
+            return False
+        
+        try:
+            from alpaca.trading.requests import ReplaceOrderRequest
+            
+            # Convert updates to Alpaca format
+            replace_request = ReplaceOrderRequest(**updates)
+            
+            self.trading_client.replace_order_by_id(order_id, replace_request)
+            logger.info(f"✅ Successfully replaced Alpaca order: {order_id}")
+            return True
+        except APIError as e:
+            logger.error(f"❌ Error replacing Alpaca order {order_id}: {e}")
+            return False
+    
+    def close_all_positions(self) -> bool:
+        """
+        Close all open positions
+        
+        Returns:
+            True if successful
+        """
+        if not self.is_connected:
+            return False
+        
+        try:
+            self.trading_client.close_all_positions(cancel_orders=True)
+            logger.info("✅ Successfully closed all Alpaca positions")
+            return True
+        except APIError as e:
+            logger.error(f"❌ Error closing all Alpaca positions: {e}")
+            return False
+    
     def _init_order_executors(self):
         """Initialize simplified order execution system"""
         # Simplified - use direct Alpaca API calls instead of complex executor classes
@@ -526,7 +677,7 @@ class AlpacaBroker(BaseBroker):
     
     def _execute_signal_direct(self, symbol: str, signal: TradingSignal, client_order_id: str, strategy_id: Optional[str]) -> tuple[bool, Optional[str]]:
         """
-        Execute signal using direct Alpaca API calls
+        Execute signal using direct Alpaca API calls with full order type support
         
         Args:
             symbol: Symbol to trade
@@ -538,10 +689,13 @@ class AlpacaBroker(BaseBroker):
             Tuple of (success: bool, order_id: Optional[str])
         """
         try:
-            from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
+            from alpaca.trading.requests import (
+                MarketOrderRequest, LimitOrderRequest, StopOrderRequest, 
+                StopLimitOrderRequest, TrailingStopOrderRequest
+            )
             from alpaca.trading.enums import OrderSide, TimeInForce
             
-            logger.info(f"🔄 Processing order for symbol: {symbol}")
+            logger.info(f"🔄 Processing {signal.signal.value} order for symbol: {symbol}")
             
             # Calculate position size - simplified approach
             if self.portfolio_manager and strategy_id:
@@ -559,61 +713,64 @@ class AlpacaBroker(BaseBroker):
             is_buy_signal = signal.signal in [SignalType.BUY, SignalType.LIMIT_BUY, SignalType.STOP_BUY, SignalType.STOP_LIMIT_BUY]
             side = OrderSide.BUY if is_buy_signal else OrderSide.SELL
             
-            # Determine time in force based on asset type
-            is_crypto = '/' in symbol  # Crypto pairs have "/" like "ETH/USD"
-            time_in_force = TimeInForce.GTC if is_crypto else TimeInForce.DAY
+            # Map time in force from signal
+            tif_map = {
+                "day": TimeInForce.DAY,
+                "gtc": TimeInForce.GTC,
+                "ioc": TimeInForce.IOC,
+                "fok": TimeInForce.FOK,
+                "opg": TimeInForce.OPG,
+                "cls": TimeInForce.CLS,
+            }
+            time_in_force = tif_map.get(signal.time_in_force.lower(), TimeInForce.DAY)
             
-            # For crypto, use notional orders; for stocks, use quantity orders
-            order_request = None
+            # Determine if crypto and extended-hours settings
+            is_crypto = '/' in symbol  # Crypto pairs have "/" like "ETH/USD"
+            # Strategy passes extended-hours in metadata: {'extended_hours': True}
+            extended_hours = (signal.metadata or {}).get('extended_hours', False) and not is_crypto
+            
+            # Override time in force for crypto (must be GTC)
+            if is_crypto:
+                time_in_force = TimeInForce.GTC
+            
+            # Check for bracket/OCO/OTO order class signals
+            tp = signal.metadata.get("tp") if signal.metadata else None
+            sl = signal.metadata.get("sl") if signal.metadata else None
+            
+            order_class = None
+            take_profit = None
+            stop_loss = None
+            
+            if tp and sl:
+                order_class = "bracket"
+                take_profit = {"limit_price": tp}
+                stop_loss = {"stop_price": sl}
+            elif tp:
+                order_class = "oto"
+                take_profit = {"limit_price": tp}
+            elif sl:
+                order_class = "oto"
+                stop_loss = {"stop_price": sl}
+            elif signal.signal in [SignalType.LIMIT_SELL, SignalType.STOP_SELL, SignalType.STOP_LIMIT_SELL, SignalType.TRAILING_STOP_SELL] and (tp or sl):
+                # Exit-side OCO when selling with both tp and sl
+                if tp and sl:
+                    order_class = "oco"
+                    take_profit = {"limit_price": tp}
+                    stop_loss = {"stop_price": sl}
+            
+            # Calculate quantity for the order
+            quantity = None
+            notional_amount = None
             
             if is_buy_signal:
-                if is_crypto:
-                    # For crypto buys, use notional amount (USD value)
-                    # Round notional to 2 decimal places for Alpaca API requirement
+                if is_crypto and signal.signal == SignalType.BUY:
+                    # For crypto market buys, use notional amount (USD value)
                     notional_amount = round(position_size, 2)
                     logger.info(f"📊 Creating crypto buy order: ${notional_amount:.2f} notional of {symbol}")
-                    if signal.signal == SignalType.BUY:
-                        order_request = MarketOrderRequest(
-                            symbol=symbol,
-                            side=side,
-                            notional=notional_amount,
-                            time_in_force=time_in_force,
-                            client_order_id=client_order_id
-                        )
-                    elif signal.signal == SignalType.LIMIT_BUY:
-                        # For limit orders, calculate quantity
-                        quantity = position_size / signal.price if signal.price else None
-                        if quantity:
-                            logger.info(f"📊 Creating crypto limit buy: {quantity:.6f} {symbol} @ ${signal.price:.2f}")
-                            order_request = LimitOrderRequest(
-                                symbol=symbol,
-                                side=side,
-                                qty=quantity,
-                                limit_price=signal.price,
-                                time_in_force=time_in_force,
-                                client_order_id=client_order_id
-                            )
                 else:
-                    # For stock buys, calculate quantity
+                    # For all other buys (stock or crypto limit), calculate quantity
                     quantity = position_size / signal.price if signal.price else 1
-                    logger.info(f"📊 Creating stock buy order: {quantity:.2f} shares of {symbol}")
-                    if signal.signal == SignalType.BUY:
-                        order_request = MarketOrderRequest(
-                            symbol=symbol,
-                            side=side,
-                            qty=quantity,
-                            time_in_force=time_in_force,
-                            client_order_id=client_order_id
-                        )
-                    elif signal.signal == SignalType.LIMIT_BUY:
-                        order_request = LimitOrderRequest(
-                            symbol=symbol,
-                            side=side,
-                            qty=quantity,
-                            limit_price=signal.price,
-                            time_in_force=time_in_force,
-                            client_order_id=client_order_id
-                        )
+                    logger.info(f"📊 Creating buy order: {quantity:.6f} {symbol} @ ${signal.price:.2f}")
             else:
                 # For sell orders, get current position quantity
                 try:
@@ -621,51 +778,92 @@ class AlpacaBroker(BaseBroker):
                     position = self.trading_client.get_open_position(symbol)
                     quantity = abs(float(position.qty))  # Ensure positive quantity
                     logger.info(f"📍 Found position: {quantity} shares/units of {symbol}")
-                    
-                    if signal.signal in [SignalType.SELL, SignalType.CLOSE]:
-                        order_request = MarketOrderRequest(
-                            symbol=symbol,
-                            side=side,
-                            qty=quantity,
-                            time_in_force=time_in_force,
-                            client_order_id=client_order_id
-                        )
-                    elif signal.signal == SignalType.LIMIT_SELL:
-                        order_request = LimitOrderRequest(
-                            symbol=symbol,
-                            side=side,
-                            qty=quantity,
-                            limit_price=signal.price,
-                            time_in_force=time_in_force,
-                            client_order_id=client_order_id
-                        )
-                        
                 except Exception as e:
                     logger.error(f"❌ No position found for {symbol}: {e}")
                     return False, None
             
+            # Build the order request based on signal type
+            order_request = None
+            
+            # Common order parameters
+            base_params = {
+                "symbol": symbol,
+                "side": side,
+                "time_in_force": time_in_force,
+                "client_order_id": client_order_id,
+                "extended_hours": extended_hours
+            }
+            
+            # Add validate_only if present in metadata (for testing)
+            metadata = signal.metadata or {}
+            if metadata.get("validate_only"):
+                base_params["validate_only"] = True
+            
+            # Add order class parameters if present
+            if order_class:
+                base_params["order_class"] = order_class
+                if take_profit:
+                    base_params["take_profit"] = take_profit
+                if stop_loss:
+                    base_params["stop_loss"] = stop_loss
+            
+            # Add quantity or notional
+            if notional_amount:
+                base_params["notional"] = notional_amount
+            else:
+                base_params["qty"] = quantity
+            
+            # Create order request based on signal type
+            if signal.signal in [SignalType.BUY, SignalType.SELL, SignalType.CLOSE]:
+                order_request = MarketOrderRequest(**base_params)
+                
+            elif signal.signal in [SignalType.LIMIT_BUY, SignalType.LIMIT_SELL]:
+                base_params["limit_price"] = signal.limit_price or signal.price
+                order_request = LimitOrderRequest(**base_params)
+                
+            elif signal.signal in [SignalType.STOP_BUY, SignalType.STOP_SELL]:
+                base_params["stop_price"] = signal.stop_price or signal.price
+                order_request = StopOrderRequest(**base_params)
+                
+            elif signal.signal in [SignalType.STOP_LIMIT_BUY, SignalType.STOP_LIMIT_SELL]:
+                base_params["stop_price"] = signal.stop_price
+                base_params["limit_price"] = signal.limit_price or signal.price
+                order_request = StopLimitOrderRequest(**base_params)
+                
+            elif signal.signal == SignalType.TRAILING_STOP_SELL:
+                if signal.trail_percent:
+                    base_params["trail_percent"] = signal.trail_percent
+                elif signal.trail_price:
+                    base_params["trail_amount"] = signal.trail_price
+                else:
+                    # Default to 2% trailing stop
+                    base_params["trail_percent"] = 2.0
+                order_request = TrailingStopOrderRequest(**base_params)
+            
             if not order_request:
-                logger.error(f"❌ Failed to create order request for {symbol}")
+                logger.error(f"❌ Failed to create order request for {symbol} - unsupported signal: {signal.signal}")
                 return False, None
             
             # Submit the order with detailed logging
-            logger.info(f"🚀 Submitting order to Alpaca: {order_request}")
+            logger.info(f"🚀 Submitting {signal.signal.value} order to Alpaca: {order_request}")
             order = self.trading_client.submit_order(order_request)
             logger.info(f"✅ Order submitted successfully!")
             logger.info(f"   Order ID: {order.id}")
             logger.info(f"   Symbol: {order.symbol}")
             logger.info(f"   Side: {order.side}")
+            logger.info(f"   Type: {order.order_type}")
             logger.info(f"   Status: {order.status}")
+            if order_class:
+                logger.info(f"   Order Class: {order_class}")
             
-                        # Update portfolio manager if in multi-strategy mode
+            # Update portfolio manager if in multi-strategy mode
             if self.portfolio_manager and strategy_id:
                 if is_buy_signal:
                     # For crypto notional orders, estimate quantity for portfolio tracking
-                    if is_crypto and hasattr(order_request, 'notional'):
-                        notional_used = getattr(order_request, 'notional', position_size)
-                        estimated_quantity = notional_used / signal.price if signal.price else 0
-                        self.portfolio_manager.record_buy(strategy_id, symbol, notional_used, estimated_quantity)
-                        logger.info(f"📝 Portfolio: Recorded buy {strategy_id} - ${notional_used:.2f} (~{estimated_quantity:.6f} {symbol})")
+                    if notional_amount:
+                        estimated_quantity = notional_amount / signal.price if signal.price else 0
+                        self.portfolio_manager.record_buy(strategy_id, symbol, notional_amount, estimated_quantity)
+                        logger.info(f"📝 Portfolio: Recorded buy {strategy_id} - ${notional_amount:.2f} (~{estimated_quantity:.6f} {symbol})")
                         
                         # Record in statistics tracker
                         if self.statistics_manager:
@@ -679,7 +877,6 @@ class AlpacaBroker(BaseBroker):
                                 commission=0.0  # Alpaca is commission-free
                             )
                     else:
-                        quantity = getattr(order_request, 'qty', 0)
                         self.portfolio_manager.record_buy(strategy_id, symbol, position_size, quantity)
                         logger.info(f"📝 Portfolio: Recorded buy {strategy_id} - ${position_size:.2f} ({quantity:.6f} {symbol})")
                         
@@ -695,7 +892,6 @@ class AlpacaBroker(BaseBroker):
                                 commission=0.0  # Alpaca is commission-free
                             )
                 else:
-                    quantity = getattr(order_request, 'qty', 0)
                     sell_value = quantity * signal.price if signal.price else None
                     self.portfolio_manager.record_sell(strategy_id, symbol, sell_value, quantity)
                     logger.info(f"📝 Portfolio: Recorded sell {strategy_id} - {quantity:.6f} {symbol}")

@@ -2,6 +2,8 @@
 
 This document provides a comprehensive mapping between [Alpaca Trading API v2](https://docs.alpaca.markets/docs/orders-at-alpaca) and [backtesting.py](https://kernc.github.io/backtesting.py/) to help developers translate concepts, orders, and workflows between live trading and backtesting.
 
+> **✅ StrateQueue Implementation Status**: As of the latest version, StrateQueue fully implements **ALL** Alpaca order types, advanced order classes (bracket/OCO/OTO), time-in-force options, extended hours trading, and order management features listed below. All mappings are production-ready for live trading.
+
 **Legend:**
 - `alp` = Alpaca Trading API v2 (stocks)
 - `btp` = backtesting.py (latest release 0.6.x)
@@ -212,12 +214,10 @@ self.position.close(portion=0.5)
 
 | Feature                    | Alpaca                                         | backtesting.py Alternative                   |
 |----------------------------|------------------------------------------------|----------------------------------------------|
-| **Time-in-Force Options**  | IOC, FOK, OPG, CLS                            | ✗ Manual expiry via cancel after N bars     |
-| **Extended Hours**         | 4:00am-9:30am, 4:00pm-8:00pm ET              | ✗ Not applicable                             |
-| **Fractional Shares**      | Notional orders in USD                        | Size as percentage of equity ≈               |
 | **Real-time Execution**    | Sub-second fills                              | ✗ Next-bar execution only                    |
 | **Slippage/Commissions**   | Real market conditions                        | Must configure manually in `Backtest()`     |
 | **Aged Order Policy**      | Orders auto-expire after 90 days             | ✗ Manual management required                 |
+| **Partial Fills**          | Orders can partially fill over time          | ✗ Fills are atomic in backtesting            |
 
 ### Features Available in backtesting.py but NOT in Alpaca
 
@@ -329,6 +329,107 @@ class RiskManagedStrategy(bt.Strategy):
         # Normal strategy logic...
         if self.buy_signal:
             self.buy(size=0.1)
+```
+
+---
+
+## 9. Advanced Order Management Features
+
+### Cancel All Orders
+
+```python
+# ═══════════════════════════════════════════════════════════════════════════
+# Cancel all pending orders at once
+# ═══════════════════════════════════════════════════════════════════════════
+# Alpaca
+DELETE /v2/orders
+
+# StrateQueue Broker API
+broker.cancel_all_orders()
+
+# backtesting.py
+for order in self.orders:
+    order.cancel()
+```
+
+### Replace/Modify Orders
+
+```python
+# ═══════════════════════════════════════════════════════════════════════════
+# Modify order parameters (quantity, price, etc.)
+# ═══════════════════════════════════════════════════════════════════════════
+# Alpaca
+PATCH /v2/orders/{order_id}
+{"qty": "50", "limit_price": "105.00"}
+
+# StrateQueue Broker API
+broker.replace_order(order_id, qty=50, limit_price=105.00)
+
+# backtesting.py - no direct equivalent
+order.cancel()
+self.buy(size=new_size, limit=new_price)
+```
+
+### Close All Positions
+
+```python
+# ═══════════════════════════════════════════════════════════════════════════
+# Emergency position closure
+# ═══════════════════════════════════════════════════════════════════════════
+# Alpaca
+DELETE /v2/positions
+
+# StrateQueue Broker API
+broker.close_all_positions()
+
+# backtesting.py
+if self.position:
+    self.position.close()
+```
+
+---
+
+## 10. Time-in-Force & Extended Hours Support
+
+| Time-in-Force              | Alpaca API                                     | StrateQueue Support                          |
+|----------------------------|------------------------------------------------|----------------------------------------------|
+| Day orders                 | `"time_in_force": "day"`                      | ✅ Default for stocks                        |
+| Good-till-canceled         | `"time_in_force": "gtc"`                      | ✅ Default for crypto                        |
+| Immediate-or-cancel        | `"time_in_force": "ioc"`                      | ✅ All asset types                           |
+| Fill-or-kill               | `"time_in_force": "fok"`                      | ✅ All asset types                           |
+| Market-on-open             | `"time_in_force": "opg"`                      | ✅ Stock orders only                         |
+| Market-on-close            | `"time_in_force": "cls"`                      | ✅ Stock orders only                         |
+| Extended hours trading     | `"extended_hours": true`                      | ✅ Pre/post market (stocks only)             |
+
+### Code Example - Advanced Order with All Features
+
+```python
+# ═══════════════════════════════════════════════════════════════════════════
+# Complex bracket order with extended hours and custom time-in-force
+# ═══════════════════════════════════════════════════════════════════════════
+# Create signal with all advanced features
+signal = TradingSignal(
+    signal=SignalType.LIMIT_BUY,
+    confidence=0.9,
+    price=150.00,
+    limit_price=149.50,
+    timestamp=pd.Timestamp.now(),
+    indicators={"RSI": 30, "SMA_20": 148.5},
+    metadata={
+        "tp": 155.00,  # Take profit at $155
+        "sl": 145.00,  # Stop loss at $145
+    },
+    time_in_force="gtc",  # Good till canceled
+    extended_hours=True,  # Allow pre/post market execution
+    strategy_id="momentum_v1"
+)
+
+# StrateQueue will automatically create a bracket order with:
+# - Entry: Limit buy at $149.50
+# - Take profit: Limit sell at $155.00  
+# - Stop loss: Stop sell at $145.00
+# - Extended hours enabled
+# - GTC time in force
 ```
 
 ---

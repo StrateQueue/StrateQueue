@@ -21,6 +21,7 @@ class OrderType(Enum):
     LIMIT = "LIMIT" 
     STOP = "STOP"
     STOP_LIMIT = "STOP_LIMIT"
+    TRAILING_STOP = "TRAILING_STOP"
 
 
 class OrderSide(Enum):
@@ -239,6 +240,40 @@ class BaseBroker(ABC):
             
         Returns:
             Order status dictionary or None if not found
+        """
+        pass
+    
+    @abstractmethod
+    def cancel_all_orders(self) -> bool:
+        """
+        Cancel all open orders
+        
+        Returns:
+            True if cancellation successful
+        """
+        pass
+    
+    @abstractmethod
+    def replace_order(self, order_id: str, **updates) -> bool:
+        """
+        Replace/modify an existing order
+        
+        Args:
+            order_id: Order ID to modify
+            **updates: Fields to update (qty, limit_price, stop_price, etc.)
+            
+        Returns:
+            True if modification successful
+        """
+        pass
+    
+    @abstractmethod
+    def close_all_positions(self) -> bool:
+        """
+        Close all open positions
+        
+        Returns:
+            True if successful
         """
         pass
     
