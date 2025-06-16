@@ -125,7 +125,7 @@ class WebuiCommand(BaseCommand):
         print("  pip3.10 install stratequeue[all]")
         print("")
         print("🏗️  Frontend setup (if missing):")
-        print("  cd src/trading_system/webui/frontend")
+        print("  cd src/StrateQueue/webui/frontend")
         print("  npm install")
         print("")
         print("💡 After installation, try again:")

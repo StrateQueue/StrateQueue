@@ -59,4 +59,4 @@ def get_cli_logger(name: str) -> logging.Logger:
     Returns:
         Configured logger instance
     """
-    return logging.getLogger(f"trading_system.cli.{name}") 
+    return logging.getLogger(f"StrateQueue.cli.{name}") 

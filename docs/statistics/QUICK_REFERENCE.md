@@ -4,7 +4,7 @@ This is a condensed reference for quickly adding new statistical trackers. For d
 
 ## TL;DR Checklist
 
-- [ ] Create `src/trading_system/statistics/your_tracker.py`
+- [ ] Create `src/StrateQueue/statistics/your_tracker.py`
 - [ ] Register in `StatisticsManager._initialize_trackers()`
 - [ ] Add import to `statistics_manager.py`
 - [ ] Export in `statistics/__init__.py`
@@ -14,7 +14,7 @@ This is a condensed reference for quickly adding new statistical trackers. For d
 ## Quick Template
 
 ```python
-# src/trading_system/statistics/your_tracker.py
+# src/StrateQueue/statistics/your_tracker.py
 from .base_tracker import BaseTracker, TradeEvent
 from typing import Dict, Any, Optional
 from collections import defaultdict
@@ -83,7 +83,7 @@ class YourTracker(BaseTracker):
 ### 1. StatisticsManager Registration
 
 ```python
-# In src/trading_system/statistics/statistics_manager.py
+# In src/StrateQueue/statistics/statistics_manager.py
 
 # Add import
 from .your_tracker import YourTracker
@@ -100,7 +100,7 @@ def get_your_stats(self, strategy_id: Optional[str] = None) -> Dict[str, Any]:
 ### 2. Module Exports
 
 ```python
-# In src/trading_system/statistics/__init__.py
+# In src/StrateQueue/statistics/__init__.py
 from .your_tracker import YourTracker
 
 __all__ = [
@@ -115,7 +115,7 @@ __all__ = [
 ### 3. Main Module Exports
 
 ```python
-# In src/trading_system/__init__.py
+# In src/StrateQueue/__init__.py
 from .statistics import StatisticsManager, PnLTracker, WinLossTracker, YourTracker, BaseTracker
 
 # In __all__ list
@@ -208,8 +208,8 @@ def _record_trade_outcome(self, strategy_id: str, pnl: float):
 ```python
 import unittest
 from datetime import datetime
-from src.trading_system.statistics.base_tracker import TradeEvent
-from src.trading_system.statistics.your_tracker import YourTracker
+from src.StrateQueue.statistics.base_tracker import TradeEvent
+from src.StrateQueue.statistics.your_tracker import YourTracker
 
 class TestYourTracker(unittest.TestCase):
     def setUp(self):
@@ -273,7 +273,7 @@ Your tracker will produce:
 ## File Locations Summary
 
 ```
-src/trading_system/statistics/
+src/StrateQueue/statistics/
 ├── base_tracker.py           # Abstract base class
 ├── statistics_manager.py     # Central coordinator  
 ├── pnl_tracker.py           # Example: P&L tracking

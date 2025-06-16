@@ -28,7 +28,7 @@ The Stratequeue trading system includes a flexible data provider factory that ma
 ### Basic Usage
 
 ```python
-from trading_system.data import (
+from StrateQueue.data import (
     DataProviderFactory, 
     DataProviderConfig,
     auto_create_provider,
@@ -84,7 +84,7 @@ python3 main.py --strategy sma.py --symbols AAPL --granularity 5m
 The system automatically detects available data providers:
 
 ```python
-from trading_system.data import (
+from StrateQueue.data import (
     detect_provider_type,
     get_supported_providers,
     validate_provider_credentials,
@@ -110,7 +110,7 @@ for provider_type, info in features.items():
 
 ### Step 1: Create Provider Implementation
 
-Create a new file `src/trading_system/data/sources/your_provider.py`:
+Create a new file `src/StrateQueue/data/sources/your_provider.py`:
 
 ```python
 """
@@ -146,7 +146,7 @@ class YourProviderDataIngestion(BaseDataIngestion):
         if self.session is None:
             headers = {
                 'Authorization': f'Bearer {self.api_key}',
-                'User-Agent': 'Stratequeue-Trading-System/1.0'
+                'User-Agent': 'StrateQueue/1.0'
             }
             self.session = aiohttp.ClientSession(headers=headers)
         return self.session
@@ -302,7 +302,7 @@ class YourProviderDataIngestion(BaseDataIngestion):
 
 ### Step 2: Register in Factory
 
-Add your provider to `src/trading_system/data/provider_factory.py`:
+Add your provider to `src/StrateQueue/data/provider_factory.py`:
 
 ```python
 # In DataProviderFactory._initialize_providers()
@@ -371,7 +371,7 @@ if os.getenv('YOUR_PROVIDER_API_KEY'):
 ### Custom Data Processing Pipeline
 
 ```python
-from trading_system.data import DataProviderFactory, DataProviderConfig
+from StrateQueue.data import DataProviderFactory, DataProviderConfig
 import pandas as pd
 import numpy as np
 

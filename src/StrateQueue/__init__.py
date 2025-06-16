@@ -22,13 +22,13 @@ Components:
 - CLI: Command-line interface
 
 Usage:
-    from trading_system import cli_main
+    from StrateQueue import cli_main
     
     # Single strategy mode
-    cli_main(['--strategy', 'sma.py', '--symbols', 'AAPL'])
+    cli_main(['--strategy', 'sma.py', '--symbol', 'AAPL'])
     
     # Multi-strategy mode
-    cli_main(['--strategies', 'strategies.txt', '--symbols', 'AAPL,MSFT'])
+    cli_main(['--strategy', 'strategy1.py,strategy2.py', '--symbol', 'AAPL,MSFT'])
 """
 
 __version__ = "0.0.1"
@@ -43,7 +43,6 @@ from .data import (
     PolygonDataIngestion, CoinMarketCapDataIngestion, TestDataIngestion, MarketData
 )
 
-# Import create_data_source from provider factory for backward compatibility
 from .data.provider_factory import create_data_source
 
 # Engine Factory imports - standardized engine interface

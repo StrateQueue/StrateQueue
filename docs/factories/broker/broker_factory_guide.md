@@ -27,7 +27,7 @@ The Stratequeue trading system includes a flexible broker factory that makes it 
 ### Basic Usage
 
 ```python
-from trading_system.brokers import BrokerFactory, auto_create_broker
+from StrateQueue.brokers import BrokerFactory, auto_create_broker
 
 # Create a specific broker
 broker = BrokerFactory.create_broker('alpaca')
@@ -71,7 +71,7 @@ python3 main.py --strategy sma.py --symbols AAPL --enable-trading
 The system automatically detects available brokers:
 
 ```python
-from trading_system.brokers import (
+from StrateQueue.brokers import (
     detect_broker_type, 
     get_supported_brokers,
     validate_broker_credentials
@@ -91,7 +91,7 @@ is_valid = validate_broker_credentials('alpaca')
 
 ### Step 1: Create Broker Implementation
 
-Create a new file `src/trading_system/brokers/your_broker.py`:
+Create a new file `src/StrateQueue/brokers/your_broker.py`:
 
 ```python
 """
@@ -249,7 +249,7 @@ def create_your_broker_from_env(portfolio_manager=None) -> YourBrokerExecutor:
 
 ### Step 2: Register with Factory
 
-Update `src/trading_system/brokers/broker_factory.py`:
+Update `src/StrateQueue/brokers/broker_factory.py`:
 
 ```python
 class BrokerFactory:
@@ -257,12 +257,12 @@ class BrokerFactory:
     
     _brokers = {
         'alpaca': {
-            'module': 'trading_system.brokers.alpaca_broker',
+            'module': 'StrateQueue.brokers.alpaca_broker',
             'class': 'AlpacaBroker',
             'create_func': 'create_alpaca_broker_from_env'
         },
         'your_broker': {  # Add your broker here
-            'module': 'trading_system.brokers.your_broker',
+            'module': 'StrateQueue.brokers.your_broker',
             'class': 'YourBrokerExecutor', 
             'create_func': 'create_your_broker_from_env'
         }
@@ -272,7 +272,7 @@ class BrokerFactory:
 
 ### Step 3: Add Environment Detection
 
-Update `src/trading_system/brokers/utils.py`:
+Update `src/StrateQueue/brokers/utils.py`:
 
 ```python
 def detect_broker_from_environment() -> Optional[str]:
@@ -303,7 +303,7 @@ def get_your_broker_config_from_env() -> Dict[str, Any]:
 
 ### Step 4: Add Broker Information
 
-Update `src/trading_system/brokers/__init__.py`:
+Update `src/StrateQueue/brokers/__init__.py`:
 
 ```python
 def list_broker_features() -> Dict[str, BrokerInfo]:
@@ -377,8 +377,8 @@ import pytest
 from unittest.mock import Mock, patch
 from decimal import Decimal
 
-from src.trading_system.brokers.your_broker import YourBrokerExecutor
-from src.trading_system.brokers.base import BrokerConfig, OrderType, OrderSide
+from src.StrateQueue.brokers.your_broker import YourBrokerExecutor
+from src.StrateQueue.brokers.base import BrokerConfig, OrderType, OrderSide
 
 
 class TestYourBroker:
@@ -430,7 +430,7 @@ class TestYourBroker:
 ```python
 def test_broker_factory_integration():
     """Test that your broker integrates properly with the factory"""
-    from trading_system.brokers import get_supported_brokers, BrokerFactory
+    from StrateQueue.brokers import get_supported_brokers, BrokerFactory
     
     # Check broker is supported
     supported = get_supported_brokers()
@@ -584,7 +584,7 @@ Enable debug logging to troubleshoot issues:
 
 ```python
 import logging
-logging.getLogger('trading_system.brokers').setLevel(logging.DEBUG)
+logging.getLogger('StrateQueue.brokers').setLevel(logging.DEBUG)
 ```
 
 ### Environment Validation

@@ -228,7 +228,7 @@ Create a test script to verify your engine works:
 ```python
 #!/usr/bin/env python3
 
-from trading_system.engines import (
+from StrateQueue.engines import (
     detect_engine_type, 
     EngineFactory,
     auto_create_engine

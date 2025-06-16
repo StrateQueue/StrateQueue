@@ -16,7 +16,7 @@ The trading system uses consistent factory patterns across all major sub-modules
 
 ### 1. Data Provider Factory
 
-**Location**: `src/trading_system/data/provider_factory.py`
+**Location**: `src/StrateQueue/data/provider_factory.py`
 **Advanced Documentation**: See [Data Provider Guide](data/data_provider_guide.md) and [Integration Examples](data/data_provider_examples.md)
 
 #### Classes
@@ -32,7 +32,7 @@ The trading system uses consistent factory patterns across all major sub-modules
 #### Usage Examples
 
 ```python
-from trading_system.data import (
+from StrateQueue.data import (
     DataProviderFactory, 
     DataProviderConfig,
     auto_create_provider,
@@ -68,7 +68,7 @@ print(f"Requires API Key: {info.requires_api_key}")
 
 ### 2. Broker Factory
 
-**Location**: `src/trading_system/brokers/broker_factory.py`
+**Location**: `src/StrateQueue/brokers/broker_factory.py`
 
 #### Classes
 - `BrokerFactory`: Main factory class
@@ -81,7 +81,7 @@ print(f"Requires API Key: {info.requires_api_key}")
 #### Usage Examples
 
 ```python
-from trading_system.brokers import (
+from StrateQueue.brokers import (
     BrokerFactory,
     BrokerConfig,
     auto_create_broker,
@@ -111,7 +111,7 @@ print(f"Paper Trading: {info.paper_trading}")
 
 ### 3. Engine Factory
 
-**Location**: `src/trading_system/engines/engine_factory.py`
+**Location**: `src/StrateQueue/engines/engine_factory.py`
 **Advanced Documentation**: See [Engine Factory Guide](engines/engine_factory_guide.md) and [Integration Examples](engines/engine_integration_examples.md)
 
 #### Classes
@@ -124,7 +124,7 @@ print(f"Paper Trading: {info.paper_trading}")
 #### Usage Examples
 
 ```python
-from trading_system.engines import (
+from StrateQueue.engines import (
     EngineFactory,
     auto_create_engine,
     detect_engine_type
@@ -183,11 +183,11 @@ The factory system maintains backward compatibility:
 
 ```python
 # Old API still works
-from trading_system.data.ingestion import create_data_source
+from StrateQueue.data.ingestion import create_data_source
 provider = create_data_source('demo', granularity='1m')
 
 # New factory API available
-from trading_system.data import DataProviderFactory
+from StrateQueue.data import DataProviderFactory
 provider = DataProviderFactory.create_provider('demo')
 ```
 
@@ -219,7 +219,7 @@ export ALPACA_PAPER_SECRET=your_paper_secret_here
 
 1. **Create Provider Class**:
    ```python
-   # src/trading_system/data/sources/new_provider.py
+   # src/StrateQueue/data/sources/new_provider.py
    class NewProviderDataIngestion(BaseDataIngestion):
        def __init__(self, api_key: str):
            super().__init__()

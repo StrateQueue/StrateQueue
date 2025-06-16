@@ -27,7 +27,7 @@ The Stratequeue trading system includes a flexible engine factory that makes it 
 ### Basic Usage
 
 ```python
-from trading_system.engines import (
+from StrateQueue.engines import (
     EngineFactory, 
     auto_create_engine,
     detect_engine_type,
@@ -75,7 +75,7 @@ python3 main.py --strategy sma.py --symbols AAPL --enable-trading
 The system automatically detects appropriate engines based on strategy characteristics:
 
 ```python
-from trading_system.engines import (
+from StrateQueue.engines import (
     detect_engine_type,
     get_supported_engines,
     analyze_strategy_requirements
@@ -97,7 +97,7 @@ print(f"Supports backtesting: {requirements.supports_backtesting}")
 
 ### Step 1: Create Engine Implementation
 
-Create a new file `src/trading_system/engines/your_engine.py`:
+Create a new file `src/StrateQueue/engines/your_engine.py`:
 
 ```python
 """
@@ -344,7 +344,7 @@ class YourEngine(BaseEngine):
 
 ### Step 2: Register in Factory
 
-Add your engine to `src/trading_system/engines/engine_factory.py`:
+Add your engine to `src/StrateQueue/engines/engine_factory.py`:
 
 ```python
 # In EngineFactory._initialize_engines()

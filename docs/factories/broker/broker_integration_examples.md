@@ -515,7 +515,7 @@ Distribute trades across multiple brokers for diversification
 """
 
 from typing import Dict, List
-from trading_system.brokers import BrokerFactory, auto_create_broker
+from StrateQueue.brokers import BrokerFactory, auto_create_broker
 
 
 class MultiBrokerStrategy:
@@ -604,8 +604,8 @@ import pytest
 from decimal import Decimal
 from unittest.mock import Mock, patch
 
-from trading_system.brokers.base import OrderType, OrderSide
-from trading_system.brokers import BrokerFactory
+from StrateQueue.brokers.base import OrderType, OrderSide
+from StrateQueue.brokers import BrokerFactory
 
 
 class BrokerTestSuite:

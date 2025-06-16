@@ -67,8 +67,8 @@ StatisticsManager
 ## 🚀 Quick Start
 
 1. **View existing trackers** for reference:
-   - `src/trading_system/statistics/pnl_tracker.py`
-   - `src/trading_system/statistics/win_loss_tracker.py`
+   - `src/StrateQueue/statistics/pnl_tracker.py`
+- `src/StrateQueue/statistics/win_loss_tracker.py`
 
 2. **Create your tracker** following the [Quick Reference](QUICK_REFERENCE.md)
 

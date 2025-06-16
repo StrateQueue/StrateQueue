@@ -35,7 +35,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Operating System :: OS Independent",
 ]
-requires-python = ">=3.10,<3.11"
+requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24.0",
     "pandas>=2.0.0",
@@ -94,16 +94,16 @@ Issues = "https://github.com/StrateQueue/StrateQueue/issues"
 Changelog = "https://github.com/StrateQueue/StrateQueue/releases"
 
 [project.scripts]
-stratequeue = "trading_system.cli:main"
-sq = "trading_system.cli:main"
-live-trading = "trading_system.cli:main"  # Legacy alias for compatibility
-trading-system = "trading_system.cli:main"  # Legacy alias for compatibility
+stratequeue = "StrateQueue.cli.cli:main"
+sq = "StrateQueue.cli.cli:main"
+strateque = "StrateQueue.cli.cli:main"
+strateline = "StrateQueue.cli.cli:main" # for the Americans hehe
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-trading_system = ["*.txt", "*.md"]
+StrateQueue = ["*.txt", "*.md"]
 
 # Black configuration
 [tool.black]

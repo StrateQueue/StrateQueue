@@ -18,7 +18,7 @@ The statistical tracking system provides:
 ### Core Components
 
 #### 1. BaseTracker (Abstract Base Class)
-**Location**: `src/trading_system/statistics/base_tracker.py`
+**Location**: `src/StrateQueue/statistics/base_tracker.py`
 
 Defines the interface that all statistical trackers must implement:
 
@@ -46,7 +46,7 @@ class BaseTracker(ABC):
 ```
 
 #### 2. StatisticsManager
-**Location**: `src/trading_system/statistics/statistics_manager.py`
+**Location**: `src/StrateQueue/statistics/statistics_manager.py`
 
 Central coordinator that:
 - Manages all registered trackers
@@ -55,7 +55,7 @@ Central coordinator that:
 - Handles error isolation and logging
 
 #### 3. TradeEvent Data Structure
-**Location**: `src/trading_system/statistics/base_tracker.py`
+**Location**: `src/StrateQueue/statistics/base_tracker.py`
 
 Standardized event object containing:
 - Timestamp and strategy identification
@@ -66,7 +66,7 @@ Standardized event object containing:
 
 ### Step 1: Create Your Tracker Class
 
-Create a new file `src/trading_system/statistics/your_tracker.py`:
+Create a new file `src/StrateQueue/statistics/your_tracker.py`:
 
 ```python
 """
@@ -167,7 +167,7 @@ class YourTracker(BaseTracker):
 
 ### Step 2: Register in StatisticsManager
 
-Add your tracker to `src/trading_system/statistics/statistics_manager.py`:
+Add your tracker to `src/StrateQueue/statistics/statistics_manager.py`:
 
 ```python
 # 1. Add import at the top
@@ -190,7 +190,7 @@ def get_your_stats(self, strategy_id: Optional[str] = None) -> Dict[str, Any]:
 
 ### Step 3: Update Module Exports
 
-Add to `src/trading_system/statistics/__init__.py`:
+Add to `src/StrateQueue/statistics/__init__.py`:
 
 ```python
 from .your_tracker import YourTracker
@@ -206,7 +206,7 @@ __all__ = [
 
 ### Step 4: Update Main Module Exports
 
-Add to `src/trading_system/__init__.py`:
+Add to `src/StrateQueue/__init__.py`:
 
 ```python
 # In the imports section
@@ -443,8 +443,8 @@ def on_trade_executed(self, trade_event: TradeEvent):
 ```python
 import unittest
 from datetime import datetime
-from src.trading_system.statistics.base_tracker import TradeEvent
-from src.trading_system.statistics.your_tracker import YourTracker
+from src.StrateQueue.statistics.base_tracker import TradeEvent
+from src.StrateQueue.statistics.your_tracker import YourTracker
 
 class TestYourTracker(unittest.TestCase):
     def setUp(self):
@@ -477,7 +477,7 @@ class TestYourTracker(unittest.TestCase):
 Test your tracker within the full StatisticsManager:
 
 ```python
-from src.trading_system.statistics import StatisticsManager
+from src.StrateQueue.statistics import StatisticsManager
 
 def test_integration():
     stats_manager = StatisticsManager()

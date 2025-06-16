@@ -160,7 +160,7 @@ class DisplayManager:
         if self.statistics_manager:
             print(f"\n{self.statistics_manager.display_summary()}")
         
-        print(f"\nTrade log saved to trading_system.log")
+        print(f"\nTrade log saved to stratequeue.log")
         print(f"{'='*60}")
     
     def _display_trading_summary(self, alpaca_executor):
