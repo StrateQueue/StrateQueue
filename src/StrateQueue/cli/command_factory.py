@@ -118,7 +118,6 @@ class CommandFactory:
         This method would scan for command classes and register them automatically.
         For now, commands need to be manually registered.
         """
-        # TODO: Implement auto-discovery when commands are implemented
         logger.debug("Auto-discovery not yet implemented")
     
     @classmethod
