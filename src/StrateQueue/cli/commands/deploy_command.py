@@ -7,9 +7,9 @@ including validation and trading system execution.
 import asyncio
 import argparse
 import logging
+import os
 from argparse import Namespace
 from typing import List
-import os
 
 from .base_command import BaseCommand
 from ..validators.deploy_validator import DeployValidator
@@ -136,6 +136,12 @@ class DeployCommand(BaseCommand):
             help='Enable verbose logging'
         )
         
+        system_group.add_argument(
+            '--daemon',
+            action='store_true',
+            help='Send this deployment to the background daemon process'
+        )
+        
         return parser
     
     def execute(self, args: Namespace) -> int:
@@ -148,6 +154,10 @@ class DeployCommand(BaseCommand):
         Returns:
             Exit code (0 for success, 1 for error)
         """
+        # Check if daemon mode is requested
+        if getattr(args, 'daemon', False):
+            return self._send_to_daemon(args)
+        
         # Setup logging if verbose mode
         if hasattr(args, 'verbose') and args.verbose:
             setup_logging(verbose=True, log_file='stratequeue.log')
@@ -261,7 +271,7 @@ class DeployCommand(BaseCommand):
                 system = LiveTradingSystem(
                     symbols=symbols,
                     data_source=args._data_sources[0],
-                    granularity=args._granularities[0] if args._granularities else None,
+                    granularity=args._granularities[0] if args._granularities else "1m",
                     enable_trading=enable_trading,
                     multi_strategy_config=temp_config.name,
                     broker_type=args._brokers[0] if args._brokers and args._brokers[0] != 'auto' else None,
@@ -300,7 +310,7 @@ class DeployCommand(BaseCommand):
             
             # Get single values for single strategy
             data_source = args._data_sources[0] if args._data_sources else 'demo'
-            granularity = args._granularities[0] if args._granularities else None
+            granularity = args._granularities[0] if args._granularities else "1m"
             broker_type = args._brokers[0] if args._brokers and args._brokers[0] != 'auto' else None
             
             # Initialize single strategy system
@@ -330,4 +340,115 @@ class DeployCommand(BaseCommand):
         except Exception as e:
             logger.error(f"Error running single strategy system: {e}")
             print(f"❌ Error running single strategy system: {e}")
+            return 1
+    
+    def _send_to_daemon(self, args: Namespace) -> int:
+        """
+        Send deployment request to daemon
+        
+        Args:
+            args: Parsed command arguments
+            
+        Returns:
+            Exit code (0 for success, 1 for error)
+        """
+        try:
+            import requests
+            import json
+            import subprocess
+            import sys
+            import time
+            
+            # Validate arguments first
+            is_valid, errors = self.validator.validate(args)
+            if not is_valid:
+                self._show_validation_errors(errors)
+                return 1
+            
+            daemon_url = "http://127.0.0.1:8400"
+            deploy_url = f"{daemon_url}/deploy"
+            
+            # Convert args to dictionary for JSON serialization
+            payload = vars(args)
+            
+            # Remove non-serializable items or items that shouldn't be sent
+            payload = {k: v for k, v in payload.items() if not k.startswith('func')}
+            
+            try:
+                # Try to send to existing daemon
+                response = requests.post(deploy_url, json=payload, timeout=3)
+                if response.ok:
+                    result = response.json()
+                    if result.get("success", False):
+                        print("✅ Strategy deployed to background daemon")
+                        print(f"💡 {result.get('message', '')}")
+                        return 0
+                    else:
+                        print(f"❌ Daemon deployment failed: {result.get('message', 'Unknown error')}")
+                        return 1
+                else:
+                    print(f"❌ Daemon returned error: {response.status_code}")
+                    return 1
+                    
+            except requests.exceptions.ConnectionError:
+                # Daemon not running - start it and retry
+                print("🚀 Starting daemon process...")
+                
+                # Start daemon in background
+                daemon_cmd = [
+                    sys.executable, "-m", "StrateQueue.daemon.server",
+                    "--log-file", "~/.stratequeue/daemon.log"
+                ]
+                
+                # Set PYTHONPATH environment for daemon process
+                daemon_env = os.environ.copy()
+                # Ensure current working directory is in PYTHONPATH for daemon
+                if "PYTHONPATH" not in daemon_env:
+                    daemon_env["PYTHONPATH"] = os.getcwd()
+                
+                process = subprocess.Popen(
+                    daemon_cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,  # Proper detach from parent
+                    env=daemon_env
+                )
+                
+                # Wait for daemon to start
+                print("⏳ Waiting for daemon to start...")
+                time.sleep(3)
+                
+                # Retry deployment
+                try:
+                    response = requests.post(deploy_url, json=payload, timeout=5)
+                    if response.ok:
+                        result = response.json()
+                        if result.get("success", False):
+                            print("✅ Daemon started and strategy deployed")
+                            print(f"💡 {result.get('message', '')}")
+                            print(f"📊 Daemon PID: {process.pid}")
+                            return 0
+                        else:
+                            print(f"❌ Daemon deployment failed: {result.get('message', 'Unknown error')}")
+                            return 1
+                    else:
+                        print(f"❌ Daemon returned error: {response.status_code}")
+                        return 1
+                        
+                except requests.exceptions.RequestException as e:
+                    print(f"❌ Failed to connect to daemon after startup: {e}")
+                    print("💡 Try running daemon manually: python -m StrateQueue.daemon.server")
+                    return 1
+            
+            except requests.exceptions.RequestException as e:
+                print(f"❌ Failed to communicate with daemon: {e}")
+                return 1
+                
+        except ImportError:
+            print("❌ Daemon mode requires 'requests' package")
+            print("💡 Install with: pip3.11 install requests")
+            return 1
+        except Exception as e:
+            logger.error(f"Unexpected error in daemon mode: {e}")
+            print(f"❌ Unexpected error in daemon mode: {e}")
             return 1 

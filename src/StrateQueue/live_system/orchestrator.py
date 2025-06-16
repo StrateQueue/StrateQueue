@@ -368,7 +368,11 @@ class LiveTradingSystem:
             'lookback_period': self.lookback_period,
             'trading_enabled': self.enable_trading,
             'broker_connected': self.broker_executor is not None,
-            'broker_type': getattr(self.broker_executor, 'config', {}).get('broker_type', None) if self.broker_executor else None,
+            'broker_type': (
+                self.broker_executor.config.broker_type
+                if self.broker_executor and hasattr(self.broker_executor, 'config')
+                else None
+            ),
             'paper_trading': self.paper_trading
         }
         

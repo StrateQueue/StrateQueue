@@ -10,6 +10,7 @@ from .status_command import StatusCommand
 from .setup_command import SetupCommand
 from .deploy_command import DeployCommand
 from .webui_command import WebuiCommand
+from .daemon_command import DaemonCommand
 
 __all__ = [
     'BaseCommand',
@@ -18,4 +19,5 @@ __all__ = [
     'SetupCommand',
     'DeployCommand',
     'WebuiCommand',
+    'DaemonCommand',
 ] 

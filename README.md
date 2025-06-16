@@ -87,6 +87,7 @@ StrateQueue provides a comprehensive CLI with core commands for trading system m
 | `status` | Check system health | `stratequeue status` |
 | `setup` | Configure brokers/settings | `stratequeue setup broker alpaca` |
 | `webui` | Launch web dashboard | `stratequeue webui` |
+| `daemon` | Background service for multi-strategy runtime | `stratequeue daemon start` |
 
 ### **🎯 Get Help Anytime**
 ```bash
@@ -541,6 +542,44 @@ stratequeue deploy --strategy multi_asset.py --symbol AAPL,BTC,EUR_USD --granula
 # Time-based strategies
 stratequeue deploy --strategy market_open.py --symbol SPY --granularity 1m --duration 390  # Full trading day
 ```
+
+## 🛠️ Daemon Mode (Always-On Background Service)
+
+Run your trading system as a long-lived process that you can control at any time.
+
+```bash
+# Start daemon (binds to 127.0.0.1:8400 by default)
+stratequeue daemon start
+
+# Inspect status & running strategies
+stratequeue daemon status
+
+# Hot-deploy a new strategy while others keep running
+stratequeue daemon strategy deploy \
+           --strategy examples/strategies/simple_sma.py \
+           --symbol ETH --allocation 0.3
+
+# Pause / resume or undeploy
+stratequeue daemon strategy pause sma_ETH_20250616_164530
+stratequeue daemon strategy resume sma_ETH_20250616_164530
+stratequeue daemon strategy undeploy sma_ETH_20250616_164530
+
+# Rebalance portfolio allocations on the fly
+stratequeue daemon strategy rebalance '{"sma_ETH_20250616_164530": 0.6, "sma_BTC_20250616_164545": 0.4}'
+
+# Stop the daemon gracefully
+stratequeue daemon stop
+```
+
+### 🔑 Smart Strategy IDs
+When you omit `--strategy-id`, StrateQueue now auto-generates a **unique, human-readable** id:
+
+```
+{sma_name}_{SYMBOL}_{YYYYMMDD_HHMMSS}
+# Example: simple_sma_ETH_20250616_165223
+```
+
+This guarantees no collisions when you deploy the same file to multiple symbols. Pass `--strategy-id` if you prefer a custom name.
 
 ---
 
