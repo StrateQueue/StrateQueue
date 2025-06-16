@@ -1,6 +1,6 @@
 """WebUI Command
 
-Command for starting the web interface with integrated Next.js frontend and FastAPI backend.
+Command for starting the web interface with Next.js frontend that communicates with the daemon.
 """
 
 import argparse
@@ -32,27 +32,9 @@ class WebuiCommand(BaseCommand):
         """Setup the argument parser for webui command"""
         
         parser.add_argument(
-            '--port', 
-            type=int, 
-            default=8080,
-            help='Port to run the API server on (default: 8080)'
-        )
-        
-        parser.add_argument(
-            '--host', 
-            default='localhost',
-            help='Host to bind the API server to (default: localhost)'
-        )
-        
-        parser.add_argument(
             '--dev', 
             action='store_true',
             help='Start in development mode (disables auto-opening browser)'
-        )
-        
-        parser.add_argument(
-            '--config-dir', 
-            help='Directory to store web UI configurations'
         )
         
         parser.add_argument(
@@ -95,9 +77,8 @@ class WebuiCommand(BaseCommand):
             # Determine whether to open browser
             open_browser = not (args.dev or args.no_browser)
             
-            # Start the web UI server
+            # Start the web UI server (no port needed, just Next.js frontend)
             start_webui_server(
-                port=args.port,
                 open_browser=open_browser
             )
             
@@ -116,19 +97,16 @@ class WebuiCommand(BaseCommand):
         """Show helpful error message when dependencies are missing"""
         print("❌ Web UI dependencies not available!")
         print("")
-        print("🔧 To enable the Web UI, install the required dependencies:")
+        print("🔧 To enable the Web UI, make sure Next.js dependencies are installed:")
         print("")
-        print("  # Install web UI dependencies")
-        print("  pip3.10 install fastapi uvicorn")
-        print("")
-        print("  # Or install with all optional dependencies")
-        print("  pip3.10 install stratequeue[all]")
-        print("")
-        print("🏗️  Frontend setup (if missing):")
+        print("  # Navigate to frontend directory and install dependencies")
         print("  cd src/StrateQueue/webui/frontend")
         print("  npm install")
         print("")
-        print("💡 After installation, try again:")
+        print("🏗️  For daemon functionality, ensure daemon is running:")
+        print("  stratequeue daemon start")
+        print("")
+        print("💡 After setup, try again:")
         print("  stratequeue webui")
         print("")
         print(f"📝 Error details: {error}") 

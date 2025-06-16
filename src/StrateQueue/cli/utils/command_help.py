@@ -462,7 +462,6 @@ def create_webui_epilog() -> str:
     
     lines.append(_formatter.subtitle("💡 Options:"))
     lines.append("")
-    lines.append(f"  {_formatter.highlight('--port')}        {_formatter.description('Custom port (default: 8080)')}")
     lines.append(f"  {_formatter.highlight('--no-browser')}  {_formatter.description('Do not auto-open browser')}")
     lines.append("")
     

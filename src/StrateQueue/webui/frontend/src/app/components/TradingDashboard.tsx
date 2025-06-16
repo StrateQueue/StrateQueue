@@ -24,7 +24,8 @@ import {
   Trash2,
   Copy,
   Power,
-  Info
+  Info,
+  X
 } from 'lucide-react';
 
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,17 @@ import {
 } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 const TradingDashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
@@ -69,23 +81,56 @@ const TradingDashboard = () => {
   const [strategiesLoading, setStrategiesLoading] = useState(true);
   const [strategiesError, setStrategiesError] = useState<string | null>(null);
 
-  // Fetch strategies from the API
+  // Fetch strategies from the daemon API
   const fetchStrategies = async () => {
     try {
       setStrategiesLoading(true);
       setStrategiesError(null);
       
-      const response = await fetch('http://localhost:8080/api/strategies');
-      const data = await response.json();
+      // First check daemon health
+      const healthResponse = await fetch('http://localhost:8400/health');
+      if (!healthResponse.ok) {
+        throw new Error('Daemon not responding');
+      }
       
-      if (data.success) {
-        setStrategies(data.strategies);
+      // Get daemon status which includes strategies
+      const statusResponse = await fetch('http://localhost:8400/status');
+      const statusData = await statusResponse.json();
+      
+      if (statusData.daemon_running) {
+        if (statusData.trading_system_running && statusData.strategy_details) {
+          // Use the new detailed strategy information
+          const strategyList = statusData.strategy_details.map((detail: any) => ({
+            id: detail.id,
+            name: detail.id,
+            status: detail.status === 'initialized' ? 'Running' : 
+                   detail.status === 'paused' ? 'Paused' : 
+                   detail.status.charAt(0).toUpperCase() + detail.status.slice(1),
+            symbols: detail.symbols || [],
+            allocation: detail.allocation || 0.0,
+            file_path: detail.file_path
+          }));
+          setStrategies(strategyList);
+        } else if (statusData.trading_system_running) {
+          // Fallback for backward compatibility
+          setStrategies([{
+            id: 'system',
+            name: 'Trading System',
+            status: 'Running',
+            symbols: statusData.system_status?.symbols || [],
+            allocation: 1.0,
+            file_path: null
+          }]);
+        } else {
+          setStrategies([]);
+        }
       } else {
-        setStrategiesError(data.message || 'Failed to fetch strategies');
-        setStrategies([]); // Clear strategies on error
+        setStrategies([]);
+        setStrategiesError('Daemon not running');
       }
     } catch (error) {
-      setStrategiesError('Failed to connect to API');
+      console.error('Failed to fetch strategies:', error);
+      setStrategiesError('Failed to connect to daemon');
       setStrategies([]);
     } finally {
       setStrategiesLoading(false);
@@ -299,8 +344,7 @@ const TradingDashboard = () => {
                   <div className="flex items-start justify-between">
                     <div className="space-y-2">
                       <CardTitle className="text-lg">{strategy.name}</CardTitle>
-                      <CardDescription>{strategy.file}</CardDescription>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-2">
                         <span className="text-xs text-muted-foreground">Symbols:</span>
                         {strategy.symbols.map((symbol: string) => (
                           <Badge key={symbol} variant="outline" className="text-xs">
@@ -308,86 +352,67 @@ const TradingDashboard = () => {
                           </Badge>
                         ))}
                       </div>
+                      {strategy.allocation && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">Allocation:</span>
+                          <Badge variant="secondary" className="text-xs">
+                            {(strategy.allocation * 100).toFixed(1)}%
+                          </Badge>
+                        </div>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <StatusBadge status={strategy.status} />
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" className="h-8 w-8 p-0">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuItem>
-                            <Edit className="mr-2 h-4 w-4" />
-                            Edit Strategy
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <Copy className="mr-2 h-4 w-4" />
-                            Clone Strategy
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-red-600">
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete Strategy
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
+                    <Badge 
+                      variant={strategy.status === 'Running' ? 'default' : 
+                               strategy.status === 'Paused' ? 'secondary' : 'destructive'}
+                      className="text-xs"
+                    >
+                      {strategy.status}
+                    </Badge>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">PnL</p>
-                      <p className={`font-semibold ${strategy.pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                        {strategy.pnl >= 0 ? '+' : ''}${strategy.pnl.toLocaleString()}
-                      </p>
-                      <p className={`text-xs ${strategy.pnlPercent >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                        {strategy.pnlPercent >= 0 ? '+' : ''}{strategy.pnlPercent}%
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Allocation</p>
-                      <p className="font-semibold">{(strategy.allocation * 100).toFixed(0)}%</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Trades</p>
-                      <p className="font-semibold">{strategy.trades}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Win Rate</p>
-                      <p className="font-semibold">{strategy.winRate}%</p>
-                    </div>
-                  </div>
-
-                  <Separator className="my-4" />
-
                   <div className="flex items-center justify-between">
-                    <div className="text-xs text-muted-foreground">
-                      <span>Updated {strategy.lastUpdate}</span>
+                    <div className="flex items-center gap-2">
+                      <Switch 
+                        checked={strategy.status === 'Running'} 
+                        onCheckedChange={() => handleStrategyToggle(strategy.id, strategy.status === 'Running')}
+                        disabled={strategy.status === 'Stopped'}
+                      />
+                      <span className="text-sm text-muted-foreground">
+                        {strategy.status === 'Running' ? 'Active' : 'Paused'}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="flex items-center gap-2">
-                              <Switch 
-                                checked={strategy.status === 'running'} 
-                                disabled={strategy.status === 'stopped'}
-                              />
-                              <span className="text-sm">Active</span>
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Toggle strategy on/off</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                      <Button variant="outline" size="sm">
-                        <Settings className="w-4 h-4" />
-                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Undeploy Strategy</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Are you sure you want to undeploy "{strategy.name}"? 
+                              This will stop the strategy and liquidate all open positions.
+                              This action cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              onClick={() => handleStrategyDelete(strategy.id)}
+                            >
+                              Undeploy Strategy
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </div>
                   </div>
                 </CardContent>
@@ -477,6 +502,54 @@ const TradingDashboard = () => {
     { id: 'strategies', label: 'Strategies', icon: Layers },
     { id: 'alerts', label: 'Alerts', icon: Bell },
   ];
+
+  // Handle strategy pause/resume
+  const handleStrategyToggle = async (strategyId: string, currentlyActive: boolean) => {
+    try {
+      const endpoint = currentlyActive ? 'pause' : 'resume';
+      const response = await fetch(`http://localhost:8400/strategy/${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ strategy_id: strategyId }),
+      });
+
+      if (response.ok) {
+        // Refresh strategies to get updated status
+        await fetchStrategies();
+      } else {
+        console.error(`Failed to ${endpoint} strategy:`, await response.text());
+      }
+    } catch (error) {
+      console.error(`Error ${currentlyActive ? 'pausing' : 'resuming'} strategy:`, error);
+    }
+  };
+
+  // Handle strategy deletion
+  const handleStrategyDelete = async (strategyId: string) => {
+    try {
+      const response = await fetch('http://localhost:8400/strategy/undeploy', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          strategy_id: strategyId,
+          liquidate_positions: true 
+        }),
+      });
+
+      if (response.ok) {
+        // Refresh strategies to remove deleted strategy
+        await fetchStrategies();
+      } else {
+        console.error('Failed to undeploy strategy:', await response.text());
+      }
+    } catch (error) {
+      console.error('Error undeploying strategy:', error);
+    }
+  };
 
   return (
     <div className="min-h-screen flex bg-background">

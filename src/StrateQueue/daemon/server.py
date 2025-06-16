@@ -19,6 +19,7 @@ from typing import Optional, Dict, Any, List
 
 import uvicorn
 from fastapi import FastAPI, Body, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from StrateQueue.live_system.orchestrator import LiveTradingSystem
 
@@ -32,6 +33,15 @@ DEFAULT_DAEMON_PORT = 8400
 DEFAULT_DAEMON_HOST = "127.0.0.1"
 
 app = FastAPI(title="StrateQueue Daemon", version="0.0.1")
+
+# Add CORS middleware to allow frontend access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Next.js frontend
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def generate_strategy_id(strategy_path: str, symbol: str = None, user_id: str = None) -> str:
@@ -253,10 +263,41 @@ class TradingDaemon:
             strategies = self.system.get_deployed_strategies()
             system_status = self.system.get_system_status()
             
+            # Get detailed strategy information if available
+            strategy_details = []
+            if self.system.is_multi_strategy and hasattr(self.system, 'multi_strategy_runner'):
+                strategy_configs = self.system.multi_strategy_runner.get_strategy_configs()
+                strategy_statuses = self.system.multi_strategy_runner.get_all_strategy_statuses()
+                
+                for strategy_id in strategies:
+                    config = strategy_configs.get(strategy_id)
+                    status = strategy_statuses.get(strategy_id, "unknown")
+                    
+                    strategy_detail = {
+                        "id": strategy_id,
+                        "status": status,
+                        "allocation": config.allocation if config else 0.0,
+                        "symbols": [config.symbol] if config and config.symbol else system_status.get("symbols", []),
+                        "file_path": config.file_path if config else None
+                    }
+                    strategy_details.append(strategy_detail)
+            else:
+                # Single strategy mode - use system-wide symbols
+                if strategies:
+                    strategy_detail = {
+                        "id": strategies[0] if strategies else "unknown",
+                        "status": "running",
+                        "allocation": 1.0,
+                        "symbols": system_status.get("symbols", []),
+                        "file_path": getattr(self.system, 'strategy_path', None)
+                    }
+                    strategy_details.append(strategy_detail)
+            
             return {
                 "daemon_running": True,
                 "trading_system_running": True,
-                "strategies": strategies,
+                "strategies": strategies,  # Keep for backward compatibility
+                "strategy_details": strategy_details,  # New detailed information
                 "system_status": system_status
             }
         except Exception as e:

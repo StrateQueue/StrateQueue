@@ -220,15 +220,11 @@ stratequeue configure          # Alternative
 
 ### **🌐 Web Dashboard**
 ```bash
-# Launch web interface (default port 8000)
+# Launch web interface (default port 3000)
 stratequeue webui
 
-# Custom port
-stratequeue webui --port 9000
-
-# Aliases
-stratequeue web                # Alternative
-stratequeue ui                 # Alternative
+# Don't auto-open browser
+stratequeue webui --no-browser
 ```
 
 ## 🎯 Strategy-Symbol Mapping Modes
@@ -341,7 +337,7 @@ stratequeue status --broker alpaca
 
 # Setup and configuration
 stratequeue setup broker alpaca
-stratequeue webui --port 8080
+stratequeue webui
 ```
 
 ## 🔧 Configuration
