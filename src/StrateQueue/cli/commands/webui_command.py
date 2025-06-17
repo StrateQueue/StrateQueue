@@ -4,10 +4,13 @@ Command for starting the web interface with Next.js frontend that communicates w
 """
 
 import argparse
+import requests
+import time
 from argparse import Namespace
 from typing import List
 
 from .base_command import BaseCommand
+from ...daemon import start_daemon_process
 
 
 class WebuiCommand(BaseCommand):
@@ -61,6 +64,17 @@ class WebuiCommand(BaseCommand):
         Returns:
             Exit code (0 for success, 1 for error)
         """
+        # First, ensure the daemon is running
+        print("🔍 Ensuring the trading daemon is running...")
+        success, message = start_daemon_process(verbose=args.verbose)
+        
+        if not success:
+            print(f"\n❌ Could not start the trading daemon: {message}")
+            print("   The Web UI requires the daemon to be active to function correctly.")
+            return 1
+            
+        print("✅ Daemon is running. Starting Web UI...\n")
+
         try:
             # Try to import the webui module
             from ...webui import start_webui_server

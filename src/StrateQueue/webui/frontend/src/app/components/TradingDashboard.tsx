@@ -70,6 +70,24 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
 
 const TradingDashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
@@ -80,6 +98,32 @@ const TradingDashboard = () => {
   const [strategies, setStrategies] = useState<any[]>([]);
   const [strategiesLoading, setStrategiesLoading] = useState(true);
   const [strategiesError, setStrategiesError] = useState<string | null>(null);
+  const [isSystemRunning, setIsSystemRunning] = useState(false);
+
+  // Deploy dialog state
+  const [deployDialogOpen, setDeployDialogOpen] = useState(false);
+  const [deployForm, setDeployForm] = useState({
+    // Strategy Configuration
+    strategy: '',
+    strategyFile: null as File | null,
+    strategyId: '',
+    allocation: '1.0',
+    
+    // Trading Configuration  
+    symbol: 'AAPL',
+    dataSource: 'demo',
+    granularity: '1m',
+    broker: 'auto',
+    lookback: '100',
+    
+    // Execution Mode
+    executionMode: 'no-trading', // 'no-trading', 'paper', 'live'
+    
+    // System Control (hidden from UI but used in backend)
+    duration: 'infinite', // Changed to infinite by default
+    verbose: false, // Fixed to false, not shown in UI
+    daemon: true, // Fixed to true, not shown in UI
+  });
 
   // Fetch strategies from the daemon API
   const fetchStrategies = async () => {
@@ -90,6 +134,7 @@ const TradingDashboard = () => {
       // First check daemon health
       const healthResponse = await fetch('http://localhost:8400/health');
       if (!healthResponse.ok) {
+        setIsSystemRunning(false);
         throw new Error('Daemon not responding');
       }
       
@@ -98,6 +143,8 @@ const TradingDashboard = () => {
       const statusData = await statusResponse.json();
       
       if (statusData.daemon_running) {
+        setIsSystemRunning(statusData.trading_system_running || false);
+
         if (statusData.trading_system_running && statusData.strategy_details) {
           // Use the new detailed strategy information
           const strategyList = statusData.strategy_details.map((detail: any) => ({
@@ -127,11 +174,13 @@ const TradingDashboard = () => {
       } else {
         setStrategies([]);
         setStrategiesError('Daemon not running');
+        setIsSystemRunning(false);
       }
     } catch (error) {
       console.error('Failed to fetch strategies:', error);
       setStrategiesError('Failed to connect to daemon');
       setStrategies([]);
+      setIsSystemRunning(false);
     } finally {
       setStrategiesLoading(false);
     }
@@ -358,7 +407,7 @@ const TradingDashboard = () => {
                           <Badge variant="secondary" className="text-xs">
                             {(strategy.allocation * 100).toFixed(1)}%
                           </Badge>
-                        </div>
+                    </div>
                       )}
                     </div>
                     <Badge 
@@ -391,7 +440,7 @@ const TradingDashboard = () => {
                             className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
                           >
                             <X className="h-4 w-4" />
-                          </Button>
+                      </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
@@ -434,7 +483,7 @@ const TradingDashboard = () => {
             <Button 
               variant="outline" 
               className="mt-4"
-              onClick={fetchStrategies}
+              onClick={() => setDeployDialogOpen(true)}
             >
               <Plus className="w-4 h-4 mr-2" />
               Deploy Strategy
@@ -551,6 +600,84 @@ const TradingDashboard = () => {
     }
   };
 
+  const handleDeployStrategy = async () => {
+    try {
+      setDeployDialogOpen(false);
+      
+      // Step 1: Validate required fields in the form
+      if (!deployForm.strategyFile) {
+        alert('Please select a strategy file');
+        return;
+      }
+      if (!deployForm.symbol) {
+        alert('Please select a trading symbol');
+        return;
+      }
+      if (!deployForm.allocation || parseFloat(deployForm.allocation) <= 0 || parseFloat(deployForm.allocation) > 1) {
+        alert('Please enter a valid allocation between 0 and 1');
+        return;
+      }
+
+      // Step 2: Upload the strategy file to the dedicated endpoint
+      const formData = new FormData();
+      formData.append('file', deployForm.strategyFile);
+
+      const uploadResponse = await fetch('http://localhost:8400/strategy/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!uploadResponse.ok) {
+        const errorResult = await uploadResponse.json();
+        throw new Error(errorResult.detail || 'File upload failed');
+      }
+
+      const uploadResult = await uploadResponse.json();
+      const strategyPath = uploadResult.file_path; // Get the temporary path from the server
+
+      // Step 3: Prepare the deployment payload using the server-provided path
+      const payload: any = {
+        strategy: strategyPath,
+        symbol: deployForm.symbol,
+        allocation: parseFloat(deployForm.allocation),
+        // Pass all relevant form fields to the daemon
+        data_source: deployForm.dataSource,
+        granularity: deployForm.granularity,
+        broker: deployForm.broker,
+        lookback: parseInt(deployForm.lookback, 10),
+        execution_mode: deployForm.executionMode,
+        duration: deployForm.duration,
+      };
+      
+      if (deployForm.strategyId) {
+        payload.strategy_id = deployForm.strategyId;
+      }
+      
+      console.log('Deploying strategy with payload:', payload);
+      
+      // Step 4: Deploy the strategy. The daemon handles both initial and subsequent deployments.
+      const endpoint = isSystemRunning ? '/strategy/deploy' : '/deploy';
+      const response = await fetch(`http://localhost:8400${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.detail || result.message || 'Deployment failed');
+      }
+      
+      console.log('Deployment successful:', result);
+      await fetchStrategies(); // Refresh the list of strategies
+      
+    } catch (error) {
+      console.error('Deployment error:', error);
+      alert(`Deployment failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   return (
     <div className="min-h-screen flex bg-background">
       {/* Fixed Sidebar */}
@@ -640,10 +767,199 @@ const TradingDashboard = () => {
                       className="pl-9 w-64"
                     />
                   </div>
+                  <Dialog open={deployDialogOpen} onOpenChange={setDeployDialogOpen}>
+                    <DialogTrigger asChild>
                   <Button>
                     <Plus className="w-4 h-4 mr-2" />
                     Deploy Strategy
                   </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle>Deploy Strategy</DialogTitle>
+                        <DialogDescription>
+                          Configure all deployment parameters for your trading strategy
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="grid gap-6 py-4">
+                        {/* Strategy Configuration Section */}
+                        <div className="space-y-4">
+                          <h3 className="text-lg font-medium">Strategy Configuration</h3>
+                          <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="strategy" className="text-right">
+                              Strategy File *
+                            </Label>
+                            <Input 
+                              type="file"
+                              id="strategyFile"
+                              onChange={(e) => {
+                                if (e.target.files) {
+                                  const file = e.target.files[0];
+                                  setDeployForm({ ...deployForm, strategyFile: file });
+                                }
+                              }}
+                              className="col-span-3"
+                            />
+                          </div>
+                          <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="strategyId" className="text-right">
+                              Strategy ID
+                            </Label>
+                            <Input 
+                              id="strategyId" 
+                              value={deployForm.strategyId} 
+                              onChange={(e) => setDeployForm({ ...deployForm, strategyId: e.target.value })} 
+                              placeholder="Auto-generated if empty"
+                              className="col-span-3" 
+                            />
+                          </div>
+                          <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="allocation" className="text-right">
+                              Allocation
+                            </Label>
+                            <Input 
+                              id="allocation" 
+                              value={deployForm.allocation} 
+                              onChange={(e) => setDeployForm({ ...deployForm, allocation: e.target.value })} 
+                              placeholder="0.0 - 1.0 (e.g., 0.3 for 30%)"
+                              className="col-span-3" 
+                            />
+                          </div>
+                        </div>
+
+                        {/* Trading Configuration Section */}
+                        <div className="space-y-4">
+                          <h3 className="text-lg font-medium">Trading Configuration</h3>
+                          <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="symbol" className="text-right">
+                              Symbol *
+                            </Label>
+                            <Input 
+                              id="symbol" 
+                              value={deployForm.symbol} 
+                              onChange={(e) => setDeployForm({ ...deployForm, symbol: e.target.value })} 
+                              placeholder="AAPL, ETH, BTC, etc."
+                              className="col-span-3" 
+                            />
+                          </div>
+                          <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="dataSource" className="text-right">
+                              Data Source
+                            </Label>
+                            <Select value={deployForm.dataSource} onValueChange={(value: string) => setDeployForm({ ...deployForm, dataSource: value })}>
+                              <SelectTrigger className="col-span-3">
+                                <SelectValue placeholder="Select data source" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="demo">Demo (Synthetic Data)</SelectItem>
+                                <SelectItem value="polygon">Polygon.io (Real Market Data)</SelectItem>
+                                <SelectItem value="coinmarketcap">CoinMarketCap (Crypto Data)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="granularity" className="text-right">
+                              Granularity
+                            </Label>
+                            <Select value={deployForm.granularity} onValueChange={(value: string) => setDeployForm({ ...deployForm, granularity: value })}>
+                              <SelectTrigger className="col-span-3">
+                                <SelectValue placeholder="Select time interval" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="1s">1 Second</SelectItem>
+                                <SelectItem value="5s">5 Seconds</SelectItem>
+                                <SelectItem value="10s">10 Seconds</SelectItem>
+                                <SelectItem value="30s">30 Seconds</SelectItem>
+                                <SelectItem value="1m">1 Minute</SelectItem>
+                                <SelectItem value="5m">5 Minutes</SelectItem>
+                                <SelectItem value="15m">15 Minutes</SelectItem>
+                                <SelectItem value="30m">30 Minutes</SelectItem>
+                                <SelectItem value="1h">1 Hour</SelectItem>
+                                <SelectItem value="2h">2 Hours</SelectItem>
+                                <SelectItem value="4h">4 Hours</SelectItem>
+                                <SelectItem value="1d">1 Day</SelectItem>
+                                <SelectItem value="1w">1 Week</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="broker" className="text-right">
+                              Broker
+                            </Label>
+                            <Select value={deployForm.broker} onValueChange={(value: string) => setDeployForm({ ...deployForm, broker: value })}>
+                              <SelectTrigger className="col-span-3">
+                                <SelectValue placeholder="Select broker" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="auto">Auto-detect from environment</SelectItem>
+                                <SelectItem value="alpaca">Alpaca</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="lookback" className="text-right">
+                              Lookback Period
+                            </Label>
+                            <Input 
+                              id="lookback" 
+                              value={deployForm.lookback} 
+                              onChange={(e) => setDeployForm({ ...deployForm, lookback: e.target.value })} 
+                              placeholder="Historical bars (default: 100)"
+                              className="col-span-3" 
+                            />
+                          </div>
+                        </div>
+
+                        {/* Execution Mode Section */}
+                        <div className="space-y-4">
+                          <h3 className="text-lg font-medium">Execution Mode</h3>
+                          <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="executionMode" className="text-right">
+                              Trading Mode *
+                            </Label>
+                            <Select value={deployForm.executionMode} onValueChange={(value: string) => setDeployForm({ ...deployForm, executionMode: value })}>
+                              <SelectTrigger className="col-span-3">
+                                <SelectValue placeholder="Select execution mode" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="no-trading">🔍 Signals Only (Safe Testing)</SelectItem>
+                                <SelectItem value="paper">📊 Paper Trading (Fake Money)</SelectItem>
+                                <SelectItem value="live">⚠️ Live Trading (Real Money!)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+
+                        {/* System Control Section */}
+                        <div className="space-y-4">
+                          <h3 className="text-lg font-medium">System Control</h3>
+                          <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="duration" className="text-right">
+                              Duration
+                            </Label>
+                            <Input 
+                              id="duration" 
+                              value={deployForm.duration} 
+                              onChange={(e) => setDeployForm({ ...deployForm, duration: e.target.value })} 
+                              placeholder="infinite, 60, 120, etc."
+                              className="col-span-3" 
+                            />
+                          </div>
+                          <div className="col-span-4 text-sm text-muted-foreground">
+                            Duration in minutes, or "infinite" for continuous running. Default: infinite
+                          </div>
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setDeployDialogOpen(false)}>
+                          Cancel
+                        </Button>
+                        <Button onClick={handleDeployStrategy}>
+                          Deploy Strategy
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
                 </div>
               )}
               

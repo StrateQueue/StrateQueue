@@ -232,89 +232,53 @@ class DaemonCommand(BaseCommand):
             return 1
     
     def _start_daemon(self, args: Namespace) -> int:
-        """Start the daemon process"""
-        try:
-            import subprocess
-            import sys
-            
-            # Check if daemon is already running
-            if self._is_daemon_running():
-                print("⚠️  Daemon is already running")
-                return 0
-            
-            bind = getattr(args, 'bind', DEFAULT_DAEMON_HOST)
-            port = getattr(args, 'port', DEFAULT_DAEMON_PORT)
-            log_file = getattr(args, 'log_file', DEFAULT_LOG_FILE)
-            
-            print(f"🚀 Starting daemon on {bind}:{port}")
-            print(f"📝 Logs will be written to: {log_file}")
-            
-            # Start daemon process
-            daemon_cmd = [
-                sys.executable, "-m", "StrateQueue.daemon.server",
-                "--bind", bind,
-                "--port", str(port),
-                "--log-file", log_file
-            ]
-            
-            # Set PYTHONPATH environment for daemon process
-            import os
-            daemon_env = os.environ.copy()
-            # Only set PYTHONPATH if not already set to avoid duplicates
-            if "PYTHONPATH" not in daemon_env:
-                daemon_env["PYTHONPATH"] = os.getcwd()
-            
-            process = subprocess.Popen(
-                daemon_cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-                env=daemon_env
-            )
-            
-            # Wait a moment and check if it started successfully
-            import time
-            time.sleep(DAEMON_START_TIMEOUT)
-            
-            if self._is_daemon_running(port=port):
-                print(f"✅ Daemon started successfully (PID: {process.pid})")
-                print(f"💡 You can now use 'stratequeue deploy --daemon' to deploy strategies")
-                return 0
-            else:
-                print("❌ Failed to start daemon")
-                print(f"💡 Check logs at: {log_file}")
-                return 1
-                
-        except Exception as e:
-            logger.error(f"Failed to start daemon: {e}")
-            print(f"❌ Failed to start daemon: {e}")
+        """Start the daemon process using the shared function"""
+        from ...daemon import start_daemon_process
+        
+        bind = getattr(args, 'bind', DEFAULT_DAEMON_HOST)
+        port = getattr(args, 'port', DEFAULT_DAEMON_PORT)
+        log_file = getattr(args, 'log_file', DEFAULT_LOG_FILE)
+
+        success, message = start_daemon_process(
+            bind=bind,
+            port=port,
+            log_file=log_file,
+            verbose=True  # Always show output for direct start command
+        )
+
+        if not success:
+            print(f"❌ {message}")
             return 1
+        
+        return 0
     
     def _stop_daemon(self, args: Namespace) -> int:
         """Stop the daemon process"""
+        print("🛑 Stopping daemon...")
         if not self._is_daemon_running():
-            print("⚠️  Daemon is not running")
+            print("✅ Daemon is not running")
             return 0
         
-        # Send shutdown request
-        success, response = self._call_daemon_api("/shutdown", method="POST", timeout=5)
+        success, response = self._call_daemon_api(endpoint="/shutdown", method="POST")
+        
         if success:
-            print("✅ Daemon shutdown request sent")
-            
-            # Wait for daemon to stop
-            import time
-            for _ in range(DAEMON_SHUTDOWN_TIMEOUT):  # Wait up to timeout seconds
-                time.sleep(1)
-                if not self._is_daemon_running():
-                    print("✅ Daemon stopped successfully")
-                    return 0
-            
-            print("⚠️  Daemon may still be shutting down")
-            return 0
+            print("✅ Daemon shutdown initiated")
         else:
-            error_msg = response.get("error", "Unknown error")
-            print(f"❌ Failed to stop daemon: {error_msg}")
+            print(f"❌ Failed to stop daemon: {response.get('error', 'Unknown error')}")
+            print("💡 It might not be running or is unresponsive.")
             return 1
+        
+        # Wait for daemon to stop
+        import time
+        
+        for _ in range(DAEMON_SHUTDOWN_TIMEOUT):
+            if not self._is_daemon_running():
+                print("✅ Daemon stopped successfully")
+                return 0
+            time.sleep(1)
+        
+        print("❌ Daemon did not stop within the timeout period")
+        return 1
     
     def _daemon_status(self, args: Namespace) -> int:
         """Get daemon status"""
@@ -335,6 +299,9 @@ class DaemonCommand(BaseCommand):
             else:
                 print("📈 No active strategies")
             
+            status_data = response.get('status', {})
+            print(f"    - Uptime: {status_data.get('uptime', 'N/A')}")
+            
             return 0
         else:
             error_msg = response.get("error", "Unknown error")
@@ -343,12 +310,8 @@ class DaemonCommand(BaseCommand):
     
     def _is_daemon_running(self, port: int = DEFAULT_DAEMON_PORT) -> bool:
         """Check if daemon is running"""
-        try:
-            import requests
-            response = requests.get(f"http://{DEFAULT_DAEMON_HOST}:{port}/health", timeout=2)
-            return response.ok
-        except:
-            return False
+        from ...daemon import is_daemon_running
+        return is_daemon_running(port=port)
     
     def _handle_strategy_command(self, args: Namespace) -> int:
         """Handle strategy control commands"""

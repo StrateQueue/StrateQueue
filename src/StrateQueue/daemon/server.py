@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 
 import uvicorn
-from fastapi import FastAPI, Body, HTTPException
+from fastapi import FastAPI, Body, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from StrateQueue.live_system.orchestrator import LiveTradingSystem
@@ -335,9 +335,44 @@ class TradingDaemon:
 daemon = TradingDaemon()
 
 
+def _normalise_deploy_payload(cli_args: Dict[str, Any]) -> None:
+    """
+    Normalises a raw REST/UI payload by creating the private, list-based
+    arguments (`_strategies`, `_allocations`, etc.) that the daemon's core logic expects.
+    """
+    # Ensure private list-based arguments exist for the core logic
+    if not cli_args.get("_strategies"):
+        strategy = cli_args.get("strategy")
+        if strategy:
+            cli_args["_strategies"] = [strategy]
+
+    if not cli_args.get("_allocations"):
+        allocation = cli_args.get("allocation")
+        if allocation is not None:
+            cli_args["_allocations"] = [str(allocation)]
+
+    if not cli_args.get("_symbols"):
+        symbol = cli_args.get("symbol")
+        if symbol:
+            cli_args["_symbols"] = [symbol]
+
+    if not cli_args.get("_strategy_ids"):
+        strategy_id = cli_args.get("strategy_id")
+        if strategy_id:
+            cli_args["_strategy_ids"] = [strategy_id]
+
+
 @app.post("/deploy")
 async def deploy_endpoint(payload: Dict[str, Any] = Body(...)):
     """Deploy a strategy to the trading system"""
+    
+    _normalise_deploy_payload(payload)
+
+    # Use a lock to prevent race conditions during deployment
+    async with daemon._lock:
+        if daemon.system is not None:
+            return {"status": "error", "message": "Trading system is already running"}, 400
+
     return await daemon.deploy(payload)
 
 
@@ -349,17 +384,8 @@ async def status_endpoint():
 
 @app.post("/shutdown")
 async def shutdown_endpoint():
-    """Shutdown the daemon"""
-    response = await daemon.shutdown()
-    
-    # Schedule graceful shutdown after response is sent
-    async def delayed_shutdown():
-        await asyncio.sleep(SHUTDOWN_DELAY_SECONDS)  # Give time for response to be sent
-        # Graceful exit instead of hard kill
-        sys.exit(0)
-    
-    asyncio.create_task(delayed_shutdown())
-    return response
+    """Shutdown the trading daemon"""
+    return await daemon.shutdown()
 
 
 @app.get("/health")
@@ -368,11 +394,32 @@ async def health_endpoint():
     return {"status": "ok", "daemon_running": True}
 
 
+@app.post("/strategy/upload")
+async def upload_strategy_endpoint(file: UploadFile):
+    """Saves an uploaded strategy file to a temporary location and returns the path."""
+    try:
+        # Create a temporary file with the same suffix
+        suffix = Path(file.filename).suffix or ".py"
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=suffix, prefix="uploaded_", delete=False) as tmp:
+            # Write the uploaded file's content to the temporary file
+            content = await file.read()
+            tmp.write(content)
+            tmp_path = tmp.name
+        
+        logger.info(f"Uploaded strategy '{file.filename}' saved to temporary file: {tmp_path}")
+        return {"status": "success", "file_path": tmp_path}
+    except Exception as e:
+        logger.error(f"Failed to upload strategy file: {e}")
+        raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+
+
 # Strategy runtime control endpoints
 @app.post("/strategy/deploy")
 async def deploy_strategy_endpoint(payload: Dict[str, Any] = Body(...)):
     """Deploy a new strategy to the running system"""
     try:
+        _normalise_deploy_payload(payload)
+        
         async with daemon._lock:  # Non-blocking protection against concurrent modifications
             if not daemon.system or not daemon.running:
                 raise HTTPException(status_code=503, detail="Trading system not running")

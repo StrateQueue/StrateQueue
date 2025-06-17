@@ -3,185 +3,117 @@
 """
 Stratequeue Web UI Server
 
-This module provides a local web server that serves the React frontend
-which communicates directly with the StrateQueue daemon on port 8400.
+This module starts the Next.js frontend for the StrateQueue Web UI.
+It communicates directly with the StrateQueue daemon on port 8400.
 """
 
 import subprocess
+import webbrowser
 import threading
 import time
-import webbrowser
-import socket
 from pathlib import Path
-from typing import Optional
+from datetime import datetime
+import os
 
-
-def get_webui_path() -> Path:
-    """Get the path to the webui directory."""
-    return Path(__file__).parent
-
+def tee_subprocess_output(process, log_file_path):
+    """
+    Reads a process's stdout line by line, printing each line to the console
+    and writing it to a log file.
+    """
+    try:
+        with open(log_file_path, 'a') as log_file:
+            log_file.write(f"--- Log started at {datetime.now().isoformat()} ---\n")
+            for line in iter(process.stdout.readline, ''):
+                print(line, end='')  # Print to console
+                log_file.write(line) # Write to log file
+    except Exception as e:
+        print(f"Error in logging thread: {e}")
+    finally:
+        process.stdout.close()
 
 def get_frontend_path() -> Path:
     """Get the path to the frontend directory."""
-    return get_webui_path() / "frontend"
+    return Path(__file__).parent / "frontend"
 
-
-def build_frontend() -> bool:
-    """Build the Next.js frontend for production."""
-    frontend_path = get_frontend_path()
-    
-    if not frontend_path.exists():
-        print("❌ Frontend directory not found!")
-        return False
-    
-    print("🔨 Building frontend...")
-    try:
-        # Build the Next.js app
-        result = subprocess.run(
-            ["npm", "run", "build"],
-            cwd=frontend_path,
-            capture_output=True,
-            text=True,
-            timeout=300  # 5 minutes timeout
-        )
-        
-        if result.returncode != 0:
-            print(f"❌ Frontend build failed: {result.stderr}")
-            return False
-            
-        print("✅ Frontend built successfully!")
-        return True
-        
-    except subprocess.TimeoutExpired:
-        print("❌ Frontend build timed out!")
-        return False
-    except Exception as e:
-        print(f"❌ Frontend build error: {e}")
-        return False
-
-
-def start_next_dev_server() -> Optional[subprocess.Popen]:
-    """Start the Next.js development server."""
-    frontend_path = get_frontend_path()
-    
-    if not frontend_path.exists():
-        print("❌ Frontend directory not found!")
-        return None
-    
-    print("🚀 Starting Next.js development server...")
-    try:
-        # Start Next.js dev server on port 3000
-        # Don't capture stdout/stderr to avoid process hanging
-        process = subprocess.Popen(
-            ["npm", "run", "dev", "--", "--port", "3000"],
-            cwd=frontend_path,
-            stdout=subprocess.DEVNULL,  # Redirect to avoid buffer filling
-            stderr=subprocess.DEVNULL,  # Redirect to avoid buffer filling
-            text=True
-        )
-        
-        # Wait for the server to be ready by checking if port 3000 is listening
-        max_attempts = 15  # 15 seconds timeout
-        
-        for attempt in range(max_attempts):
-            time.sleep(1)
-            
-            # Check if process is still running
-            if process.poll() is not None:
-                print("❌ Next.js process exited unexpectedly")
-                return None
-            
-            # Check if port 3000 is listening
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.settimeout(1)
-                    result = s.connect_ex(('localhost', 3000))
-                    if result == 0:
-                        print("✅ Next.js development server started on port 3000")
-                        return process
-            except Exception:
-                pass  # Continue trying
-        
-        # If we get here, the server didn't start in time
-        print("❌ Next.js server failed to start within timeout")
-        if process.poll() is None:
-            process.terminate()
-            process.wait()
-        return None
-            
-    except Exception as e:
-        print(f"❌ Error starting Next.js server: {e}")
-        return None
-
-
-def check_daemon_connection() -> bool:
-    """Check if the daemon is running and accessible."""
-    try:
-        import requests
-        response = requests.get("http://127.0.0.1:8400/health", timeout=2)
-        return response.ok
-    except:
-        return False
-
+def open_browser_after_delay(url: str, delay: int = 2):
+    """Open a web browser after a specified delay."""
+    def _open():
+        time.sleep(delay)
+        webbrowser.open(url)
+    threading.Thread(target=_open, daemon=True).start()
 
 def start_webui_server(open_browser: bool = True):
     """
-    Start the Stratequeue Web UI server.
-    
-    Args:
-        open_browser: Whether to automatically open the browser (default: True)
-    """
-    print("🚀 Starting Stratequeue Web UI...")
-    print(f"📂 Frontend path: {get_frontend_path()}")
-    
-    # Check daemon connection
-    daemon_connected = check_daemon_connection()
-    if daemon_connected:
-        print("✅ Connected to StrateQueue daemon on port 8400")
-    else:
-        print("⚠️  StrateQueue daemon not detected on port 8400")
-        print("💡 To get live data, start daemon with: stratequeue daemon start")
-    
-    # Start the Next.js development server
-    next_process = start_next_dev_server()
-    
-    if not next_process:
-        print("❌ Failed to start frontend server")
-        return
-    
-    try:
-        if open_browser:
-            # Open browser after a short delay
-            def open_browser_delayed():
-                time.sleep(2)
-                webbrowser.open(f"http://localhost:3000")
-            
-            threading.Thread(target=open_browser_delayed, daemon=True).start()
-        
-        print("✅ Stratequeue Web UI is running!")
-        print(f"🌐 Frontend: http://localhost:3000")
-        if daemon_connected:
-            print(f"🔌 Daemon API: http://localhost:8400")
-        print("📝 Press Ctrl+C to stop")
-        
-        # Keep the process alive
-        try:
-            while next_process.poll() is None:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            print("\n🛑 Shutting down Web UI...")
-        
-    except KeyboardInterrupt:
-        print("\n🛑 Shutting down Web UI...")
-    finally:
-        # Clean up the Next.js process
-        if next_process and next_process.poll() is None:
-            print("🧹 Stopping Next.js server...")
-            next_process.terminate()
-            next_process.wait()
-        
-        print("✅ Web UI stopped")
+    Start the Stratequeue Next.js Web UI server.
 
+    Args:
+        open_browser: Whether to automatically open the browser.
+    """
+    frontend_path = get_frontend_path()
+
+    if not (frontend_path / "node_modules").exists():
+        print("❌ Frontend dependencies are not installed.")
+        print("💡 Please run 'npm install' in the frontend directory:")
+        print(f"   cd {frontend_path}")
+        print("   npm install")
+        return
+
+    print("🚀 Starting Stratequeue Web UI...")
+    print(f"🌐 URL: http://localhost:3000")
+    print("📝 Press Ctrl+C to stop the server.")
+
+    if open_browser:
+        open_browser_after_delay("http://localhost:3000")
+
+    # Create logs directory if it doesn't exist
+    log_dir = Path.home() / ".stratequeue" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate a timestamped log file name
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file_path = log_dir / f"webui_{timestamp}.log"
+
+    print(f"📝 Frontend logs will be written to: {log_file_path}")
+
+    process = None
+    try:
+        # Start the Next.js dev server as a subprocess
+        process = subprocess.Popen(
+            ["npm", "run", "dev"],
+            cwd=frontend_path,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding='utf-8',
+            errors='replace'
+        )
+
+        # Create a thread to tee the output to console and log file
+        log_thread = threading.Thread(
+            target=tee_subprocess_output,
+            args=(process, log_file_path),
+            daemon=True
+        )
+        log_thread.start()
+
+        # Wait for the process to complete (it will run until Ctrl+C)
+        process.wait()
+
+    except FileNotFoundError:
+        print("❌ 'npm' command not found. Please ensure Node.js and npm are installed.")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Frontend server failed to start or exited with an error: {e}")
+    except KeyboardInterrupt:
+        print("\n✅ Web UI stopped gracefully.")
+    finally:
+        if process and process.poll() is None:
+            print("🛑 Stopping frontend server...")
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        print("🛑 Server has been shut down.")
 
 if __name__ == "__main__":
     start_webui_server() 
