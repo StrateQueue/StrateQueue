@@ -90,7 +90,7 @@ import {
 
 
 const TradingDashboard = () => {
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState('strategies');
   const [animatedValues, setAnimatedValues] = useState<{
     totalPnl?: number;
     activeTrades?: number;
@@ -263,90 +263,6 @@ const TradingDashboard = () => {
     </Card>
   );
 
-  const OverviewView = () => (
-    <div className="space-y-6">
-      {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <MetricCard
-          title="Total Portfolio PnL"
-          value={`$${(animatedValues.totalPnl || 2830.50).toLocaleString()}`}
-          change="+4.2%"
-          trend="up"
-          icon={DollarSign}
-          subtitle="Total profit/loss for all active strategies"
-        />
-        <MetricCard
-          title="Active Strategies"
-          value={strategies.filter(s => s.status === 'running').length.toString()}
-          change={strategies.length > 0 ? `+${strategies.length}` : "0"}
-          trend="up"
-          icon={Activity}
-          subtitle="Currently running trading strategies"
-        />
-        <MetricCard
-          title="Total Trades Today"
-          value={animatedValues.activeTrades || 12}
-          change="+3"
-          trend="up"
-          icon={BarChart3}
-          subtitle="Buy and sell signals executed today"
-        />
-        <MetricCard
-          title="Success Rate"
-          value="65.3%"
-          change="+2.1%"
-          trend="up"
-          icon={Target}
-          subtitle="Percentage of profitable trades"
-        />
-      </div>
-
-      <Separator />
-
-      {/* Recent Activity */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Trading Signals</CardTitle>
-          <CardDescription>Latest buy and sell signals from your strategies</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ScrollArea className="h-[400px]">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Strategy</TableHead>
-                  <TableHead>Symbol</TableHead>
-                  <TableHead>Signal</TableHead>
-                  <TableHead>Price</TableHead>
-                  <TableHead>PnL</TableHead>
-                  <TableHead>Time</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {recentTrades.map((trade) => (
-                  <TableRow key={trade.id}>
-                    <TableCell className="font-medium">{trade.strategy}</TableCell>
-                    <TableCell>{trade.symbol}</TableCell>
-                    <TableCell>
-                      <Badge variant={trade.type === 'BUY' ? 'default' : 'secondary'}>
-                        {trade.type}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>${trade.price.toLocaleString()}</TableCell>
-                    <TableCell className={trade.pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
-                      {trade.pnl >= 0 ? '+' : ''}${trade.pnl}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{trade.time}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </ScrollArea>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
   const StrategiesView = () => (
     <div className="space-y-6">
       {/* Loading State */}
@@ -494,62 +410,8 @@ const TradingDashboard = () => {
     </div>
   );
 
-  const AlertsView = () => (
-    <div className="space-y-6">
-      <ScrollArea className="h-[600px]">
-        <div className="space-y-4 pr-4">
-          <Alert className="border-l-4 border-l-yellow-500">
-            <Bell className="h-4 w-4" />
-            <AlertDescription>
-              <div>
-                <p className="font-medium">Strategy Performance Alert</p>
-                <p className="text-sm text-muted-foreground">Momentum Strategy drawdown exceeded 5% threshold</p>
-                <p className="text-xs text-muted-foreground mt-1">2 minutes ago</p>
-              </div>
-            </AlertDescription>
-          </Alert>
-          
-          <Alert className="border-l-4 border-l-green-500">
-            <TrendingUp className="h-4 w-4" />
-            <AlertDescription>
-              <div>
-                <p className="font-medium">Successful Trade Execution</p>
-                <p className="text-sm text-muted-foreground">SMA Crossover executed BUY signal for AAPL at $185.42</p>
-                <p className="text-xs text-muted-foreground mt-1">5 minutes ago</p>
-              </div>
-            </AlertDescription>
-          </Alert>
-          
-          <Alert className="border-l-4 border-l-blue-500">
-            <Activity className="h-4 w-4" />
-            <AlertDescription>
-              <div>
-                <p className="font-medium">System Status</p>
-                <p className="text-sm text-muted-foreground">All strategies running normally, market data connection stable</p>
-                <p className="text-xs text-muted-foreground mt-1">10 minutes ago</p>
-              </div>
-            </AlertDescription>
-          </Alert>
-          
-          <Alert className="border-l-4 border-l-orange-500">
-            <Info className="h-4 w-4" />
-            <AlertDescription>
-              <div>
-                <p className="font-medium">Market Hours Notice</p>
-                <p className="text-sm text-muted-foreground">Markets will close in 30 minutes. Consider adjusting positions.</p>
-                <p className="text-xs text-muted-foreground mt-1">15 minutes ago</p>
-              </div>
-            </AlertDescription>
-          </Alert>
-        </div>
-      </ScrollArea>
-    </div>
-  );
-
   const navItems = [
-    { id: 'overview', label: 'Overview', icon: Home },
     { id: 'strategies', label: 'Strategies', icon: Layers },
-    { id: 'alerts', label: 'Alerts', icon: Bell },
   ];
 
   // Handle strategy pause/resume
@@ -713,23 +575,6 @@ const TradingDashboard = () => {
             </nav>
           </div>
         </div>
-        
-        {/* Sidebar Footer - Always visible at bottom */}
-        <div className="p-4 border-t flex-shrink-0">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" className="w-full justify-start">
-                  <Power className="w-4 h-4 mr-2" />
-                  System Status
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>All systems operational</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
       </div>
 
       {/* Main Content Area */}
@@ -739,42 +584,24 @@ const TradingDashboard = () => {
           <div className="flex h-16 items-center justify-between px-6">
             <div>
               <h2 className="text-2xl font-bold">
-                {activeTab === 'overview' && 'Dashboard Overview'}
                 {activeTab === 'strategies' && 'Strategy Management'}
-                {activeTab === 'alerts' && 'System Alerts'}
               </h2>
               <p className="text-sm text-muted-foreground">
-                {activeTab === 'overview' && new Date().toLocaleDateString('en-US', { 
-                  weekday: 'long', 
-                  year: 'numeric', 
-                  month: 'long', 
-                  day: 'numeric' 
-                })}
                 {activeTab === 'strategies' && 'Monitor and control your deployed trading strategies'}
-                {activeTab === 'alerts' && 'Monitor strategy alerts and system notifications'}
               </p>
             </div>
-            
             <div className="flex items-center gap-4">
-              {/* Strategy Management Actions */}
+              {/* Deploy Button */}
               {activeTab === 'strategies' && (
-                <div className="flex gap-3">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                    <Input 
-                      type="text" 
-                      placeholder="Search strategies..."
-                      className="pl-9 w-64"
-                    />
-                  </div>
+                <div>
                   <Dialog open={deployDialogOpen} onOpenChange={setDeployDialogOpen}>
                     <DialogTrigger asChild>
-                  <Button>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Deploy Strategy
-                  </Button>
+                      <Button>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Deploy Strategy
+                      </Button>
                     </DialogTrigger>
-                    <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
+                    <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
                       <DialogHeader>
                         <DialogTitle>Deploy Strategy</DialogTitle>
                         <DialogDescription>
@@ -962,25 +789,6 @@ const TradingDashboard = () => {
                   </Dialog>
                 </div>
               )}
-              
-              {/* Default Actions */}
-              <Badge variant="outline" className="border-green-500/30 text-green-600 dark:text-green-400">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-2"></div>
-                Live Market
-              </Badge>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="outline" size="icon" className="relative">
-                      <Bell className="w-5 h-5" />
-                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"></div>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>View notifications</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
             </div>
           </div>
         </div>
@@ -988,9 +796,7 @@ const TradingDashboard = () => {
         {/* Main Content */}
         <div className="flex-1 overflow-auto">
           <div className="p-6">
-            {activeTab === 'overview' && <OverviewView />}
             {activeTab === 'strategies' && <StrategiesView />}
-            {activeTab === 'alerts' && <AlertsView />}
           </div>
         </div>
       </div>
