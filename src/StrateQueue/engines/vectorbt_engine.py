@@ -328,35 +328,25 @@ class VectorBTMultiTickerSignalExtractor(BaseSignalExtractor, EngineSignalExtrac
             return {symbol: self._create_hold_signal(error=str(e)) for symbol in self.symbols}
     
     def _process_multi_symbol_data(self, symbol_data: dict[str, pd.DataFrame]) -> dict[str, TradingSignal]:
-        """Process multiple symbols together using VectorBT's vectorized operations"""
-        symbols = list(symbol_data.keys())
-        
-        # Create MultiIndex DataFrame for VectorBT
-        multi_index_data = self._create_multiindex_dataframe(symbol_data)
-        
-        # Call the strategy on the multi-symbol data
-        entries, exits = self._call_strategy_multi(multi_index_data)
-        
-        # Create portfolio for each symbol
+        """Process multiple symbols using per-symbol strategy execution for safety"""
         signals = {}
-        for symbol in symbols:
+        
+        for symbol, df in symbol_data.items():
             try:
-                # Extract data for this symbol
-                symbol_close = multi_index_data['Close'][symbol] if symbol in multi_index_data['Close'].columns else multi_index_data['Close']
-                symbol_entries = entries[symbol] if symbol in entries.columns else entries
-                symbol_exits = exits[symbol] if symbol in exits.columns else exits
+                # Call strategy on single-symbol data (reuses robust single-ticker logic)
+                strategy_result = self._call_strategy(df)
                 
-                # Build portfolio for this symbol
-                pf = vbt.Portfolio.from_signals(
-                    close=symbol_close,
-                    entries=symbol_entries,
-                    exits=symbol_exits,
-                    init_cash=10_000,
-                    freq=self._convert_granularity_to_freq(self.granularity)
-                )
+                # Handle both (entries, exits) and (entries, exits, size) returns
+                if len(strategy_result) == 2:
+                    entries, exits = strategy_result
+                    size = None
+                elif len(strategy_result) == 3:
+                    entries, exits, size = strategy_result
+                else:
+                    raise ValueError("Strategy must return (entries, exits) or (entries, exits, size)")
                 
-                # Extract signal for this symbol
-                signal = self._extract_symbol_signal(symbol, symbol_close, symbol_entries, symbol_exits, pf)
+                # Extract signal from the last timestep only
+                signal = self._extract_last_bar_signal(symbol, df['Close'], entries, exits, size)
                 signals[symbol] = signal
                 
             except Exception as e:
@@ -365,66 +355,21 @@ class VectorBTMultiTickerSignalExtractor(BaseSignalExtractor, EngineSignalExtrac
         
         return signals
     
-    def _create_multiindex_dataframe(self, symbol_data: dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """Create a MultiIndex DataFrame suitable for VectorBT multi-asset processing"""
-        # Get the common index (intersection of all symbol timestamps)
-        common_index = None
-        for symbol, data in symbol_data.items():
-            if common_index is None:
-                common_index = data.index
-            else:
-                common_index = common_index.intersection(data.index)
-        
-        if len(common_index) == 0:
-            # Fallback: use union of all indices and forward-fill missing values
-            logger.warning("No common timestamps found, using union of all timestamps with forward-fill")
-            all_indices = []
-            for symbol, data in symbol_data.items():
-                all_indices.append(data.index)
-            common_index = pd.Index([]).union_many(all_indices).sort_values()
-            
-            if len(common_index) == 0:
-                raise ValueError("No valid timestamps found across any symbols")
-        
-        # Required columns for VectorBT
-        required_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
-        
-        # Build MultiIndex DataFrame
-        multi_data = {}
-        for column in required_columns:
-            multi_data[column] = pd.DataFrame(index=common_index)
-            for symbol, data in symbol_data.items():
-                if column in data.columns:
-                    # Align data to common index with forward-fill for missing values
-                    aligned_data = data[column].reindex(common_index, method='ffill')
-                    multi_data[column][symbol] = aligned_data
-                else:
-                    raise ValueError(f"Missing column {column} for symbol {symbol}")
-        
-        # Combine into single DataFrame with MultiIndex columns
-        result = pd.concat(multi_data, axis=1)
-        
-        # Drop any rows that are completely NaN (beginning of series before any data)
-        result = result.dropna(how='all')
-        
-        if len(result) == 0:
-            raise ValueError("No valid data remaining after alignment and cleaning")
-        
-        return result
-    
-    def _call_strategy_multi(self, data: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """Call strategy on multi-symbol data"""
+    def _call_strategy(self, data: pd.DataFrame) -> tuple:
+        """Call the strategy function on single-symbol data and return entries/exits (and optional size)"""
         try:
             if inspect.isfunction(self.strategy_class):
                 # Function-based strategy
                 result = self.strategy_class(data, **self.strategy_params)
             elif inspect.isclass(self.strategy_class):
-                # Class-based strategy
+                # Class-based strategy ─ create an instance first
                 instance = self.strategy_class(**self.strategy_params)
-                
+
                 if hasattr(instance, "run") and callable(getattr(instance, "run")):
+                    # Preferred: instance.run(data)
                     result = instance.run(data)
                 elif callable(instance):
+                    # Fallback: class implements __call__(data)
                     result = instance(data)
                 else:
                     raise ValueError(
@@ -434,106 +379,105 @@ class VectorBTMultiTickerSignalExtractor(BaseSignalExtractor, EngineSignalExtrac
             else:
                 raise ValueError("Strategy must be a function or a class")
             
-            # Ensure result is a tuple of entries, exits
-            if not isinstance(result, tuple) or len(result) != 2:
-                raise ValueError("VectorBT strategy must return (entries, exits) tuple")
+            # Ensure result is a tuple of appropriate length
+            if not isinstance(result, tuple) or len(result) not in [2, 3]:
+                raise ValueError("VectorBT strategy must return (entries, exits) or (entries, exits, size) tuple")
             
-            entries, exits = result
+            # Convert to pandas Series if needed
+            entries, exits = result[0], result[1]
+            if not isinstance(entries, pd.Series):
+                entries = pd.Series(entries, index=data.index)
+            if not isinstance(exits, pd.Series):
+                exits = pd.Series(exits, index=data.index)
             
-            # Convert to DataFrames with proper MultiIndex structure
-            if isinstance(entries, pd.Series):
-                # Single series - broadcast to all symbols
-                entries_df = pd.DataFrame(index=data.index)
-                for symbol in self.symbols:
-                    entries_df[symbol] = entries
-                entries = entries_df
-            elif not isinstance(entries, pd.DataFrame):
-                # Convert array-like to DataFrame
-                entries = pd.DataFrame(entries, index=data.index, columns=self.symbols)
-            
-            if isinstance(exits, pd.Series):
-                # Single series - broadcast to all symbols
-                exits_df = pd.DataFrame(index=data.index)
-                for symbol in self.symbols:
-                    exits_df[symbol] = exits
-                exits = exits_df
-            elif not isinstance(exits, pd.DataFrame):
-                # Convert array-like to DataFrame
-                exits = pd.DataFrame(exits, index=data.index, columns=self.symbols)
-            
-            return entries, exits
+            # Handle optional size
+            if len(result) == 3:
+                size = result[2]
+                if size is not None and not isinstance(size, pd.Series):
+                    size = pd.Series(size, index=data.index)
+                return entries, exits, size
+            else:
+                return entries, exits
             
         except Exception as e:
-            logger.error(f"Error calling VectorBT multi-symbol strategy: {e}")
-            # Return empty signals for all symbols
-            empty_df = pd.DataFrame(False, index=data.index, columns=self.symbols)
-            return empty_df, empty_df
+            logger.error(f"Error calling VectorBT strategy: {e}")
+            # Return empty signals
+            empty_signal = pd.Series(False, index=data.index)
+            return empty_signal, empty_signal
     
-    def _extract_symbol_signal(self, symbol: str, close: pd.Series, entries: pd.Series, exits: pd.Series, pf) -> TradingSignal:
-        """Extract trading signal for a single symbol from portfolio results"""
-        # --- Decide what signal to emit (event-driven first) -------------
-        current_price = self._safe_get_last_value(close)
 
-        # 1. Did the strategy fire on THIS bar?
-        last_entry = bool(self._safe_get_last_value(entries, False))
-        last_exit = bool(self._safe_get_last_value(exits, False))
-
-        if last_entry and not last_exit:
-            signal = SignalType.BUY
-            confidence = 1.0
-        elif last_exit and not last_entry:
-            signal = SignalType.SELL
-            confidence = 1.0
-        else:
-            # 2. No new event – use portfolio exposure for context
-            _pos_attr = getattr(pf, "position_now", None)
-            if callable(_pos_attr):
-                pos_now = _pos_attr()
-            else:
-                pos_now = _pos_attr if _pos_attr is not None else 0
-
-            if pos_now > 0:
+    
+    def _extract_last_bar_signal(self, symbol: str, close: pd.Series, entries: pd.Series, exits: pd.Series, size: pd.Series = None) -> TradingSignal:
+        """Extract trading signal from the last bar only (no portfolio needed)"""
+        try:
+            current_price = self._safe_get_last_value(close)
+            
+            # Check what happened on the last bar
+            last_entry = bool(self._safe_get_last_value(entries, False))
+            last_exit = bool(self._safe_get_last_value(exits, False))
+            
+            # Extract size if provided
+            signal_size = None
+            if size is not None:
+                signal_size = self._safe_get_last_value(size, None)
+                if signal_size is not None:
+                    signal_size = abs(float(signal_size))  # Ensure positive
+            
+            # Determine signal type and confidence
+            if last_entry and not last_exit:
                 signal = SignalType.BUY
-                confidence = min(abs(pos_now), 1.0)
-            elif pos_now < 0:
+                confidence = 1.0
+            elif last_exit and not last_entry:
                 signal = SignalType.SELL
-                confidence = min(abs(pos_now), 1.0)
+                confidence = 1.0
             else:
                 signal = SignalType.HOLD
                 confidence = 0.0
+            
+            indicators = self._clean_indicators({
+                "symbol": symbol,
+                "last_entry": last_entry,
+                "last_exit": last_exit,
+                "current_price": current_price,
+                "granularity": self.granularity,
+            })
+            
+            return TradingSignal(
+                signal=signal,
+                confidence=confidence,
+                price=current_price,
+                timestamp=close.index[-1],
+                indicators=indicators,
+                size=signal_size  # Include size if provided by strategy
+            )
+            
+        except Exception as e:
+            logger.error(f"Error extracting signal for {symbol}: {e}")
+            return self._create_hold_signal(error=str(e))
+    
+    def _safe_get_last_value(self, series: pd.Series, default=None):
+        """Safely get the last value from a pandas Series"""
+        if series is None or len(series) == 0:
+            return default
+        try:
+            return series.iloc[-1]
+        except (IndexError, KeyError):
+            return default
+    
+    def _clean_indicators(self, indicators: dict) -> dict:
+        """Clean indicators by converting numpy types to native Python types"""
+        cleaned = {}
+        for key, value in indicators.items():
+            if hasattr(value, 'item'):  # numpy scalar
+                cleaned[key] = value.item()
+            elif isinstance(value, (np.integer, np.floating)):
+                cleaned[key] = float(value) if isinstance(value, np.floating) else int(value)
+            else:
+                cleaned[key] = value
+        return cleaned
+    
 
-        # Portfolio / debug metrics
-        nav_now = getattr(pf, "value_now", None)
-        if callable(nav_now):
-            nav_now = nav_now()
-        if nav_now is None:
-            nav_now = pf.value().iloc[-1]
 
-        # Current exposure
-        pos_now = 0
-        _pos_attr = getattr(pf, "position_now", None)
-        if callable(_pos_attr):
-            pos_now = _pos_attr()
-        elif _pos_attr is not None:
-            pos_now = _pos_attr
-
-        indicators = self._clean_indicators({
-            "symbol": symbol,
-            "vectorbt_nav": nav_now,
-            "position": pos_now,
-            "entries_count": entries.sum(),
-            "exits_count": exits.sum(),
-            "current_price": current_price,
-            "granularity": self.granularity,
-        })
-        
-        return TradingSignal(
-            signal=signal,
-            confidence=confidence,
-            price=current_price,
-            timestamp=close.index[-1] if len(close) > 0 else pd.Timestamp.now(),
-            indicators=indicators
-        )
     
     def _create_hold_signal(self, error: str = None) -> TradingSignal:
         """Create a default HOLD signal"""
