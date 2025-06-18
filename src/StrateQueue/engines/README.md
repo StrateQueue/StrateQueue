@@ -324,13 +324,7 @@ Every new engine **must** implement these abstract methods:
 
 ## 🔧 Advanced Features
 
-### Custom Signal Confidence Calculation
-```python
-def calculate_signal_confidence(self, strategy_state) -> float:
-    """Calculate confidence based on strategy internals"""
-    # Example: Use indicator alignment, volatility, etc.
-    return confidence_score
-```
+
 
 ### Engine-Specific Configuration
 ```python

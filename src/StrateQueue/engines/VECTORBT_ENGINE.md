@@ -127,7 +127,7 @@ extractor = engine.create_signal_extractor(strategy)
 
 # Extract signals from historical data
 signal = extractor.extract_signal(historical_data)
-print(f"Signal: {signal.signal.value}, Confidence: {signal.confidence}")
+print(f"Signal: {signal.signal.value}")
 ```
 
 ## Signal Extraction

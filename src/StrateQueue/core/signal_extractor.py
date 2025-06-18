@@ -40,7 +40,6 @@ class TradingSignal:
     """Structured trading signal output"""
 
     signal: SignalType
-    confidence: float  # 0.0 to 1.0
     price: float
     timestamp: pd.Timestamp
     indicators: dict[str, float]  # Current indicator values
@@ -72,7 +71,6 @@ class SignalExtractorStrategy(Strategy if BACKTESTING_AVAILABLE else object):
         super().__init__(*args, **kwargs)
 
         self.current_signal = SignalType.HOLD
-        self.signal_confidence = 0.0
         self.indicators_values = {}
         self.signal_history = []
 
@@ -89,7 +87,6 @@ class SignalExtractorStrategy(Strategy if BACKTESTING_AVAILABLE else object):
     def set_signal(
         self,
         signal: SignalType,
-        confidence: float = 1.0,
         metadata: dict[str, Any] = None,
         size: float | None = None,
         limit_price: float | None = None,
@@ -100,13 +97,11 @@ class SignalExtractorStrategy(Strategy if BACKTESTING_AVAILABLE else object):
     ):
         """Set the current signal instead of calling buy/sell"""
         self.current_signal = signal
-        self.signal_confidence = confidence
 
         # Store signal with current data
         # For live trading, use the data timestamp; for demo, the data timestamp will be simulated time
         signal_obj = TradingSignal(
             signal=signal,
-            confidence=confidence,
             price=self.data.Close[-1],
             timestamp=(
                 self.data.index[-1]
@@ -128,22 +123,20 @@ class SignalExtractorStrategy(Strategy if BACKTESTING_AVAILABLE else object):
     def set_limit_buy_signal(
         self,
         limit_price: float,
-        confidence: float = 1.0,
         size: float | None = None,
         metadata: dict[str, Any] = None,
     ):
         """Set a limit buy signal with specified limit price"""
-        self.set_signal(SignalType.LIMIT_BUY, confidence, metadata, size, limit_price)
+        self.set_signal(SignalType.LIMIT_BUY, metadata, size, limit_price)
 
     def set_limit_sell_signal(
         self,
         limit_price: float,
-        confidence: float = 1.0,
         size: float | None = None,
         metadata: dict[str, Any] = None,
     ):
         """Set a limit sell signal with specified limit price"""
-        self.set_signal(SignalType.LIMIT_SELL, confidence, metadata, size, limit_price)
+        self.set_signal(SignalType.LIMIT_SELL, metadata, size, limit_price)
 
     def get_current_signal(self) -> TradingSignal:
         """Get the most recent signal"""
@@ -152,7 +145,6 @@ class SignalExtractorStrategy(Strategy if BACKTESTING_AVAILABLE else object):
         else:
             return TradingSignal(
                 signal=SignalType.HOLD,
-                confidence=0.0,
                 price=self.data.Close[-1] if len(self.data.Close) > 0 else 0.0,
                 timestamp=pd.Timestamp.now(),
                 indicators=self.indicators_values.copy(),
@@ -193,17 +185,15 @@ class SmaCrossSignalStrategy(SignalExtractorStrategy):
         # Determine signal based on crossover
         if crossover(self.sma1, self.sma2):
             # Fast MA crosses above slow MA - bullish signal
-            confidence = abs(self.sma1[-1] - self.sma2[-1]) / self.sma2[-1]  # Relative difference
-            self.set_signal(SignalType.BUY, confidence=min(confidence * 10, 1.0))
+            self.set_signal(SignalType.BUY)
 
         elif crossover(self.sma2, self.sma1):
             # Fast MA crosses below slow MA - bearish signal
-            confidence = abs(self.sma1[-1] - self.sma2[-1]) / self.sma2[-1]  # Relative difference
-            self.set_signal(SignalType.SELL, confidence=min(confidence * 10, 1.0))
+            self.set_signal(SignalType.SELL)
 
         else:
             # No crossover - hold current position
-            self.set_signal(SignalType.HOLD, confidence=0.1)
+            self.set_signal(SignalType.HOLD)
 
 
 class LiveSignalExtractor:
@@ -248,7 +238,6 @@ class LiveSignalExtractor:
                 logger.warning("Insufficient historical data for signal extraction")
                 return TradingSignal(
                     signal=SignalType.HOLD,
-                    confidence=0.0,
                     price=0.0,
                     timestamp=pd.Timestamp.now(),
                     indicators={},
@@ -286,7 +275,6 @@ class LiveSignalExtractor:
 
             logger.info(
                 f"Extracted signal: {current_signal.signal.value} "
-                f"(confidence: {current_signal.confidence:.2f}) "
                 f"at price: ${current_signal.price:.2f}"
             )
 
@@ -297,7 +285,6 @@ class LiveSignalExtractor:
             # Return safe default signal
             return TradingSignal(
                 signal=SignalType.HOLD,
-                confidence=0.0,
                 price=historical_data["Close"].iloc[-1] if len(historical_data) > 0 else 0.0,
                 timestamp=pd.Timestamp.now(),
                 indicators={},
@@ -346,14 +333,8 @@ if __name__ == "__main__":
 
             print(
                 f"Window {i+1}: {signal.signal.value} "
-                f"(confidence: {signal.confidence:.3f}) "
                 f"at ${signal.price:.2f}"
             )
-
-            # Show indicator values
-            if signal.indicators:
-                indicator_str = ", ".join([f"{k}: {v:.2f}" for k, v in signal.indicators.items()])
-                print(f"  Indicators: {indicator_str}")
 
     # Run the test
     asyncio.run(test_signal_extraction())

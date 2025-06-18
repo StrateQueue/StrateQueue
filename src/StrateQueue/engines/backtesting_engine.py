@@ -100,7 +100,6 @@ class BacktestingSignalExtractor(EngineSignalExtractor):
                 logger.warning("Insufficient historical data for signal extraction")
                 return TradingSignal(
                     signal=SignalType.HOLD,
-                    confidence=0.0,
                     price=0.0,
                     timestamp=pd.Timestamp.now(),
                     indicators={},
@@ -122,7 +121,6 @@ class BacktestingSignalExtractor(EngineSignalExtractor):
             # Return safe default signal
             return TradingSignal(
                 signal=SignalType.HOLD,
-                confidence=0.0,
                 price=historical_data["Close"].iloc[-1] if len(historical_data) > 0 else 0.0,
                 timestamp=pd.Timestamp.now(),
                 indicators={},
@@ -151,7 +149,6 @@ class BacktestingSignalExtractor(EngineSignalExtractor):
 
         logger.debug(
             f"Extracted signal: {current_signal.signal.value} "
-            f"(confidence: {current_signal.confidence:.2f}) "
             f"at price: ${current_signal.price:.2f}"
         )
 

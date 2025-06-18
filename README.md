@@ -463,7 +463,6 @@ stratequeue deploy --strategy my_strategy.py --symbol AAPL --granularity 1m
 🎯 SIGNAL #1 - 2024-06-10 14:30:15 [sma]
 📈 BUY AAPL @ $185.42
 💰 Allocation: $3,000 (60% of portfolio)
-🎯 Confidence: 85%
 
 ⏸️  STRATEGY PAUSED - 2024-06-10 14:45:00 [momentum]
 📝 Reason: User command via CLI

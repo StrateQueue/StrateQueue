@@ -249,7 +249,6 @@ class SignalCoordinator:
                 # Create error signal
                 signals[strategy_id] = TradingSignal(
                     signal=SignalType.HOLD,
-                    confidence=0.0,
                     price=0.0,
                     timestamp=historical_data.index[-1] if len(historical_data) > 0 else None,
                     indicators={},

@@ -82,7 +82,6 @@ class DisplayManager:
         print(f"Symbol: {symbol}")
         print(f"Action: {signal_emoji.get(signal.signal.value, '❓')} {signal.signal.value}")
         print(f"Price: ${signal.price:.2f}")
-        print(f"Confidence: {signal.confidence:.1%}")
 
         if signal.indicators:
             print("Indicators:")
@@ -100,7 +99,6 @@ class DisplayManager:
                 "symbol": symbol,
                 "signal": signal.signal.value,
                 "price": signal.price,
-                "confidence": signal.confidence,
                 "indicators": signal.indicators,
             }
         )

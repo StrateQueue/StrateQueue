@@ -97,7 +97,6 @@ class VectorBTSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):
                 logger.warning("Insufficient historical data for signal extraction")
                 return TradingSignal(
                     signal=SignalType.HOLD,
-                    confidence=0.0,
                     price=0.0,
                     timestamp=pd.Timestamp.now(),
                     indicators={}
@@ -131,11 +130,9 @@ class VectorBTSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):
             last_exit  = bool(self._safe_get_last_value(exits, False))
 
             if last_entry and not last_exit:
-                signal     = SignalType.BUY
-                confidence = 1.0
+                signal = SignalType.BUY
             elif last_exit and not last_entry:
-                signal     = SignalType.SELL
-                confidence = 1.0
+                signal = SignalType.SELL
             else:
                 # 2. No new event – use portfolio exposure for context
                 _pos_attr2 = getattr(pf, "position_now", None)
@@ -145,14 +142,11 @@ class VectorBTSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):
                     pos_now = _pos_attr2 if _pos_attr2 is not None else 0
 
                 if pos_now > 0:
-                    signal     = SignalType.BUY
-                    confidence = min(abs(pos_now), 1.0)
+                    signal = SignalType.BUY
                 elif pos_now < 0:
-                    signal     = SignalType.SELL
-                    confidence = min(abs(pos_now), 1.0)
+                    signal = SignalType.SELL
                 else:
-                    signal     = SignalType.HOLD
-                    confidence = 0.0
+                    signal = SignalType.HOLD
 
             # Portfolio / debug metrics --------------------------------------
             nav_now = getattr(pf, "value_now", None)
@@ -179,12 +173,10 @@ class VectorBTSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):
             })
             
             logger.debug(f"VectorBT signal: {signal.value} "
-                        f"(confidence: {confidence:.2f}) "
                         f"at price: ${current_price:.2f}")
             
             return TradingSignal(
                 signal=signal,
-                confidence=confidence,
                 price=current_price,
                 timestamp=data.index[-1],
                 indicators=indicators
@@ -195,7 +187,6 @@ class VectorBTSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):
             # Return safe default signal
             return TradingSignal(
                 signal=SignalType.HOLD,
-                confidence=0.0,
                 price=historical_data['Close'].iloc[-1] if len(historical_data) > 0 else 0.0,
                 timestamp=pd.Timestamp.now(),
                 indicators={},
@@ -423,16 +414,13 @@ class VectorBTMultiTickerSignalExtractor(BaseSignalExtractor, EngineSignalExtrac
                 if signal_size is not None:
                     signal_size = abs(float(signal_size))  # Ensure positive
             
-            # Determine signal type and confidence
+            # Determine signal type
             if last_entry and not last_exit:
                 signal = SignalType.BUY
-                confidence = 1.0
             elif last_exit and not last_entry:
                 signal = SignalType.SELL
-                confidence = 1.0
             else:
                 signal = SignalType.HOLD
-                confidence = 0.0
             
             indicators = self._clean_indicators({
                 "symbol": symbol,
@@ -444,7 +432,6 @@ class VectorBTMultiTickerSignalExtractor(BaseSignalExtractor, EngineSignalExtrac
             
             return TradingSignal(
                 signal=signal,
-                confidence=confidence,
                 price=current_price,
                 timestamp=close.index[-1],
                 indicators=indicators,
@@ -484,7 +471,6 @@ class VectorBTMultiTickerSignalExtractor(BaseSignalExtractor, EngineSignalExtrac
         metadata = {'error': error} if error else {}
         return TradingSignal(
             signal=SignalType.HOLD,
-            confidence=0.0,
             price=0.0,
             timestamp=pd.Timestamp.now(),
             indicators={},

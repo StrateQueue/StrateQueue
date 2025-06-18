@@ -165,42 +165,42 @@ class StrategyLoader:
                     # Determine order type based on backtesting.py parameters
                     if stop_price is not None and limit_price is not None:
                         # Stop-limit order: both stop and limit specified
-                        self.set_signal(SignalType.STOP_LIMIT_BUY, confidence=0.8, size=signal_size,
+                        self.set_signal(SignalType.STOP_LIMIT_BUY, size=signal_size,
                                       stop_price=stop_price, limit_price=limit_price, time_in_force=time_in_force)
                     elif stop_price is not None:
                         # Stop order: only stop specified
-                        self.set_signal(SignalType.STOP_BUY, confidence=0.8, size=signal_size,
+                        self.set_signal(SignalType.STOP_BUY, size=signal_size,
                                       stop_price=stop_price, time_in_force=time_in_force)
                     elif limit_price is not None:
                         # Limit order: only limit specified
-                        self.set_signal(SignalType.LIMIT_BUY, confidence=0.8, size=signal_size,
+                        self.set_signal(SignalType.LIMIT_BUY, size=signal_size,
                                       limit_price=limit_price, time_in_force=time_in_force)
                     else:
                         # Market order: no limit or stop specified
-                        self.set_signal(SignalType.BUY, confidence=0.8, size=signal_size, time_in_force=time_in_force)
+                        self.set_signal(SignalType.BUY, size=signal_size, time_in_force=time_in_force)
 
                 elif sell_called:
                     # Determine order type based on backtesting.py parameters
                     if stop_price is not None and limit_price is not None:
                         # Stop-limit order: both stop and limit specified
-                        self.set_signal(SignalType.STOP_LIMIT_SELL, confidence=0.8, size=signal_size,
+                        self.set_signal(SignalType.STOP_LIMIT_SELL, size=signal_size,
                                       stop_price=stop_price, limit_price=limit_price, time_in_force=time_in_force)
                     elif stop_price is not None:
                         # Stop order: only stop specified
-                        self.set_signal(SignalType.STOP_SELL, confidence=0.8, size=signal_size,
+                        self.set_signal(SignalType.STOP_SELL, size=signal_size,
                                       stop_price=stop_price, time_in_force=time_in_force)
                     elif limit_price is not None:
                         # Limit order: only limit specified
-                        self.set_signal(SignalType.LIMIT_SELL, confidence=0.8, size=signal_size,
+                        self.set_signal(SignalType.LIMIT_SELL, size=signal_size,
                                       limit_price=limit_price, time_in_force=time_in_force)
                     else:
                         # Market order: no limit or stop specified
-                        self.set_signal(SignalType.SELL, confidence=0.8, size=signal_size, time_in_force=time_in_force)
+                        self.set_signal(SignalType.SELL, size=signal_size, time_in_force=time_in_force)
 
                 elif close_called:
-                    self.set_signal(SignalType.CLOSE, confidence=0.6, time_in_force=time_in_force)
+                    self.set_signal(SignalType.CLOSE, time_in_force=time_in_force)
                 else:
-                    self.set_signal(SignalType.HOLD, confidence=0.1)
+                    self.set_signal(SignalType.HOLD)
 
                 # Store current indicators (try to extract common ones)
                 self.indicators_values = {}

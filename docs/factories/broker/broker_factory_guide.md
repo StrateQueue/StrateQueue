@@ -458,7 +458,7 @@ class YourBrokerExecutor(BaseBroker):
         if self.portfolio_manager:
             # Use portfolio manager for position sizing
             position_size = self.portfolio_manager.calculate_position_size(
-                symbol, signal.confidence, signal.signal
+                symbol, signal.signal
             )
         else:
             # Default position sizing

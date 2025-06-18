@@ -67,8 +67,7 @@ signals = extractor.extract_signals(symbol_data)
 
 # Access individual signals
 for symbol, signal in signals.items():
-    print(f"{symbol}: {signal.signal.value} @ ${signal.price:.2f} "
-          f"(confidence: {signal.confidence:.2f})")
+    print(f"{symbol}: {signal.signal} @ ${signal.price:.2f}")
 ```
 
 ## Writing Multi-Ticker Strategies
@@ -165,8 +164,8 @@ MultiIndex DataFrame with columns:
 **Output**: Dictionary of TradingSignals
 ```python
 {
-    'AAPL': TradingSignal(signal=BUY, confidence=0.85, price=150.23, ...),
-    'MSFT': TradingSignal(signal=HOLD, confidence=0.0, price=280.45, ...),
+    'AAPL': TradingSignal(signal=BUY, price=150.23, ...),
+    'MSFT': TradingSignal(signal=HOLD, price=280.45, ...),
     ...
 }
 ```
