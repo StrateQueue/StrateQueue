@@ -111,13 +111,14 @@ class VectorBTSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):
             data = historical_data[required_columns].copy()
             
             # Call the strategy function to get entries and exits
-            entries, exits = self._call_strategy(data)
+            entries, exits, size = self._call_strategy(data)
             
             # Build a tiny portfolio (for NAV / PnL metrics) with granularity-aware frequency
             pf = vbt.Portfolio.from_signals(
                 close=data['Close'],
                 entries=entries,
                 exits=exits,
+                size=size,
                 init_cash=10_000,
                 freq=self._convert_granularity_to_freq(self.granularity)
             )
@@ -222,8 +223,8 @@ class VectorBTSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):
         # Return mapped frequency or default to the granularity as-is
         return granularity_map.get(granularity.lower(), granularity)
     
-    def _call_strategy(self, data: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
-        """Call the strategy function and return entries/exits"""
+    def _call_strategy(self, data: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series | None]:
+        """Call the strategy function and return entries/exits/(size)"""
         try:
             if inspect.isfunction(self.strategy_class):
                 # Function-based strategy
@@ -246,25 +247,31 @@ class VectorBTSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):
             else:
                 raise ValueError("Strategy must be a function or a class")
             
-            # Ensure result is a tuple of entries, exits
-            if not isinstance(result, tuple) or len(result) != 2:
-                raise ValueError("VectorBT strategy must return (entries, exits) tuple")
+            # Validate length
+            if not isinstance(result, tuple) or len(result) not in (2, 3):
+                raise ValueError(
+                    "VectorBT strategy must return (entries, exits) or (entries, exits, size)"
+                )
             
-            entries, exits = result
+            # Unpack safely
+            entries, exits = result[0], result[1]
+            size = result[2] if len(result) == 3 else None
             
             # Convert to pandas Series if needed
             if not isinstance(entries, pd.Series):
                 entries = pd.Series(entries, index=data.index)
             if not isinstance(exits, pd.Series):
                 exits = pd.Series(exits, index=data.index)
+            if size is not None and not isinstance(size, pd.Series):
+                size = pd.Series(size, index=data.index)
             
-            return entries, exits
+            return entries, exits, size
             
         except Exception as e:
             logger.error(f"Error calling VectorBT strategy: {e}")
             # Return empty signals
             empty_signal = pd.Series(False, index=data.index)
-            return empty_signal, empty_signal
+            return empty_signal, empty_signal, None
     
     def get_minimum_bars_required(self) -> int:
         """Get minimum number of bars needed for signal extraction"""
@@ -442,26 +449,7 @@ class VectorBTMultiTickerSignalExtractor(BaseSignalExtractor, EngineSignalExtrac
             logger.error(f"Error extracting signal for {symbol}: {e}")
             return self._create_hold_signal(error=str(e))
     
-    def _safe_get_last_value(self, series: pd.Series, default=None):
-        """Safely get the last value from a pandas Series"""
-        if series is None or len(series) == 0:
-            return default
-        try:
-            return series.iloc[-1]
-        except (IndexError, KeyError):
-            return default
-    
-    def _clean_indicators(self, indicators: dict) -> dict:
-        """Clean indicators by converting numpy types to native Python types"""
-        cleaned = {}
-        for key, value in indicators.items():
-            if hasattr(value, 'item'):  # numpy scalar
-                cleaned[key] = value.item()
-            elif isinstance(value, (np.integer, np.floating)):
-                cleaned[key] = float(value) if isinstance(value, np.floating) else int(value)
-            else:
-                cleaned[key] = value
-        return cleaned
+
     
 
 
