@@ -89,6 +89,97 @@ class VectorBTSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):
         self.min_bars_required = min_bars_required
         self.granularity = granularity
         
+    def _validate_and_normalize_data(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Validate and normalize data columns for VectorBT compatibility.
+        
+        Supports:
+        - Case-insensitive column names (close, Close, CLOSE all work)
+        - Optional Volume column 
+        - Close-only DataFrames (minimum requirement)
+        - Standard OHLCV DataFrames
+        
+        Args:
+            data: Input DataFrame with price data
+            
+        Returns:
+            DataFrame with normalized column names
+            
+        Raises:
+            ValueError: If minimum requirements (Close column) are not met
+        """
+        # Create a case-insensitive column mapping
+        column_mapping = {}
+        available_cols = list(data.columns)
+        
+        # Required columns (case-insensitive)
+        required_patterns = {
+            'Close': ['close', 'Close', 'CLOSE'],
+        }
+        
+        # Optional columns (case-insensitive) 
+        optional_patterns = {
+            'Open': ['open', 'Open', 'OPEN'],
+            'High': ['high', 'High', 'HIGH'], 
+            'Low': ['low', 'Low', 'LOW'],
+            'Volume': ['volume', 'Volume', 'VOLUME', 'vol', 'Vol', 'VOL']
+        }
+        
+        # Find required columns
+        for standard_name, patterns in required_patterns.items():
+            found = False
+            for pattern in patterns:
+                if pattern in available_cols:
+                    column_mapping[standard_name] = pattern
+                    found = True
+                    break
+            if not found:
+                raise ValueError(f"Required column '{standard_name}' not found. Available columns: {available_cols}")
+        
+        # Find optional columns
+        all_patterns = {**required_patterns, **optional_patterns}
+        for standard_name, patterns in optional_patterns.items():
+            for pattern in patterns:
+                if pattern in available_cols:
+                    column_mapping[standard_name] = pattern
+                    break
+        
+        # Create normalized DataFrame with available columns
+        normalized_data = pd.DataFrame(index=data.index)
+        for standard_name, original_name in column_mapping.items():
+            normalized_data[standard_name] = data[original_name]
+            
+        # If we only have Close, create minimal OHLC from Close prices
+        if len(column_mapping) == 1 and 'Close' in column_mapping:
+            logger.info("Only Close prices available, creating OHLC from Close data")
+            close_col = normalized_data['Close']
+            normalized_data['Open'] = close_col
+            normalized_data['High'] = close_col  
+            normalized_data['Low'] = close_col
+            # Volume defaults to 0 if not provided
+            normalized_data['Volume'] = 0
+        
+        # Ensure we have the minimum required columns for VectorBT Portfolio
+        required_for_portfolio = ['Open', 'High', 'Low', 'Close']
+        missing_cols = [col for col in required_for_portfolio if col not in normalized_data.columns]
+        if missing_cols:
+            # Try to construct missing OHLC columns from Close if possible
+            if 'Close' in normalized_data.columns:
+                close_col = normalized_data['Close']
+                for col in missing_cols:
+                    if col in ['Open', 'High', 'Low']:
+                        normalized_data[col] = close_col
+                        logger.debug(f"Created {col} column from Close prices")
+            else:
+                raise ValueError(f"Cannot construct required OHLC data. Missing: {missing_cols}")
+        
+        # Add Volume column if missing (required by some VectorBT operations)
+        if 'Volume' not in normalized_data.columns:
+            normalized_data['Volume'] = 0
+            logger.debug("Added Volume column with zeros (not provided in source data)")
+            
+        return normalized_data
+
     def extract_signal(self, historical_data: pd.DataFrame) -> TradingSignal:
         """Extract trading signal from historical data using VectorBT"""
         try:
@@ -102,13 +193,8 @@ class VectorBTSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):
                     indicators={}
                 )
             
-            # Prepare data for VectorBT format
-            required_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
-            if not all(col in historical_data.columns for col in required_columns):
-                logger.error(f"Historical data missing required columns: {required_columns}")
-                raise ValueError("Invalid data format")
-            
-            data = historical_data[required_columns].copy()
+            # Validate and normalize data columns flexibly
+            data = self._validate_and_normalize_data(historical_data)
             
             # Call the strategy function to get entries and exits
             entries, exits, size = self._call_strategy(data)
