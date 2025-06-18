@@ -3,7 +3,7 @@ CLI module for the trading system.
 
 Now provides a modular CLI architecture with separate components for:
 - Commands: Individual command implementations
-- Parsers: Argument parsing functionality  
+- Parsers: Argument parsing functionality
 - Validators: Input validation
 - Formatters: Output formatting
 - Utils: Common utilities
@@ -17,44 +17,45 @@ The old monolithic cli.py is replaced with a modular system using:
 """
 
 # New modular CLI entry point
+# Import command registry to ensure commands are registered
+from . import command_registry
 from .cli import main as cli_main
 
 # Core modular components
-from .command_factory import CommandFactory, register_command, get_supported_commands, create_command
-from .commands import BaseCommand, ListCommand, StatusCommand, SetupCommand
-from .parsers import BaseParser
-from .validators import BaseValidator
+from .command_factory import (
+    CommandFactory,
+    create_command,
+    get_supported_commands,
+    register_command,
+)
+from .commands import BaseCommand, ListCommand, SetupCommand, StatusCommand
 from .formatters import BaseFormatter, InfoFormatter
-from .utils import setup_logging, get_cli_logger
-
-# Import command registry to ensure commands are registered
-from . import command_registry
+from .parsers import BaseParser
+from .utils import get_cli_logger, setup_logging
+from .validators import BaseValidator
 
 # Legacy support - redirect old main to new cli_main
 main = cli_main
 
 __all__ = [
     # Main entry point (new and legacy)
-    'cli_main',
-    'main',
-    
+    "cli_main",
+    "main",
     # Command system
-    'CommandFactory',
-    'register_command', 
-    'get_supported_commands',
-    'create_command',
-    'BaseCommand',
-    'ListCommand',
-    'StatusCommand', 
-    'SetupCommand',
-    
+    "CommandFactory",
+    "register_command",
+    "get_supported_commands",
+    "create_command",
+    "BaseCommand",
+    "ListCommand",
+    "StatusCommand",
+    "SetupCommand",
     # Modular components
-    'BaseParser',
-    'BaseValidator', 
-    'BaseFormatter',
-    'InfoFormatter',
-    
+    "BaseParser",
+    "BaseValidator",
+    "BaseFormatter",
+    "InfoFormatter",
     # Utilities
-    'setup_logging',
-    'get_cli_logger',
-] 
+    "setup_logging",
+    "get_cli_logger",
+]

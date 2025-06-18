@@ -37,13 +37,16 @@ classifiers = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "numpy>=1.24.0",
+    # Core dependencies - minimal for basic functionality
     "pandas>=2.0.0",
     "requests>=2.31.0",
     "websocket-client>=1.6.0",
     "python-dotenv>=1.0.0",
-    "alpaca-trade-api>=3.0.0",
+    "alpaca-py>=0.40.0",
     "questionary>=1.10.0",
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "python-multipart"
 ]
 
 [project.optional-dependencies]
@@ -51,10 +54,21 @@ dependencies = [
 interactive = [
     "questionary>=1.10.0",
 ]
-# Backtesting support
+
+# Backtesting.py engine support (NumPy 2.x compatible)
 backtesting = [
-    "backtesting>=0.3.3",
+    "numpy>=1.24,<3",
+    "bokeh>=2.4.2",
+    "backtesting.py @ git+https://github.com/dantownsend/backtesting.py.git@master",
 ]
+
+# VectorBT engine support (NumPy 1.x only due to dependency conflicts)
+vectorbt = [
+    "numpy<2.0",
+    "numba>=0.56",
+    "vectorbt>=0.26",
+]
+
 # Advanced data processing
 analytics = [
     "scipy>=1.11.0",
@@ -80,9 +94,24 @@ dev = [
     "isort>=5.12.0",
     "pre-commit>=3.0.0",
 ]
-# All optional dependencies
-all = [
+# Full package with backtesting.py (recommended)
+full = [
+    "numpy>=1.24,<3",
     "backtesting>=0.3.3",
+    "scipy>=1.11.0",
+    "ta-lib>=0.4.0",
+    "psycopg2-binary>=2.9.7",
+    "redis>=4.6.0",
+    "prometheus-client>=0.17.0",
+    "structlog>=23.1.0",
+    "questionary>=1.10.0",
+]
+# All engines (note: conflicting numpy versions - choose one!)
+all = [
+    "numpy>=1.24,<3",
+    "backtesting>=0.3.3",
+    "vectorbt>=0.25,<0.26",
+    "numba>=0.56,<0.57",
     "scipy>=1.11.0",
     "ta-lib>=0.4.0",
     "psycopg2-binary>=2.9.7",

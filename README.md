@@ -38,12 +38,49 @@ stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m --live
 ## 📦 Installation
 
 ```bash
-# Install the complete package
-pip install stratequeue[all]
+# Install the complete package with backtesting.py (recommended)
+pip install stratequeue[full]
 
-# Or just the core (for testing strategies)
+# Or just the core (minimal dependencies)
 pip install stratequeue
+
+# Specific engine support
+pip install stratequeue[backtesting]  # For backtesting.py engine
+pip install stratequeue[vectorbt]    # For VectorBT engine
 ```
+
+### 🔧 Dependency Matrix
+
+StrateQueue uses optional dependencies to avoid conflicts between different trading engines:
+
+| Installation Command | NumPy Version | Trading Engines | Best For |
+|---------------------|---------------|-----------------|-----------|
+| `pip install stratequeue` | None (pandas brings NumPy 2.x) | None (signals only) | Testing, development |
+| `pip install stratequeue[backtesting]` | 1.24+ to <3.0 | ✅ backtesting.py | Most users, NumPy 2.x compatible |
+| `pip install stratequeue[vectorbt]` | <2.0 (1.x only) | ✅ VectorBT | Advanced vectorized backtesting |
+| `pip install stratequeue[full]` | 1.24+ to <3.0 | ✅ backtesting.py + extras | Production deployments |
+
+#### ⚠️ Important: NumPy Compatibility
+
+**VectorBT and backtesting.py cannot be installed together** due to incompatible NumPy requirements:
+
+- **VectorBT**: Requires NumPy 1.x (compiled against older numba)
+- **backtesting.py**: Compatible with NumPy 2.x 
+
+Choose one engine per environment:
+
+```bash
+# Option A: Modern stack with backtesting.py (recommended)
+pip install stratequeue[backtesting]
+
+# Option B: VectorBT for advanced vectorized operations
+pip install stratequeue[vectorbt]
+
+# DON'T DO: This will cause dependency conflicts
+pip install stratequeue[backtesting,vectorbt]  # ❌ Incompatible
+```
+
+**Recommendation**: Start with `stratequeue[backtesting]` for the most compatible experience.
 
 ## ⚡ Quick Start
 
@@ -113,8 +150,8 @@ stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m
 # Paper trading with custom timeframe
 stratequeue deploy --strategy momentum.py --symbol MSFT --granularity 1h --paper
 
-# Live trading with custom broker
-stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m --broker alpaca --live
+# Live trading with custom broker and engine
+stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m --broker alpaca --engine backtesting --live
 
 # Live trading with real money (be careful!)
 stratequeue deploy --strategy trend.py --symbol GOOGL --granularity 1m --live
@@ -137,6 +174,7 @@ stratequeue deploy --strategy scalper.py,swing.py --allocation 0.4,0.6 --granula
 - `--data-source` - Data provider (default: demo)
 - `--granularity` - Time intervals (1s, 1m, 5m, 1h, 1d)
 - `--broker` - Trading broker (auto-detected from environment)
+- `--engine` - Trading engine (auto-detected from strategy file)
 - `--duration` - Runtime in minutes (default: 60)
 - `--verbose` - Enable detailed logging output
 
@@ -186,6 +224,12 @@ stratequeue list brokers
 
 # See available time intervals
 stratequeue list granularities
+
+# See available trading engines (only ones you can use)
+stratequeue list engines
+
+# See all engines including ones that need installation
+stratequeue list engines --all
 
 # Quick aliases
 stratequeue ls brokers          # Short form
@@ -260,6 +304,27 @@ stratequeue setup broker alpaca
 
 # List all available brokers
 stratequeue list brokers
+```
+
+## 🧠 Trading Engines
+
+StrateQueue supports multiple trading engines, each with different capabilities:
+
+| Engine | Status | NumPy Version | Best For | Install Command |
+|--------|--------|---------------|----------|-----------------|
+| **backtesting.py** | ✅ Ready | 2.x compatible | Most strategies, modern stack | `pip install stratequeue[backtesting]` |
+| **VectorBT** | ✅ Available | 1.x only | Vectorized operations, advanced analysis | `pip install stratequeue[vectorbt]` |
+
+### **🔧 Engine Selection**
+```bash
+# Auto-detect engine from strategy file (recommended)
+stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m
+
+# Explicitly specify engine
+stratequeue deploy --strategy sma.py --symbol AAPL --granularity 1m --engine backtesting
+
+# List available engines
+stratequeue list engines
 ```
 
 ## 📊 Data Sources
@@ -458,7 +523,7 @@ stratequeue deploy --strategy sma.py,momentum.py --allocation 0.6,0.6  # ❌ Bad
 pip show stratequeue
 
 # Reinstall if needed
-pip install --upgrade stratequeue[all]
+pip install --upgrade stratequeue[full]
 
 # Check CLI accessibility
 which stratequeue
@@ -591,7 +656,7 @@ This guarantees no collisions when you deploy the same file to multiple symbols.
 **Ready to transform your backtesting strategies into live trading systems?** 
 
 ```bash
-pip install stratequeue[all]
+pip install stratequeue[full]
 stratequeue deploy --strategy your_strategy.py --symbol AAPL --granularity 1m
 ```
 

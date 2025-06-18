@@ -1,0 +1,3 @@
+#!/Users/samueltinnerholm/Documents/GitHub/StrateQueue/venvs/vectorbt/bin/python3.10
+from numba.pycc import main
+main()

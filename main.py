@@ -17,4 +17,4 @@ Usage:
 from src.StrateQueue import cli_main
 
 if __name__ == "__main__":
-    exit(cli_main()) 
+    exit(cli_main())

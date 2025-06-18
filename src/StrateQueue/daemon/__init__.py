@@ -7,8 +7,9 @@ This package contains the trading daemon server and related utilities.
 import subprocess
 import sys
 import time
-import requests
 from typing import Tuple
+
+import requests
 
 from .server import DEFAULT_DAEMON_HOST, DEFAULT_DAEMON_PORT
 
@@ -27,7 +28,7 @@ def start_daemon_process(
     port: int = DEFAULT_DAEMON_PORT,
     log_file: str = "~/.stratequeue/daemon.log",
     verbose: bool = False
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """
     Start the daemon as a background process and wait for it to be healthy.
 
@@ -83,4 +84,4 @@ def start_daemon_process(
     except Exception as e:
         return False, f"Failed to start daemon process: {e}"
 
-__version__ = "0.0.1" 
+__version__ = "0.0.1"

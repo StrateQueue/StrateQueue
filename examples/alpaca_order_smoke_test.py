@@ -15,12 +15,15 @@ Simply run:
     python3.10 examples/alpaca_order_smoke_test.py
 """
 
-import os, time, sys, logging, uuid, pprint
-from datetime import datetime, timedelta
+import logging
+import sys
+import time
 
 import pandas as pd
-from StrateQueue.core.signal_extractor import TradingSignal, SignalType
+
 from StrateQueue.brokers.alpaca_broker import create_alpaca_broker_from_env
+from StrateQueue.core.signal_extractor import SignalType, TradingSignal
+
 
 # --------------------------------------------------------------------------- #
 # Helper – pull a last price so limit/stop prices are "reasonable"            #
@@ -45,6 +48,7 @@ def last_trade_price(broker, symbol: str, fallback: float = 100.0) -> float:
         logging.warning("Couldn't fetch live quote – using fallback price.")
     return fallback
 
+
 # --------------------------------------------------------------------------- #
 # Build the test plan                                                         #
 # --------------------------------------------------------------------------- #
@@ -59,51 +63,188 @@ def build_test_signals(price: float) -> list[tuple[str, str, TradingSignal]]:
 
     tests: list[tuple[str, str, TradingSignal]] = [
         # Basic single-leg BUY orders only (avoid sell position issues) ---
-        ("Market BUY (DAY)"   , stock, TradingSignal(SignalType.BUY, 1, p, pd.Timestamp.now(), {},        
-                                                     time_in_force="day", size=1.0)),
-        ("Limit BUY (DAY)"    , stock, TradingSignal(SignalType.LIMIT_BUY,1,p,pd.Timestamp.now(),{},
-                                                     limit_price=p*0.995, time_in_force="day", size=1.0)),
-        ("Stop BUY (DAY)"     , stock, TradingSignal(SignalType.STOP_BUY ,1,p,pd.Timestamp.now(),{},
-                                                     stop_price=p*1.005, time_in_force="day", size=1.0)),
-        ("Stop-Limit BUY (DAY)", stock, TradingSignal(SignalType.STOP_LIMIT_BUY,1,p,pd.Timestamp.now(),{},
-                                                      stop_price=p*1.004, limit_price=p*1.006, 
-                                                      time_in_force="day", size=1.0)),
-
+        (
+            "Market BUY (DAY)",
+            stock,
+            TradingSignal(
+                SignalType.BUY, 1, p, pd.Timestamp.now(), {}, time_in_force="day", size=1.0
+            ),
+        ),
+        (
+            "Limit BUY (DAY)",
+            stock,
+            TradingSignal(
+                SignalType.LIMIT_BUY,
+                1,
+                p,
+                pd.Timestamp.now(),
+                {},
+                limit_price=p * 0.995,
+                time_in_force="day",
+                size=1.0,
+            ),
+        ),
+        (
+            "Stop BUY (DAY)",
+            stock,
+            TradingSignal(
+                SignalType.STOP_BUY,
+                1,
+                p,
+                pd.Timestamp.now(),
+                {},
+                stop_price=p * 1.005,
+                time_in_force="day",
+                size=1.0,
+            ),
+        ),
+        (
+            "Stop-Limit BUY (DAY)",
+            stock,
+            TradingSignal(
+                SignalType.STOP_LIMIT_BUY,
+                1,
+                p,
+                pd.Timestamp.now(),
+                {},
+                stop_price=p * 1.004,
+                limit_price=p * 1.006,
+                time_in_force="day",
+                size=1.0,
+            ),
+        ),
         # Advanced order-classes (BUY only) ------------------------------
-        ("Bracket (entry+SL+TP)", stock, TradingSignal(SignalType.BUY,1,p,pd.Timestamp.now(),
-                                 {"tp":p*1.03,"sl":p*0.97}, time_in_force="day", size=1.0)),
-        ("OTO (TP only)"        , stock, TradingSignal(SignalType.LIMIT_BUY,1,p,pd.Timestamp.now(),
-                                 {"tp":p*1.02},limit_price=p*0.99, time_in_force="day", size=1.0)),
-        ("OTO (SL only)"        , stock, TradingSignal(SignalType.BUY,1,p,pd.Timestamp.now(),
-                                 {"sl":p*0.98}, time_in_force="day", size=1.0)),
-
+        (
+            "Bracket (entry+SL+TP)",
+            stock,
+            TradingSignal(
+                SignalType.BUY,
+                1,
+                p,
+                pd.Timestamp.now(),
+                {"tp": p * 1.03, "sl": p * 0.97},
+                time_in_force="day",
+                size=1.0,
+            ),
+        ),
+        (
+            "OTO (TP only)",
+            stock,
+            TradingSignal(
+                SignalType.LIMIT_BUY,
+                1,
+                p,
+                pd.Timestamp.now(),
+                {"tp": p * 1.02},
+                limit_price=p * 0.99,
+                time_in_force="day",
+                size=1.0,
+            ),
+        ),
+        (
+            "OTO (SL only)",
+            stock,
+            TradingSignal(
+                SignalType.BUY,
+                1,
+                p,
+                pd.Timestamp.now(),
+                {"sl": p * 0.98},
+                time_in_force="day",
+                size=1.0,
+            ),
+        ),
         # Time-in-force variations ----------------------------------------
-        ("Limit BUY (GTC)"    , stock, TradingSignal(SignalType.LIMIT_BUY,1,p,pd.Timestamp.now(),{},
-                                                     limit_price=p*0.995, time_in_force="gtc", size=1.0)),
-        ("Limit BUY (IOC)"    , stock, TradingSignal(SignalType.LIMIT_BUY,1,p,pd.Timestamp.now(),{},
-                                                     limit_price=p*0.995, time_in_force="ioc", size=1.0)),
-        ("Limit BUY (FOK)"    , stock, TradingSignal(SignalType.LIMIT_BUY,1,p,pd.Timestamp.now(),{},
-                                                     limit_price=p*0.995, time_in_force="fok", size=1.0)),
-        ("Limit BUY (OPG)"    , stock, TradingSignal(SignalType.LIMIT_BUY,1,p,pd.Timestamp.now(),{},
-                                                     limit_price=p*0.995, time_in_force="opg", size=1.0)),
-
+        (
+            "Limit BUY (GTC)",
+            stock,
+            TradingSignal(
+                SignalType.LIMIT_BUY,
+                1,
+                p,
+                pd.Timestamp.now(),
+                {},
+                limit_price=p * 0.995,
+                time_in_force="gtc",
+                size=1.0,
+            ),
+        ),
+        (
+            "Limit BUY (IOC)",
+            stock,
+            TradingSignal(
+                SignalType.LIMIT_BUY,
+                1,
+                p,
+                pd.Timestamp.now(),
+                {},
+                limit_price=p * 0.995,
+                time_in_force="ioc",
+                size=1.0,
+            ),
+        ),
+        (
+            "Limit BUY (FOK)",
+            stock,
+            TradingSignal(
+                SignalType.LIMIT_BUY,
+                1,
+                p,
+                pd.Timestamp.now(),
+                {},
+                limit_price=p * 0.995,
+                time_in_force="fok",
+                size=1.0,
+            ),
+        ),
+        (
+            "Limit BUY (OPG)",
+            stock,
+            TradingSignal(
+                SignalType.LIMIT_BUY,
+                1,
+                p,
+                pd.Timestamp.now(),
+                {},
+                limit_price=p * 0.995,
+                time_in_force="opg",
+                size=1.0,
+            ),
+        ),
         # Extended hours --------------------------------------------------
-        ("Extended-hrs LIMIT_BUY", stock,
-         TradingSignal(SignalType.LIMIT_BUY,1,p,pd.Timestamp.now(),
-                       {"extended_hours":True},limit_price=p*0.995, time_in_force="day", size=1.0)),
-
+        (
+            "Extended-hrs LIMIT_BUY",
+            stock,
+            TradingSignal(
+                SignalType.LIMIT_BUY,
+                1,
+                p,
+                pd.Timestamp.now(),
+                {"extended_hours": True},
+                limit_price=p * 0.995,
+                time_in_force="day",
+                size=1.0,
+            ),
+        ),
         # Crypto (using notional amounts) --------------------------------
-        ("Crypto Market BUY", crypto, TradingSignal(SignalType.BUY,1,p, pd.Timestamp.now(),{}, size=0.1)),  # $100 worth
+        (
+            "Crypto Market BUY",
+            crypto,
+            TradingSignal(SignalType.BUY, 1, p, pd.Timestamp.now(), {}, size=0.1),
+        ),  # $100 worth
     ]
     return tests
+
 
 # --------------------------------------------------------------------------- #
 # Main test runner                                                            #
 # --------------------------------------------------------------------------- #
 def main():
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(message)s",
-                        handlers=[logging.StreamHandler(sys.stdout)])
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)],
+    )
     log = logging.getLogger("smoke")
 
     broker = create_alpaca_broker_from_env()
@@ -112,7 +253,7 @@ def main():
         sys.exit(1)
 
     price = last_trade_price(broker, "AAPL", fallback=170.0)
-    plan  = build_test_signals(price)
+    plan = build_test_signals(price)
 
     passed, failed = 0, 0
     log.info(f"🧪 Running {len(plan)} order-validation tests …\n")
@@ -122,7 +263,7 @@ def main():
         if not sig.metadata:
             sig.metadata = {}
         sig.metadata["label"] = desc.replace(" ", "_").lower()
-        sig.metadata["validate_only"] = True          # <-- important!
+        sig.metadata["validate_only"] = True  # <-- important!
 
         result = broker.execute_signal(symbol, sig)
         if result.success:
@@ -133,7 +274,7 @@ def main():
             status = "❌"
             failed += 1
             order_id_str = f"error: {result.message}" if result.message else ""
-            
+
         log.info(f"{status} {desc:35s}  ➜  symbol={symbol:7s}  {order_id_str}")
 
         # Respect API rate-limit
@@ -142,11 +283,13 @@ def main():
     log.info("\n────────── Summary ──────────")
     log.info(f"Passed: {passed}")
     log.info(f"Failed: {failed}")
-    log.info("Note: all requests were sent with validate_only=True "
-             "(they never reach the market).")
+    log.info(
+        "Note: all requests were sent with validate_only=True " "(they never reach the market)."
+    )
 
     # Cleanup: nothing to cancel because nothing was actually submitted
     broker.disconnect()
+
 
 if __name__ == "__main__":
     main()

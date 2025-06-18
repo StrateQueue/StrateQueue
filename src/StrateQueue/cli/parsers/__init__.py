@@ -8,5 +8,5 @@ for the modular CLI system.
 from .base_parser import BaseParser
 
 __all__ = [
-    'BaseParser',
-] 
+    "BaseParser",
+]

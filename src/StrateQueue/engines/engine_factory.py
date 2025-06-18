@@ -16,7 +16,9 @@ logger = logging.getLogger(__name__)
 class EngineFactory:
     """Factory for creating trading engine instances"""
     
-    _engines: Dict[str, type] = {}
+    _engines: Dict[str, type] = {}  # Only engines with available dependencies
+    _all_known_engines: Dict[str, type] = {}  # All engines, regardless of availability
+    _unavailable_engines: Dict[str, str] = {}  # Engines missing dependencies with reasons
     _initialized = False
     
     @classmethod
@@ -25,18 +27,43 @@ class EngineFactory:
         if cls._initialized:
             return
             
+        # backtesting.py engine
         try:
-            from .backtesting_engine import BacktestingEngine
-            cls._engines['backtesting'] = BacktestingEngine
-            logger.debug("Registered backtesting engine")
+            from .backtesting_engine import BacktestingEngine, is_available as bt_available
+            cls._all_known_engines['backtesting'] = BacktestingEngine
+            
+            if bt_available():
+                cls._engines['backtesting'] = BacktestingEngine
+                logger.debug("Registered backtesting engine")
+            else:
+                cls._unavailable_engines['backtesting'] = "backtesting.py not installed. Run: pip install stratequeue[backtesting]"
+                logger.debug("backtesting.py dependencies not available - engine skipped")
         except ImportError as e:
-            logger.warning(f"Could not load backtesting engine: {e}")
+            logger.debug(f"Could not import backtesting engine module: {e}")
+        
+        # VectorBT engine
+        try:
+            from .vectorbt_engine import VectorBTEngine, is_available as vbt_available
+            cls._all_known_engines['vectorbt'] = VectorBTEngine
+            
+            if vbt_available():
+                cls._engines['vectorbt'] = VectorBTEngine
+                logger.debug("Registered VectorBT engine")
+            else:
+                cls._unavailable_engines['vectorbt'] = "VectorBT not installed. Run: pip install stratequeue[vectorbt]"
+                logger.debug("VectorBT dependencies not available - engine skipped")
+        except ImportError as e:
+            logger.debug(f"Could not import VectorBT engine module: {e}")
         
         # Future engines can be added here
         try:
-            # from .zipline_engine import ZiplineEngine
-            # cls._engines['zipline'] = ZiplineEngine
-            # logger.debug("Registered zipline engine")
+            # from .zipline_engine import ZiplineEngine, is_available as zipline_available
+            # cls._all_known_engines['zipline'] = ZiplineEngine
+            # if zipline_available():
+            #     cls._engines['zipline'] = ZiplineEngine
+            #     logger.debug("Registered zipline engine")
+            # else:
+            #     cls._unavailable_engines['zipline'] = "Zipline not installed. Run: pip install stratequeue[zipline]"
             pass
         except ImportError:
             # Zipline engine not implemented yet
@@ -72,27 +99,63 @@ class EngineFactory:
     @classmethod
     def get_supported_engines(cls) -> List[str]:
         """
-        Get list of supported engine types
+        Get list of supported engine types (only engines with available dependencies)
         
         Returns:
-            List of engine type names
+            List of engine type names that can be instantiated
         """
         cls._initialize_engines()
         return list(cls._engines.keys())
     
     @classmethod
+    def get_all_known_engines(cls) -> List[str]:
+        """
+        Get list of all known engine types (regardless of whether dependencies are available)
+        
+        Returns:
+            List of all engine type names that StrateQueue knows about
+        """
+        cls._initialize_engines()
+        return list(cls._all_known_engines.keys())
+    
+    @classmethod
+    def get_unavailable_engines(cls) -> Dict[str, str]:
+        """
+        Get information about unavailable engines and why they're unavailable
+        
+        Returns:
+            Dictionary mapping engine names to reason they're unavailable
+        """
+        cls._initialize_engines()
+        return cls._unavailable_engines.copy()
+    
+    @classmethod
     def is_engine_supported(cls, engine_type: str) -> bool:
         """
-        Check if an engine type is supported
+        Check if an engine type is supported (has available dependencies)
         
         Args:
             engine_type: Engine type to check
             
         Returns:
-            True if engine is supported
+            True if engine is supported and can be instantiated
         """
         cls._initialize_engines()
         return engine_type in cls._engines
+    
+    @classmethod
+    def is_engine_known(cls, engine_type: str) -> bool:
+        """
+        Check if an engine type is known (regardless of dependency availability)
+        
+        Args:
+            engine_type: Engine type to check
+            
+        Returns:
+            True if engine is known to StrateQueue
+        """
+        cls._initialize_engines()
+        return engine_type in cls._all_known_engines
 
 
 def detect_engine_type(strategy_path: str) -> str:
@@ -122,6 +185,8 @@ def detect_engine_type(strategy_path: str) -> str:
             logger.debug(f"backtesting.py indicators: {indicators['backtesting']}")
         if indicators.get('zipline'):
             logger.debug(f"Zipline indicators: {indicators['zipline']}")
+        if indicators.get('vectorbt'):
+            logger.debug(f"VectorBT indicators: {indicators['vectorbt']}")
             
         return engine_type
         
@@ -158,12 +223,32 @@ def auto_create_engine(strategy_path: str) -> TradingEngine:
 
 def get_supported_engines() -> List[str]:
     """
-    Get list of supported engine types
+    Get list of supported engine types (only engines with available dependencies)
     
     Returns:
-        List of engine type names
+        List of engine type names that can be instantiated
     """
     return EngineFactory.get_supported_engines()
+
+
+def get_all_known_engines() -> List[str]:
+    """
+    Get list of all known engine types (regardless of whether dependencies are available)
+    
+    Returns:
+        List of all engine type names that StrateQueue knows about
+    """
+    return EngineFactory.get_all_known_engines()
+
+
+def get_unavailable_engines() -> Dict[str, str]:
+    """
+    Get information about unavailable engines and why they're unavailable
+    
+    Returns:
+        Dictionary mapping engine names to reason they're unavailable
+    """
+    return EngineFactory.get_unavailable_engines()
 
 
 def validate_strategy_compatibility(strategy_path: str, engine_type: str = None) -> bool:

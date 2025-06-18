@@ -14,14 +14,9 @@ Public API:
     DisplayManager: Handles output formatting and logging
 """
 
-from .orchestrator import LiveTradingSystem
 from .data_manager import DataManager
-from .trading_processor import TradingProcessor
 from .display_manager import DisplayManager
+from .orchestrator import LiveTradingSystem
+from .trading_processor import TradingProcessor
 
-__all__ = [
-    'LiveTradingSystem',
-    'DataManager',
-    'TradingProcessor', 
-    'DisplayManager'
-] 
+__all__ = ["LiveTradingSystem", "DataManager", "TradingProcessor", "DisplayManager"]

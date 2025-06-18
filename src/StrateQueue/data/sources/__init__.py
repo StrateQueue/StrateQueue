@@ -4,15 +4,15 @@ Data Sources Package
 Contains modular data ingestion classes for different data providers.
 """
 
-from .data_source_base import BaseDataIngestion, MarketData
-from .polygon import PolygonDataIngestion  
 from .coinmarketcap import CoinMarketCapDataIngestion
+from .data_source_base import BaseDataIngestion, MarketData
 from .demo import TestDataIngestion
+from .polygon import PolygonDataIngestion
 
 __all__ = [
     "BaseDataIngestion",
-    "MarketData", 
+    "MarketData",
     "PolygonDataIngestion",
-    "CoinMarketCapDataIngestion", 
-    "TestDataIngestion"
-] 
+    "CoinMarketCapDataIngestion",
+    "TestDataIngestion",
+]

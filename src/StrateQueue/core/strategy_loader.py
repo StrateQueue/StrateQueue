@@ -11,9 +11,6 @@ import importlib.util
 import inspect
 import logging
 import os
-import re
-from pathlib import Path
-from typing import Type, Optional
 
 from .signal_extractor import SignalExtractorStrategy, SignalType
 
@@ -21,73 +18,73 @@ logger = logging.getLogger(__name__)
 
 class StrategyLoader:
     """Dynamically load and analyze trading strategies"""
-    
+
     @staticmethod
-    def load_strategy_from_file(strategy_path: str) -> Type[SignalExtractorStrategy]:
+    def load_strategy_from_file(strategy_path: str) -> type[SignalExtractorStrategy]:
         """
         Load a strategy class from a Python file
-        
+
         Args:
             strategy_path: Path to the strategy file
-            
+
         Returns:
             Strategy class that inherits from SignalExtractorStrategy
         """
         try:
             if not os.path.exists(strategy_path):
                 raise FileNotFoundError(f"Strategy file not found: {strategy_path}")
-            
+
             # Load the module
             spec = importlib.util.spec_from_file_location("strategy_module", strategy_path)
             module = importlib.util.module_from_spec(spec)
-            
+
             # No need to inject Order class - backtesting.py uses different order syntax
-            
+
             spec.loader.exec_module(module)
-            
+
             # Find strategy classes
             strategy_classes = []
             for name, obj in inspect.getmembers(module):
-                if (inspect.isclass(obj) and 
-                    hasattr(obj, 'init') and hasattr(obj, 'next') and 
+                if (inspect.isclass(obj) and
+                    hasattr(obj, 'init') and hasattr(obj, 'next') and
                     name != 'Strategy' and name != 'SignalExtractorStrategy'):
                     strategy_classes.append(obj)
-            
+
             if not strategy_classes:
                 raise ValueError(f"No valid strategy class found in {strategy_path}")
-            
+
             if len(strategy_classes) > 1:
                 logger.warning(f"Multiple strategy classes found, using first one: {strategy_classes[0].__name__}")
-            
+
             strategy_class = strategy_classes[0]
             logger.info(f"Loaded strategy: {strategy_class.__name__} from {strategy_path}")
-            
+
             return strategy_class
-            
+
         except Exception as e:
             logger.error(f"Error loading strategy from {strategy_path}: {e}")
             raise
 
     @staticmethod
-    def convert_to_signal_strategy(original_strategy: Type) -> Type[SignalExtractorStrategy]:
+    def convert_to_signal_strategy(original_strategy: type) -> type[SignalExtractorStrategy]:
         """
         Convert a regular backtesting.py strategy to a signal-extracting strategy
-        
+
         Args:
             original_strategy: Original strategy class
-            
+
         Returns:
             Modified strategy class that generates signals instead of trades
         """
-        
+
         class ConvertedSignalStrategy(SignalExtractorStrategy):
             """Dynamically converted signal strategy"""
-            
+
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, **kwargs)
                 # Copy only safe class attributes from original strategy (parameters, not internal state)
                 for attr_name in dir(original_strategy):
-                    if (not attr_name.startswith('_') and 
+                    if (not attr_name.startswith('_') and
                         not callable(getattr(original_strategy, attr_name)) and
                         not hasattr(self, attr_name) and  # Don't override existing attributes
                         attr_name not in ['closed_trades', 'trades', 'data', 'broker', 'position']):  # Skip backtesting internals
@@ -96,70 +93,68 @@ class StrategyLoader:
                         except (AttributeError, TypeError):
                             # Skip attributes that can't be set
                             pass
-            
+
             def init(self):
                 # Call original init method
                 if hasattr(original_strategy, 'init'):
-                    original_init = getattr(original_strategy, 'init')
+                    original_init = original_strategy.init
                     original_init(self)
-            
+
             def next(self):
                 # Store original position methods
                 original_buy = getattr(self, 'buy', None)
                 original_sell = getattr(self, 'sell', None)
                 original_close = getattr(self.position, 'close', None) if hasattr(self, 'position') else None
-                
+
                 buy_called = False
                 sell_called = False
                 close_called = False
                 trade_params = {}
-                
+
                 # Create mock methods that track calls and parameters
                 def mock_buy(*args, **kwargs):
                     nonlocal buy_called, trade_params
                     buy_called = True
                     trade_params = kwargs
                     # Also capture positional args if any (like price as first arg)
-                    if args:
-                        if 'price' not in kwargs and len(args) > 0:
-                            trade_params['price'] = args[0]
+                    if args and 'price' not in kwargs and len(args) > 0:
+                        trade_params['price'] = args[0]
                     return None
-                
+
                 def mock_sell(*args, **kwargs):
                     nonlocal sell_called, trade_params
                     sell_called = True
                     trade_params = kwargs
                     # Also capture positional args if any (like price as first arg)
-                    if args:
-                        if 'price' not in kwargs and len(args) > 0:
-                            trade_params['price'] = args[0]
+                    if args and 'price' not in kwargs and len(args) > 0:
+                        trade_params['price'] = args[0]
                     return None
-                
+
                 def mock_close(*args, **kwargs):
                     nonlocal close_called
                     close_called = True
                     return None
-                
+
                 # Replace methods temporarily
                 self.buy = mock_buy
                 self.sell = mock_sell
                 if hasattr(self, 'position'):
                     self.position.close = mock_close
-                
+
                 # Call original next method
                 if hasattr(original_strategy, 'next'):
-                    original_next = getattr(original_strategy, 'next')
+                    original_next = original_strategy.next
                     original_next(self)
-                
+
                 # Determine signal based on what was called
                 signal_size = trade_params.get('size')
                 limit_price = trade_params.get('limit')
                 stop_price = trade_params.get('stop')
-                stop_loss = trade_params.get('sl')
-                take_profit = trade_params.get('tp')
-                exectype = trade_params.get('exectype')
+                trade_params.get('sl')
+                trade_params.get('tp')
+                trade_params.get('exectype')
                 valid = trade_params.get('valid')
-                
+
                 # Convert valid to time_in_force
                 time_in_force = "gtc"
                 if valid is not None:
@@ -170,48 +165,48 @@ class StrategyLoader:
                     # Determine order type based on backtesting.py parameters
                     if stop_price is not None and limit_price is not None:
                         # Stop-limit order: both stop and limit specified
-                        self.set_signal(SignalType.STOP_LIMIT_BUY, confidence=0.8, size=signal_size, 
+                        self.set_signal(SignalType.STOP_LIMIT_BUY, confidence=0.8, size=signal_size,
                                       stop_price=stop_price, limit_price=limit_price, time_in_force=time_in_force)
                     elif stop_price is not None:
                         # Stop order: only stop specified
-                        self.set_signal(SignalType.STOP_BUY, confidence=0.8, size=signal_size, 
+                        self.set_signal(SignalType.STOP_BUY, confidence=0.8, size=signal_size,
                                       stop_price=stop_price, time_in_force=time_in_force)
                     elif limit_price is not None:
                         # Limit order: only limit specified
-                        self.set_signal(SignalType.LIMIT_BUY, confidence=0.8, size=signal_size, 
+                        self.set_signal(SignalType.LIMIT_BUY, confidence=0.8, size=signal_size,
                                       limit_price=limit_price, time_in_force=time_in_force)
                     else:
                         # Market order: no limit or stop specified
                         self.set_signal(SignalType.BUY, confidence=0.8, size=signal_size, time_in_force=time_in_force)
-                        
+
                 elif sell_called:
                     # Determine order type based on backtesting.py parameters
                     if stop_price is not None and limit_price is not None:
                         # Stop-limit order: both stop and limit specified
-                        self.set_signal(SignalType.STOP_LIMIT_SELL, confidence=0.8, size=signal_size, 
+                        self.set_signal(SignalType.STOP_LIMIT_SELL, confidence=0.8, size=signal_size,
                                       stop_price=stop_price, limit_price=limit_price, time_in_force=time_in_force)
                     elif stop_price is not None:
                         # Stop order: only stop specified
-                        self.set_signal(SignalType.STOP_SELL, confidence=0.8, size=signal_size, 
+                        self.set_signal(SignalType.STOP_SELL, confidence=0.8, size=signal_size,
                                       stop_price=stop_price, time_in_force=time_in_force)
                     elif limit_price is not None:
                         # Limit order: only limit specified
-                        self.set_signal(SignalType.LIMIT_SELL, confidence=0.8, size=signal_size, 
+                        self.set_signal(SignalType.LIMIT_SELL, confidence=0.8, size=signal_size,
                                       limit_price=limit_price, time_in_force=time_in_force)
                     else:
                         # Market order: no limit or stop specified
                         self.set_signal(SignalType.SELL, confidence=0.8, size=signal_size, time_in_force=time_in_force)
-                        
+
                 elif close_called:
                     self.set_signal(SignalType.CLOSE, confidence=0.6, time_in_force=time_in_force)
                 else:
                     self.set_signal(SignalType.HOLD, confidence=0.1)
-                
+
                 # Store current indicators (try to extract common ones)
                 self.indicators_values = {}
                 if hasattr(self, 'data'):
                     self.indicators_values['price'] = self.data.Close[-1]
-                    
+
                 # Try to extract SMA values
                 for attr_name in dir(self):
                     if 'sma' in attr_name.lower() and not attr_name.startswith('_'):
@@ -221,7 +216,7 @@ class StrategyLoader:
                                 self.indicators_values[attr_name] = sma_values[-1]
                         except:
                             pass
-                
+
                 # Restore original methods
                 if original_buy:
                     self.buy = original_buy
@@ -229,13 +224,12 @@ class StrategyLoader:
                     self.sell = original_sell
                 if original_close and hasattr(self, 'position'):
                     self.position.close = original_close
-        
+
         # Copy class attributes
         for attr_name in dir(original_strategy):
             if not attr_name.startswith('_') and not callable(getattr(original_strategy, attr_name)):
                 setattr(ConvertedSignalStrategy, attr_name, getattr(original_strategy, attr_name))
-        
+
         ConvertedSignalStrategy.__name__ = f"Signal{original_strategy.__name__}"
         return ConvertedSignalStrategy
 
- 

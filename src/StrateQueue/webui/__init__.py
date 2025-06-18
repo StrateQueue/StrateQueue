@@ -7,4 +7,4 @@ trading strategies through a browser interface.
 
 from .server import start_webui_server
 
-__all__ = ['start_webui_server'] 
+__all__ = ["start_webui_server"]

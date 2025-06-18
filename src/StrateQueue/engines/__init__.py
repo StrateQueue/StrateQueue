@@ -6,23 +6,48 @@ allowing strategies from different frameworks to be used with the same live trad
 
 Main Components:
 - TradingEngine: Abstract base class for trading engines
-- EngineStrategy: Generic strategy wrapper interface  
+- EngineStrategy: Generic strategy wrapper interface
 - EngineSignalExtractor: Abstract signal extractor interface
 - EngineFactory: Factory for creating engines and detecting engine types
 """
 
-from .engine_base import TradingEngine, EngineStrategy, EngineSignalExtractor
-from .engine_factory import EngineFactory, detect_engine_type, get_supported_engines, auto_create_engine, validate_strategy_compatibility
-from .backtesting_engine import BacktestingEngine
+from .engine_base import EngineSignalExtractor, EngineStrategy, TradingEngine
+from .engine_factory import (
+    EngineFactory,
+    auto_create_engine,
+    detect_engine_type,
+    get_supported_engines,
+    get_all_known_engines,
+    get_unavailable_engines,
+    validate_strategy_compatibility,
+)
 
+# Conditional imports for optional engines
 __all__ = [
-    'TradingEngine',
-    'EngineStrategy', 
-    'EngineSignalExtractor',
-    'EngineFactory',
-    'detect_engine_type',
-    'get_supported_engines',
-    'auto_create_engine',
-    'validate_strategy_compatibility',
-    'BacktestingEngine'
-] 
+    "TradingEngine",
+    "EngineStrategy", 
+    "EngineSignalExtractor",
+    "EngineFactory",
+    "detect_engine_type",
+    "get_supported_engines",
+    "get_all_known_engines",
+    "get_unavailable_engines",
+    "auto_create_engine",
+    "validate_strategy_compatibility",
+]
+
+# Try to import backtesting engine if available
+try:
+    from .backtesting_engine import BacktestingEngine
+    __all__.append("BacktestingEngine")
+except ImportError:
+    # backtesting.py not available - will be handled by factory
+    pass
+
+# Try to import VectorBT engine if available  
+try:
+    from .vectorbt_engine import VectorBTEngine
+    __all__.append("VectorBTEngine")
+except ImportError:
+    # VectorBT not available - will be handled by factory
+    pass

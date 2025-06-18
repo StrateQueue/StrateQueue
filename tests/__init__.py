@@ -1,1 +1,1 @@
-# Tests package for StrateQueue daemon functionality 
+# Tests package for StrateQueue daemon functionality

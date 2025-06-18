@@ -8,12 +8,12 @@ It communicates directly with the StrateQueue daemon on port 8400.
 """
 
 import subprocess
-import webbrowser
 import threading
 import time
-from pathlib import Path
+import webbrowser
 from datetime import datetime
-import os
+from pathlib import Path
+
 
 def tee_subprocess_output(process, log_file_path):
     """
@@ -21,26 +21,31 @@ def tee_subprocess_output(process, log_file_path):
     and writing it to a log file.
     """
     try:
-        with open(log_file_path, 'a') as log_file:
+        with open(log_file_path, "a") as log_file:
             log_file.write(f"--- Log started at {datetime.now().isoformat()} ---\n")
-            for line in iter(process.stdout.readline, ''):
-                print(line, end='')  # Print to console
-                log_file.write(line) # Write to log file
+            for line in iter(process.stdout.readline, ""):
+                print(line, end="")  # Print to console
+                log_file.write(line)  # Write to log file
     except Exception as e:
         print(f"Error in logging thread: {e}")
     finally:
         process.stdout.close()
 
+
 def get_frontend_path() -> Path:
     """Get the path to the frontend directory."""
     return Path(__file__).parent / "frontend"
 
+
 def open_browser_after_delay(url: str, delay: int = 2):
     """Open a web browser after a specified delay."""
+
     def _open():
         time.sleep(delay)
         webbrowser.open(url)
+
     threading.Thread(target=_open, daemon=True).start()
+
 
 def start_webui_server(open_browser: bool = True):
     """
@@ -59,7 +64,7 @@ def start_webui_server(open_browser: bool = True):
         return
 
     print("🚀 Starting Stratequeue Web UI...")
-    print(f"🌐 URL: http://localhost:3000")
+    print("🌐 URL: http://localhost:3000")
     print("📝 Press Ctrl+C to stop the server.")
 
     if open_browser:
@@ -68,7 +73,7 @@ def start_webui_server(open_browser: bool = True):
     # Create logs directory if it doesn't exist
     log_dir = Path.home() / ".stratequeue" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Generate a timestamped log file name
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file_path = log_dir / f"webui_{timestamp}.log"
@@ -84,15 +89,13 @@ def start_webui_server(open_browser: bool = True):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            encoding='utf-8',
-            errors='replace'
+            encoding="utf-8",
+            errors="replace",
         )
 
         # Create a thread to tee the output to console and log file
         log_thread = threading.Thread(
-            target=tee_subprocess_output,
-            args=(process, log_file_path),
-            daemon=True
+            target=tee_subprocess_output, args=(process, log_file_path), daemon=True
         )
         log_thread.start()
 
@@ -115,5 +118,6 @@ def start_webui_server(open_browser: bool = True):
                 process.kill()
         print("🛑 Server has been shut down.")
 
+
 if __name__ == "__main__":
-    start_webui_server() 
+    start_webui_server()

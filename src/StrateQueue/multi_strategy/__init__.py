@@ -15,15 +15,15 @@ Public API:
     PortfolioIntegrator: Handles portfolio management integration
 """
 
-from .runner import MultiStrategyRunner
-from .strategy_config import StrategyConfig, ConfigManager
-from .signal_coordinator import SignalCoordinator
 from .portfolio_integrator import PortfolioIntegrator
+from .runner import MultiStrategyRunner
+from .signal_coordinator import SignalCoordinator
+from .strategy_config import ConfigManager, StrategyConfig
 
 __all__ = [
-    'MultiStrategyRunner',
-    'StrategyConfig',
-    'ConfigManager',
-    'SignalCoordinator',
-    'PortfolioIntegrator'
-] 
+    "MultiStrategyRunner",
+    "StrategyConfig",
+    "ConfigManager",
+    "SignalCoordinator",
+    "PortfolioIntegrator",
+]

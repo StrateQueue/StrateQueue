@@ -84,6 +84,7 @@ def _detect_engine_indicators(content: str) -> Dict[str, List[str]]:
     indicators = {
         'backtesting': [],
         'zipline': [],
+        'vectorbt': [],
         'unknown': []
     }
     
@@ -117,6 +118,19 @@ def _detect_engine_indicators(content: str) -> Dict[str, List[str]]:
         (r'import\s+zipline', 'imports zipline')
     ]
     
+    # VectorBT indicators
+    vectorbt_patterns = [
+        (r'import\s+vectorbt', 'imports vectorbt'),
+        (r'from\s+vectorbt', 'imports from vectorbt'),
+        (r'vbt\.\w+', 'uses vbt accessor'),
+        (r'\.vbt\.', 'uses vbt accessor method'),
+        (r'vbt\.\w+\.run\(', 'calls vbt run method'),
+        (r'Portfolio\.from_signals\(', 'uses Portfolio.from_signals'),
+        (r'__vbt_strategy__', 'marked as vbt strategy'),
+        (r'def\s+\w+\s*\(\s*data\s*[,)]', 'function with data parameter'),
+        (r'return\s+\w+,\s*\w+', 'returns tuple (entries, exits)')
+    ]
+    
     # Check backtesting.py patterns
     for pattern, description in backtesting_patterns:
         if re.search(pattern, content, re.MULTILINE):
@@ -126,6 +140,11 @@ def _detect_engine_indicators(content: str) -> Dict[str, List[str]]:
     for pattern, description in zipline_patterns:
         if re.search(pattern, content, re.MULTILINE):
             indicators['zipline'].append(description)
+    
+    # Check VectorBT patterns
+    for pattern, description in vectorbt_patterns:
+        if re.search(pattern, content, re.MULTILINE):
+            indicators['vectorbt'].append(description)
     
     return indicators
 
@@ -144,15 +163,27 @@ def detect_engine_from_analysis(analysis: Dict[str, any]) -> str:
     
     backtesting_score = len(indicators['backtesting'])
     zipline_score = len(indicators['zipline'])
+    vectorbt_score = len(indicators['vectorbt'])
     
-    logger.debug(f"Engine detection scores - backtesting: {backtesting_score}, zipline: {zipline_score}")
+    logger.debug(f"Engine detection scores - backtesting: {backtesting_score}, zipline: {zipline_score}, vectorbt: {vectorbt_score}")
     
-    if backtesting_score > zipline_score and backtesting_score > 0:
-        return 'backtesting'
-    elif zipline_score > backtesting_score and zipline_score > 0:
-        return 'zipline'
-    else:
+    # Return the engine with the highest score
+    scores = {
+        'backtesting': backtesting_score,
+        'zipline': zipline_score,
+        'vectorbt': vectorbt_score
+    }
+    
+    max_score = max(scores.values())
+    if max_score == 0:
         return 'unknown'
+    
+    # Return the first engine with the maximum score
+    for engine, score in scores.items():
+        if score == max_score:
+            return engine
+    
+    return 'unknown'
 
 
 def validate_strategy_file_for_engine(strategy_path: str, expected_engine: str) -> bool:
