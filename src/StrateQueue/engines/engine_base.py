@@ -7,13 +7,18 @@ to be used interchangeably in the live trading system.
 """
 
 import inspect
+import importlib.util
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
+from types import ModuleType
 
 import pandas as pd
 
 from ..core.signal_extractor import TradingSignal
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -24,6 +29,23 @@ class EngineInfo:
     version: str
     supported_features: dict[str, bool]
     description: str
+
+
+def load_module_from_path(path: str, name: str = "strategy_module") -> ModuleType:
+    """
+    Load a Python module from an arbitrary file path.
+    
+    Args:
+        path: Path to the Python file
+        name: Name to give the loaded module
+        
+    Returns:
+        Loaded module object
+    """
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class EngineStrategy(ABC):
@@ -142,7 +164,6 @@ class TradingEngine(ABC):
         """
         pass
 
-    @abstractmethod
     def validate_strategy_file(self, strategy_path: str) -> bool:
         """
         Check if a strategy file is compatible with this engine
@@ -153,4 +174,19 @@ class TradingEngine(ABC):
         Returns:
             True if the file is compatible with this engine
         """
-        pass
+        try:
+            self.load_strategy_from_file(strategy_path)
+            return True
+        except Exception as e:
+            logger.debug(f"Strategy validation failed for {self.__class__.__name__}: {e}")
+            return False
+
+    @staticmethod
+    def dependencies_available() -> bool:
+        """
+        Check if this engine's dependencies are available.
+        
+        Returns:
+            True if all required dependencies are installed
+        """
+        return True  # Default implementation - engines can override

@@ -4,6 +4,8 @@ from typing import Any, Dict
 import pandas as pd
 import logging
 
+from .signal_extractor import TradingSignal, SignalType
+
 log = logging.getLogger(__name__)
 
 
@@ -76,7 +78,46 @@ class BaseSignalExtractor(ABC):
                 cleaned[key] = value
         return cleaned
     
+    def _abort_insufficient_bars(self, data: pd.DataFrame) -> TradingSignal | None:
+        """
+        Check if there's insufficient data and return a HOLD signal if so.
+        
+        Args:
+            data: Historical data DataFrame
+            
+        Returns:
+            TradingSignal with HOLD if insufficient data, None if data is sufficient
+        """
+        min_bars = getattr(self, 'min_bars_required', 2)
+        if len(data) < min_bars:
+            log.warning(f"Insufficient historical data ({len(data)} < {min_bars}) - emitting HOLD")
+            price = 0.0
+            if len(data) > 0 and 'Close' in data.columns:
+                price = self._safe_get_last_value(data['Close'])
+            return self._safe_hold(price=price)
+        return None
+    
+    def _safe_hold(self, price: float = 0.0, error: Exception | str | None = None) -> TradingSignal:
+        """
+        Create a safe HOLD signal as a fallback.
+        
+        Args:
+            price: Current price for the signal
+            error: Optional error that caused the fallback
+            
+        Returns:
+            TradingSignal with HOLD signal type
+        """
+        metadata = {"error": str(error)} if error else {}
+        return TradingSignal(
+            signal=SignalType.HOLD,
+            price=price,
+            timestamp=pd.Timestamp.now(),
+            indicators={},
+            metadata=metadata
+        )
+    
     @abstractmethod
-    def extract_signal(self, data: pd.DataFrame) -> tuple:
+    def extract_signal(self, data: pd.DataFrame) -> TradingSignal:
         """Extract trading signal from data. Must be implemented by concrete classes."""
         pass 

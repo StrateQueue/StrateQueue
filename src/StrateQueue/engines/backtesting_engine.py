@@ -7,7 +7,6 @@ and extracting signals.
 """
 
 import contextlib
-import importlib.util
 import inspect
 import logging
 import os
@@ -22,18 +21,13 @@ try:
 except ImportError as e:
     BACKTESTING_AVAILABLE = False
     Backtest = None
-    # Don't log warning here - let the engine factory handle it
 
 from ..core.signal_extractor import SignalType, TradingSignal
 from ..core.strategy_loader import StrategyLoader
-from .engine_base import EngineInfo, EngineSignalExtractor, EngineStrategy, TradingEngine
+from ..core.base_signal_extractor import BaseSignalExtractor
+from .engine_base import EngineInfo, EngineSignalExtractor, EngineStrategy, TradingEngine, load_module_from_path
 
 logger = logging.getLogger(__name__)
-
-
-def is_available() -> bool:
-    """Check if backtesting.py dependencies are available"""
-    return BACKTESTING_AVAILABLE
 
 
 class BacktestingEngineStrategy(EngineStrategy):
@@ -49,11 +43,10 @@ class BacktestingEngineStrategy(EngineStrategy):
         """Get the minimum number of bars required by this strategy"""
         # Return a simple default - lookback is now handled by CLI
         from ..multi_strategy.strategy_config import DEFAULT_LOOKBACK_PERIOD
-
         return DEFAULT_LOOKBACK_PERIOD
 
 
-class BacktestingSignalExtractor(EngineSignalExtractor):
+class BacktestingSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):
     """Signal extractor for backtesting.py strategies"""
 
     def __init__(
@@ -75,15 +68,9 @@ class BacktestingSignalExtractor(EngineSignalExtractor):
     def extract_signal(self, historical_data: pd.DataFrame) -> TradingSignal:
         """Extract trading signal from historical data using full backtest approach"""
         try:
-            # Ensure we have enough data
-            if len(historical_data) < self.min_bars_required:
-                logger.warning("Insufficient historical data for signal extraction")
-                return TradingSignal(
-                    signal=SignalType.HOLD,
-                    price=0.0,
-                    timestamp=pd.Timestamp.now(),
-                    indicators={},
-                )
+            # Check for insufficient data first
+            if (hold_signal := self._abort_insufficient_bars(historical_data)):
+                return hold_signal
 
             # Prepare data for backtesting.py format
             required_columns = ["Open", "High", "Low", "Close", "Volume"]
@@ -99,13 +86,8 @@ class BacktestingSignalExtractor(EngineSignalExtractor):
         except Exception as e:
             logger.error(f"Error extracting signal: {e}")
             # Return safe default signal
-            return TradingSignal(
-                signal=SignalType.HOLD,
-                price=historical_data["Close"].iloc[-1] if len(historical_data) > 0 else 0.0,
-                timestamp=pd.Timestamp.now(),
-                indicators={},
-                metadata={"error": str(e)},
-            )
+            price = self._safe_get_last_value(historical_data["Close"]) if len(historical_data) > 0 else 0.0
+            return self._safe_hold(price=price, error=e)
 
     def get_minimum_bars_required(self) -> int:
         """Get minimum number of bars needed for signal extraction"""
@@ -147,6 +129,11 @@ class BacktestingEngine(TradingEngine):
                 "    pip install backtesting"
             )
 
+    @staticmethod
+    def dependencies_available() -> bool:
+        """Check if backtesting.py dependencies are available"""
+        return BACKTESTING_AVAILABLE
+
     def get_engine_info(self) -> EngineInfo:
         """Get information about this engine"""
         return EngineInfo(
@@ -168,13 +155,8 @@ class BacktestingEngine(TradingEngine):
             if not os.path.exists(strategy_path):
                 raise FileNotFoundError(f"Strategy file not found: {strategy_path}")
 
-            # Load the module
-            spec = importlib.util.spec_from_file_location("strategy_module", strategy_path)
-            module = importlib.util.module_from_spec(spec)
-
-            # No need to inject Order class - backtesting.py uses different order syntax
-
-            spec.loader.exec_module(module)
+            # Load the module using shared helper
+            module = load_module_from_path(strategy_path, "strategy_module")
 
             # Find strategy classes
             strategy_classes = []

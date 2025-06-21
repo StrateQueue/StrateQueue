@@ -29,10 +29,10 @@ class EngineFactory:
             
         # backtesting.py engine
         try:
-            from .backtesting_engine import BacktestingEngine, is_available as bt_available
+            from .backtesting_engine import BacktestingEngine
             cls._all_known_engines['backtesting'] = BacktestingEngine
             
-            if bt_available():
+            if BacktestingEngine.dependencies_available():
                 cls._engines['backtesting'] = BacktestingEngine
                 logger.debug("Registered backtesting engine")
             else:
@@ -43,10 +43,10 @@ class EngineFactory:
         
         # VectorBT engine
         try:
-            from .vectorbt_engine import VectorBTEngine, is_available as vbt_available
+            from .vectorbt_engine import VectorBTEngine
             cls._all_known_engines['vectorbt'] = VectorBTEngine
             
-            if vbt_available():
+            if VectorBTEngine.dependencies_available():
                 cls._engines['vectorbt'] = VectorBTEngine
                 logger.debug("Registered VectorBT engine")
             else:
@@ -57,9 +57,9 @@ class EngineFactory:
         
         # Future engines can be added here
         try:
-            # from .zipline_engine import ZiplineEngine, is_available as zipline_available
+            # from .zipline_engine import ZiplineEngine
             # cls._all_known_engines['zipline'] = ZiplineEngine
-            # if zipline_available():
+            # if ZiplineEngine.dependencies_available():
             #     cls._engines['zipline'] = ZiplineEngine
             #     logger.debug("Registered zipline engine")
             # else:
@@ -203,27 +203,24 @@ def auto_create_engine(strategy_path: str) -> TradingEngine:
         strategy_path: Path to the strategy file
         
     Returns:
-        TradingEngine instance
+        TradingEngine instance for the detected engine type
         
     Raises:
-        ValueError: If engine cannot be detected or created
+        ValueError: If engine type cannot be detected or is not supported
         FileNotFoundError: If strategy file doesn't exist
     """
     engine_type = detect_engine_type(strategy_path)
     
     if engine_type == 'unknown':
-        raise ValueError(f"Could not detect engine type for {strategy_path}")
-    
-    if not EngineFactory.is_engine_supported(engine_type):
-        supported = EngineFactory.get_supported_engines()
-        raise ValueError(f"Detected engine '{engine_type}' is not supported. Available: {supported}")
+        raise ValueError(f"Could not detect engine type for strategy: {strategy_path}")
     
     return EngineFactory.create_engine(engine_type)
 
 
+# Convenience functions that delegate to EngineFactory class methods
 def get_supported_engines() -> List[str]:
     """
-    Get list of supported engine types (only engines with available dependencies)
+    Get list of supported engine types
     
     Returns:
         List of engine type names that can be instantiated
@@ -233,7 +230,7 @@ def get_supported_engines() -> List[str]:
 
 def get_all_known_engines() -> List[str]:
     """
-    Get list of all known engine types (regardless of whether dependencies are available)
+    Get list of all known engine types
     
     Returns:
         List of all engine type names that StrateQueue knows about
@@ -243,7 +240,7 @@ def get_all_known_engines() -> List[str]:
 
 def get_unavailable_engines() -> Dict[str, str]:
     """
-    Get information about unavailable engines and why they're unavailable
+    Get information about unavailable engines
     
     Returns:
         Dictionary mapping engine names to reason they're unavailable
@@ -253,29 +250,29 @@ def get_unavailable_engines() -> Dict[str, str]:
 
 def validate_strategy_compatibility(strategy_path: str, engine_type: str = None) -> bool:
     """
-    Validate that a strategy file is compatible with an engine
+    Validate that a strategy is compatible with a specific engine or any supported engine
     
     Args:
         strategy_path: Path to the strategy file
-        engine_type: Engine type to validate against (auto-detect if None)
+        engine_type: Specific engine type to validate against (optional)
         
     Returns:
         True if strategy is compatible
     """
-    try:
-        if engine_type is None:
-            engine_type = detect_engine_type(strategy_path)
-        
-        if engine_type == 'unknown':
-            return False
-        
+    if engine_type:
+        # Validate against specific engine
         if not EngineFactory.is_engine_supported(engine_type):
             return False
-            
-        # Create engine and validate strategy
-        engine = EngineFactory.create_engine(engine_type)
-        return engine.validate_strategy_file(strategy_path)
         
-    except Exception as e:
-        logger.error(f"Error validating strategy compatibility: {e}")
-        return False 
+        try:
+            engine = EngineFactory.create_engine(engine_type)
+            return engine.validate_strategy_file(strategy_path)
+        except Exception:
+            return False
+    else:
+        # Try to detect engine type and validate
+        detected_type = detect_engine_type(strategy_path)
+        if detected_type == 'unknown':
+            return False
+            
+        return validate_strategy_compatibility(strategy_path, detected_type) 

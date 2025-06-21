@@ -9,13 +9,11 @@ and extracting signals using the high-performance vectorbt library.
 import pandas as pd
 import numpy as np
 import os
-import importlib.util
 import inspect
 import re
 import logging
 from typing import Type, Dict, Any, Tuple, Callable
 from pathlib import Path
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -32,15 +30,10 @@ except Exception as e:
     vbt = None
     logger.warning(f"VectorBT import error: {e}. This is often due to telegram dependency conflicts.")
 
-from .engine_base import TradingEngine, EngineStrategy, EngineSignalExtractor, EngineInfo
+from .engine_base import TradingEngine, EngineStrategy, EngineSignalExtractor, EngineInfo, load_module_from_path
 from ..core.signal_extractor import TradingSignal, SignalType, SignalExtractorStrategy
 from ..core.base_signal_extractor import BaseSignalExtractor
 from ..core.strategy_loader import StrategyLoader
-
-
-def is_available() -> bool:
-    """Check if VectorBT dependencies are available"""
-    return VECTORBT_AVAILABLE
 
 
 class VectorBTEngineStrategy(EngineStrategy):
@@ -160,15 +153,9 @@ class VectorBTSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):
     def extract_signal(self, historical_data: pd.DataFrame) -> TradingSignal:
         """Extract trading signal from historical data using VectorBT"""
         try:
-            # Ensure we have enough data
-            if len(historical_data) < self.min_bars_required:
-                logger.warning("Insufficient historical data for signal extraction")
-                return TradingSignal(
-                    signal=SignalType.HOLD,
-                    price=0.0,
-                    timestamp=pd.Timestamp.now(),
-                    indicators={}
-                )
+            # Check for insufficient data first
+            if (hold_signal := self._abort_insufficient_bars(historical_data)):
+                return hold_signal
             
             # Validate and normalize data columns flexibly
             data = self._validate_and_normalize_data(historical_data)
@@ -248,14 +235,9 @@ class VectorBTSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):
             
         except Exception as e:
             logger.error(f"Error extracting VectorBT signal: {e}")
-            # Return safe default signal
-            return TradingSignal(
-                signal=SignalType.HOLD,
-                price=historical_data['Close'].iloc[-1] if len(historical_data) > 0 else 0.0,
-                timestamp=pd.Timestamp.now(),
-                indicators={},
-                metadata={'error': str(e)}
-            )
+            # Return safe default signal using base class helper
+            price = self._safe_get_last_value(historical_data['Close']) if len(historical_data) > 0 else 0.0
+            return self._safe_hold(price=price, error=e)
     
     def _convert_granularity_to_freq(self, granularity: str) -> str:
         """Convert StrateQueue granularity format to pandas/VectorBT frequency string"""
@@ -360,7 +342,7 @@ class VectorBTMultiTickerSignalExtractor(BaseSignalExtractor, EngineSignalExtrac
             if missing_symbols:
                 logger.warning(f"Missing data for symbols: {missing_symbols}")
                 # Return HOLD signals for missing symbols
-                return {symbol: self._create_hold_signal() for symbol in missing_symbols}
+                return {symbol: self._safe_hold() for symbol in missing_symbols}
             
             # Check minimum bars requirement for each symbol
             insufficient_symbols = []
@@ -371,7 +353,7 @@ class VectorBTMultiTickerSignalExtractor(BaseSignalExtractor, EngineSignalExtrac
             if insufficient_symbols:
                 logger.warning(f"Insufficient data for symbols: {insufficient_symbols}")
                 # Return HOLD signals for insufficient symbols, process the rest
-                signals = {symbol: self._create_hold_signal() for symbol in insufficient_symbols}
+                signals = {symbol: self._safe_hold() for symbol in insufficient_symbols}
                 valid_symbols = [s for s in self.symbols if s not in insufficient_symbols]
                 if valid_symbols:
                     valid_signals = self._process_multi_symbol_data(
@@ -386,7 +368,7 @@ class VectorBTMultiTickerSignalExtractor(BaseSignalExtractor, EngineSignalExtrac
         except Exception as e:
             logger.error(f"Error extracting VectorBT multi-ticker signals: {e}")
             # Return HOLD signals for all symbols
-            return {symbol: self._create_hold_signal(error=str(e)) for symbol in self.symbols}
+            return {symbol: self._safe_hold(error=e) for symbol in self.symbols}
     
     def _process_multi_symbol_data(self, symbol_data: dict[str, pd.DataFrame]) -> dict[str, TradingSignal]:
         """Process multiple symbols using per-symbol strategy execution for safety"""
@@ -412,7 +394,7 @@ class VectorBTMultiTickerSignalExtractor(BaseSignalExtractor, EngineSignalExtrac
                 
             except Exception as e:
                 logger.error(f"Error processing symbol {symbol}: {e}")
-                signals[symbol] = self._create_hold_signal(error=str(e))
+                signals[symbol] = self._safe_hold(error=e)
         
         return signals
     
@@ -466,8 +448,6 @@ class VectorBTMultiTickerSignalExtractor(BaseSignalExtractor, EngineSignalExtrac
             empty_signal = pd.Series(False, index=data.index)
             return empty_signal, empty_signal
     
-
-    
     def _extract_last_bar_signal(self, symbol: str, close: pd.Series, entries: pd.Series, exits: pd.Series, size: pd.Series = None) -> TradingSignal:
         """Extract trading signal from the last bar only (no portfolio needed)"""
         try:
@@ -510,23 +490,7 @@ class VectorBTMultiTickerSignalExtractor(BaseSignalExtractor, EngineSignalExtrac
             
         except Exception as e:
             logger.error(f"Error extracting signal for {symbol}: {e}")
-            return self._create_hold_signal(error=str(e))
-    
-
-    
-
-
-    
-    def _create_hold_signal(self, error: str = None) -> TradingSignal:
-        """Create a default HOLD signal"""
-        metadata = {'error': error} if error else {}
-        return TradingSignal(
-            signal=SignalType.HOLD,
-            price=0.0,
-            timestamp=pd.Timestamp.now(),
-            indicators={},
-            metadata=metadata
-        )
+            return self._safe_hold(error=e)
     
     def extract_signal(self, historical_data: pd.DataFrame) -> TradingSignal:
         """Single-symbol interface for compatibility - delegates to extract_signals"""
@@ -534,9 +498,9 @@ class VectorBTMultiTickerSignalExtractor(BaseSignalExtractor, EngineSignalExtrac
         if self.symbols:
             symbol_data = {self.symbols[0]: historical_data}
             signals = self.extract_signals(symbol_data)
-            return signals.get(self.symbols[0], self._create_hold_signal())
+            return signals.get(self.symbols[0], self._safe_hold())
         else:
-            return self._create_hold_signal()
+            return self._safe_hold()
     
     def get_minimum_bars_required(self) -> int:
         """Get minimum number of bars needed for signal extraction"""
@@ -554,6 +518,11 @@ class VectorBTEngine(TradingEngine):
                 "or\n"
                 "    pip install vectorbt"
             )
+    
+    @staticmethod
+    def dependencies_available() -> bool:
+        """Check if VectorBT dependencies are available"""
+        return VECTORBT_AVAILABLE
     
     def get_engine_info(self) -> EngineInfo:
         """Get information about this engine"""
@@ -578,10 +547,8 @@ class VectorBTEngine(TradingEngine):
             if not os.path.exists(strategy_path):
                 raise FileNotFoundError(f"Strategy file not found: {strategy_path}")
             
-            # Load the module
-            spec = importlib.util.spec_from_file_location("vectorbt_strategy", strategy_path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            # Load the module using shared helper
+            module = load_module_from_path(strategy_path, "vectorbt_strategy")
             
             # Find strategy functions or classes
             strategy_candidates = {}  # name -> obj mapping for better error messages
@@ -656,15 +623,6 @@ class VectorBTEngine(TradingEngine):
                                            symbols: list[str], **kwargs) -> VectorBTMultiTickerSignalExtractor:
         """Create a multi-ticker signal extractor for processing multiple symbols in one shot"""
         return VectorBTMultiTickerSignalExtractor(engine_strategy, symbols, **kwargs)
-    
-    def validate_strategy_file(self, strategy_path: str) -> bool:
-        """Validate that a strategy file is compatible with this engine"""
-        try:
-            self.load_strategy_from_file(strategy_path)
-            return True
-        except Exception as e:
-            logger.debug(f"VectorBT strategy validation failed: {e}")
-            return False 
     
     # Convenience alias for consistent API
     load_strategy = load_strategy_from_file 
