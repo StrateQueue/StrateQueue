@@ -6,6 +6,7 @@ This allows different trading frameworks (backtesting.py, Zipline, etc.)
 to be used interchangeably in the live trading system.
 """
 
+import inspect
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
@@ -31,6 +32,9 @@ class EngineStrategy(ABC):
     Each engine implementation will provide a concrete subclass.
     """
 
+    # Subclasses can override this to skip specific attributes during parameter collection
+    _skip_attrs: set[str] = set()
+
     def __init__(self, strategy_class: type, strategy_params: dict[str, Any] = None):
         self.strategy_class = strategy_class
         self.strategy_params = strategy_params or {}
@@ -41,15 +45,32 @@ class EngineStrategy(ABC):
         """Get the minimum number of bars required by this strategy"""
         pass
 
-    @abstractmethod
     def get_strategy_name(self) -> str:
         """Get a human-readable name for this strategy"""
-        pass
+        return self.strategy_class.__name__
 
-    @abstractmethod
     def get_parameters(self) -> dict[str, Any]:
         """Get strategy parameters"""
-        pass
+        params = {}
+
+        # Extract class-level parameters for class-based strategies
+        if inspect.isclass(self.strategy_class):
+            for attr_name in dir(self.strategy_class):
+                if (
+                    not attr_name.startswith("_")
+                    and not callable(getattr(self.strategy_class, attr_name, None))
+                    and attr_name not in self._skip_attrs
+                ):
+                    try:
+                        params[attr_name] = getattr(self.strategy_class, attr_name)
+                    except (AttributeError, TypeError):
+                        # Skip attributes that can't be retrieved
+                        pass
+
+        # Add strategy_params passed to constructor (these override class-level params)
+        params.update(self.strategy_params)
+
+        return params
 
 
 class EngineSignalExtractor(ABC):

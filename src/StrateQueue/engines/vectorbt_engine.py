@@ -54,29 +54,6 @@ class VectorBTEngineStrategy(EngineStrategy):
         # VectorBT strategies can work with small datasets - default to 10 bars
         # Users can override this with --lookback if they need more
         return 10
-    
-    def get_strategy_name(self) -> str:
-        """Get a human-readable name for this strategy"""
-        return self.strategy_class.__name__
-    
-    def get_parameters(self) -> Dict[str, Any]:
-        """Get strategy parameters"""
-        params = {}
-        
-        # Extract class-level parameters if it's a class
-        if inspect.isclass(self.strategy_class):
-            for attr_name in dir(self.strategy_class):
-                if (not attr_name.startswith('_') and 
-                    not callable(getattr(self.strategy_class, attr_name))):
-                    try:
-                        params[attr_name] = getattr(self.strategy_class, attr_name)
-                    except (AttributeError, TypeError):
-                        pass
-        
-        # Add strategy_params passed to constructor
-        params.update(self.strategy_params)
-        
-        return params
 
 
 class VectorBTSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):

@@ -39,6 +39,9 @@ def is_available() -> bool:
 class BacktestingEngineStrategy(EngineStrategy):
     """Wrapper for backtesting.py strategies"""
 
+    # Skip backtesting.py internal attributes when collecting parameters
+    _skip_attrs = {"data", "broker", "position"}
+
     def __init__(self, strategy_class: type, strategy_params: dict[str, Any] = None):
         super().__init__(strategy_class, strategy_params)
 
@@ -48,29 +51,6 @@ class BacktestingEngineStrategy(EngineStrategy):
         from ..multi_strategy.strategy_config import DEFAULT_LOOKBACK_PERIOD
 
         return DEFAULT_LOOKBACK_PERIOD
-
-    def get_strategy_name(self) -> str:
-        """Get a human-readable name for this strategy"""
-        return self.strategy_class.__name__
-
-    def get_parameters(self) -> dict[str, Any]:
-        """Get strategy parameters"""
-        params = {}
-
-        # Extract class-level parameters
-        for attr_name in dir(self.strategy_class):
-            if (
-                not attr_name.startswith("_")
-                and not callable(getattr(self.strategy_class, attr_name))
-                and attr_name not in ["data", "broker", "position"]
-            ):  # Skip backtesting internals
-                with contextlib.suppress(AttributeError, TypeError):
-                    params[attr_name] = getattr(self.strategy_class, attr_name)
-
-        # Add strategy_params passed to constructor
-        params.update(self.strategy_params)
-
-        return params
 
 
 class BacktestingSignalExtractor(EngineSignalExtractor):
