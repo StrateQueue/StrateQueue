@@ -295,7 +295,7 @@ class TradingDaemon:
             return {
                 "daemon_running": True,
                 "trading_system_running": True,
-                "strategies": strategies,  # Keep for backward compatibility
+                "strategies": strategies,
                 "strategy_details": strategy_details,  # New detailed information
                 "system_status": system_status
             }

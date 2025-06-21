@@ -1132,18 +1132,4 @@ class AlpacaBroker(BaseBroker):
             return False
 
 
-# Factory function for backward compatibility with existing create_alpaca_executor_from_env
-def create_alpaca_broker_from_env(portfolio_manager=None, statistics_manager=None) -> AlpacaBroker:
-    """
-    Create AlpacaBroker from environment variables (backward compatibility)
 
-    Args:
-        portfolio_manager: Optional portfolio manager for multi-strategy support
-        statistics_manager: Optional statistics manager for trade tracking
-
-    Returns:
-        Configured AlpacaBroker instance
-    """
-    from .broker_factory import auto_create_broker
-
-    return auto_create_broker(portfolio_manager, statistics_manager)

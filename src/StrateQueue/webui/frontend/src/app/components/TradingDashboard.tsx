@@ -159,16 +159,6 @@ const TradingDashboard = () => {
             file_path: detail.file_path
           }));
           setStrategies(strategyList);
-        } else if (statusData.trading_system_running) {
-          // Fallback for backward compatibility
-          setStrategies([{
-            id: 'system',
-            name: 'Trading System',
-            status: 'Running',
-            symbols: statusData.system_status?.symbols || [],
-            allocation: 1.0,
-            file_path: null
-          }]);
         } else {
           setStrategies([]);
         }

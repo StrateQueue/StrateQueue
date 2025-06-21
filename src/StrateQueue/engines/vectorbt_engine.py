@@ -3,328 +3,262 @@ VectorBT Engine Implementation
 
 Implements the trading engine interface for VectorBT strategies.
 This module contains all the VectorBT-specific logic for loading strategies
-and extracting signals using the high-performance vectorbt library.
+and extracting signals.
 """
 
-import pandas as pd
-import numpy as np
-import os
 import inspect
-import re
 import logging
-from typing import Type, Dict, Any, Tuple, Callable
-from pathlib import Path
+from typing import Any, Dict, Type, Tuple
 
-logger = logging.getLogger(__name__)
+import pandas as pd
 
+# Conditional import for VectorBT with conflict resolution
 try:
+    # Handle telegram conflict by temporarily removing from sys.modules
+    import sys
+    telegram_modules = [m for m in sys.modules.keys() if m.startswith('telegram')]
+    for module in telegram_modules:
+        if module in sys.modules:
+            del sys.modules[module]
+    
     import vectorbt as vbt
     VECTORBT_AVAILABLE = True
 except ImportError as e:
     VECTORBT_AVAILABLE = False
     vbt = None
+    logger = logging.getLogger(__name__)
     logger.warning(f"VectorBT not available: {e}")
-except Exception as e:
-    # Handle other import-related issues (like telegram dependency conflicts)
-    VECTORBT_AVAILABLE = False
-    vbt = None
-    logger.warning(f"VectorBT import error: {e}. This is often due to telegram dependency conflicts.")
 
-from .engine_base import TradingEngine, EngineStrategy, EngineSignalExtractor, EngineInfo, load_module_from_path
-from ..core.signal_extractor import TradingSignal, SignalType, SignalExtractorStrategy
+from ..core.signal_extractor import SignalType, TradingSignal
 from ..core.base_signal_extractor import BaseSignalExtractor
-from ..core.strategy_loader import StrategyLoader
+from .engine_base import (
+    EngineInfo, EngineSignalExtractor, EngineStrategy, TradingEngine,
+    build_engine_info, granularity_to_pandas_freq
+)
+
+logger = logging.getLogger(__name__)
+
+
+def call_vectorbt_strategy(strategy_class: Type, data: pd.DataFrame, **strategy_params) -> Tuple[pd.Series, pd.Series, pd.Series | None]:
+    """
+    Call a VectorBT strategy function/class and return entries, exits, and optional size.
+    
+    This shared function removes duplication between single and multi-ticker extractors.
+    
+    Args:
+        strategy_class: Strategy function or class to call
+        data: Price data DataFrame
+        **strategy_params: Parameters to pass to the strategy
+        
+    Returns:
+        Tuple of (entries, exits, size) where size may be None
+    """
+    if inspect.isfunction(strategy_class):
+        # Function-based strategy
+        result = strategy_class(data, **strategy_params)
+        
+        if isinstance(result, tuple):
+            if len(result) == 2:
+                entries, exits = result
+                size = None
+            elif len(result) == 3:
+                entries, exits, size = result
+            else:
+                raise ValueError(f"VectorBT strategy function must return (entries, exits) or (entries, exits, size), got {len(result)} values")
+        else:
+            raise ValueError("VectorBT strategy function must return a tuple")
+            
+    elif inspect.isclass(strategy_class):
+        # Class-based strategy
+        strategy_instance = strategy_class(**strategy_params)
+        
+        if hasattr(strategy_instance, 'run'):
+            result = strategy_instance.run(data)
+        else:
+            raise ValueError("VectorBT strategy class must have a 'run' method")
+            
+        if isinstance(result, tuple):
+            if len(result) == 2:
+                entries, exits = result
+                size = None
+            elif len(result) == 3:
+                entries, exits, size = result
+            else:
+                raise ValueError(f"VectorBT strategy class run() must return (entries, exits) or (entries, exits, size), got {len(result)} values")
+        else:
+            raise ValueError("VectorBT strategy class run() must return a tuple")
+    else:
+        raise ValueError("VectorBT strategy must be a function or class")
+    
+    # Ensure entries and exits are boolean Series
+    if not isinstance(entries, pd.Series):
+        entries = pd.Series(entries, index=data.index)
+    if not isinstance(exits, pd.Series):
+        exits = pd.Series(exits, index=data.index)
+    
+    entries = entries.astype(bool)
+    exits = exits.astype(bool)
+    
+    # Handle size if provided
+    if size is not None:
+        if not isinstance(size, pd.Series):
+            size = pd.Series(size, index=data.index)
+    
+    return entries, exits, size
 
 
 class VectorBTEngineStrategy(EngineStrategy):
     """Wrapper for VectorBT strategies"""
-    
+
     def __init__(self, strategy_class: Type, strategy_params: Dict[str, Any] = None):
         super().__init__(strategy_class, strategy_params)
-        
+
     def get_lookback_period(self) -> int:
         """Get the minimum number of bars required by this strategy"""
-        # VectorBT strategies can work with small datasets - default to 10 bars
-        # Users can override this with --lookback if they need more
+        # VectorBT strategies typically need at least 10 bars for meaningful signals
         return 10
 
 
 class VectorBTSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):
     """Signal extractor for VectorBT strategies"""
-    
+
     def __init__(self, engine_strategy: VectorBTEngineStrategy, min_bars_required: int = 2, granularity: str = '1min', **strategy_params):
         super().__init__(engine_strategy)
         self.strategy_class = engine_strategy.strategy_class
         self.strategy_params = strategy_params
         self.min_bars_required = min_bars_required
         self.granularity = granularity
-        
+
     def _validate_and_normalize_data(self, data: pd.DataFrame) -> pd.DataFrame:
         """
-        Validate and normalize data columns for VectorBT compatibility.
+        Validate and normalize data for VectorBT processing.
         
-        Supports:
-        - Case-insensitive column names (close, Close, CLOSE all work)
-        - Optional Volume column 
-        - Close-only DataFrames (minimum requirement)
-        - Standard OHLCV DataFrames
-        
-        Args:
-            data: Input DataFrame with price data
-            
-        Returns:
-            DataFrame with normalized column names
-            
-        Raises:
-            ValueError: If minimum requirements (Close column) are not met
+        VectorBT strategies typically expect OHLCV data, but can work with just Close.
+        This method handles both cases and normalizes column names.
         """
-        # Create a case-insensitive column mapping
+        # Check if we have the basic required data
+        if data.empty:
+            raise ValueError("Empty data provided")
+        
+        # Normalize column names to title case (VectorBT convention)
+        data = data.copy()
         column_mapping = {}
-        available_cols = list(data.columns)
         
-        # Required columns (case-insensitive)
-        required_patterns = {
-            'Close': ['close', 'Close', 'CLOSE'],
-        }
+        # Map common column name variations
+        for col in data.columns:
+            col_lower = col.lower()
+            if col_lower in ['open', 'o']:
+                column_mapping[col] = 'Open'
+            elif col_lower in ['high', 'h']:
+                column_mapping[col] = 'High'
+            elif col_lower in ['low', 'l']:
+                column_mapping[col] = 'Low'
+            elif col_lower in ['close', 'c', 'price']:
+                column_mapping[col] = 'Close'
+            elif col_lower in ['volume', 'vol', 'v']:
+                column_mapping[col] = 'Volume'
         
-        # Optional columns (case-insensitive) 
-        optional_patterns = {
-            'Open': ['open', 'Open', 'OPEN'],
-            'High': ['high', 'High', 'HIGH'], 
-            'Low': ['low', 'Low', 'LOW'],
-            'Volume': ['volume', 'Volume', 'VOLUME', 'vol', 'Vol', 'VOL']
-        }
+        # Rename columns
+        data = data.rename(columns=column_mapping)
         
-        # Find required columns
-        for standard_name, patterns in required_patterns.items():
-            found = False
-            for pattern in patterns:
-                if pattern in available_cols:
-                    column_mapping[standard_name] = pattern
-                    found = True
-                    break
-            if not found:
-                raise ValueError(f"Required column '{standard_name}' not found. Available columns: {available_cols}")
+        # If we only have Close data, create OHLC from Close
+        if 'Close' in data.columns and len([c for c in ['Open', 'High', 'Low'] if c in data.columns]) == 0:
+            logger.debug("Only Close data available, creating OHLC from Close prices")
+            data['Open'] = data['Close']
+            data['High'] = data['Close']
+            data['Low'] = data['Close']
         
-        # Find optional columns
-        all_patterns = {**required_patterns, **optional_patterns}
-        for standard_name, patterns in optional_patterns.items():
-            for pattern in patterns:
-                if pattern in available_cols:
-                    column_mapping[standard_name] = pattern
-                    break
+        # Add Volume if missing (some strategies might need it)
+        if 'Volume' not in data.columns:
+            data['Volume'] = 1.0  # Default volume
         
-        # Create normalized DataFrame with available columns
-        normalized_data = pd.DataFrame(index=data.index)
-        for standard_name, original_name in column_mapping.items():
-            normalized_data[standard_name] = data[original_name]
-            
-        # If we only have Close, create minimal OHLC from Close prices
-        if len(column_mapping) == 1 and 'Close' in column_mapping:
-            logger.info("Only Close prices available, creating OHLC from Close data")
-            close_col = normalized_data['Close']
-            normalized_data['Open'] = close_col
-            normalized_data['High'] = close_col  
-            normalized_data['Low'] = close_col
-            # Volume defaults to 0 if not provided
-            normalized_data['Volume'] = 0
+        # Ensure we have at least Close data
+        if 'Close' not in data.columns:
+            raise ValueError("Data must contain at least 'Close' price information")
         
-        # Ensure we have the minimum required columns for VectorBT Portfolio
-        required_for_portfolio = ['Open', 'High', 'Low', 'Close']
-        missing_cols = [col for col in required_for_portfolio if col not in normalized_data.columns]
-        if missing_cols:
-            # Try to construct missing OHLC columns from Close if possible
-            if 'Close' in normalized_data.columns:
-                close_col = normalized_data['Close']
-                for col in missing_cols:
-                    if col in ['Open', 'High', 'Low']:
-                        normalized_data[col] = close_col
-                        logger.debug(f"Created {col} column from Close prices")
-            else:
-                raise ValueError(f"Cannot construct required OHLC data. Missing: {missing_cols}")
+        # Ensure numeric data types
+        numeric_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+        for col in numeric_columns:
+            if col in data.columns:
+                data[col] = pd.to_numeric(data[col], errors='coerce')
         
-        # Add Volume column if missing (required by some VectorBT operations)
-        if 'Volume' not in normalized_data.columns:
-            normalized_data['Volume'] = 0
-            logger.debug("Added Volume column with zeros (not provided in source data)")
-            
-        return normalized_data
+        # Check for NaN values
+        if data.isnull().any().any():
+            logger.warning("Data contains NaN values, forward filling...")
+            data = data.fillna(method='ffill').fillna(method='bfill')
+        
+        return data
 
     def extract_signal(self, historical_data: pd.DataFrame) -> TradingSignal:
-        """Extract trading signal from historical data using VectorBT"""
+        """Extract trading signal from historical data using VectorBT strategy"""
         try:
             # Check for insufficient data first
             if (hold_signal := self._abort_insufficient_bars(historical_data)):
                 return hold_signal
             
-            # Validate and normalize data columns flexibly
+            # Validate and normalize the data
             data = self._validate_and_normalize_data(historical_data)
             
-            # Call the strategy function to get entries and exits
-            entries, exits, size = self._call_strategy(data)
+            # Call strategy using shared function
+            entries, exits, size = call_vectorbt_strategy(self.strategy_class, data, **self.strategy_params)
             
-            # Build a tiny portfolio (for NAV / PnL metrics) with granularity-aware frequency
-            pf = vbt.Portfolio.from_signals(
-                close=data['Close'],
-                entries=entries,
-                exits=exits,
-                size=size,
-                init_cash=10_000,
-                freq=self._convert_granularity_to_freq(self.granularity)
-            )
+            # Extract signal from the last timestep
+            return self._extract_signal_from_last_bar(data, entries, exits, size)
             
-            # --- Decide what signal to emit (event-driven first) -------------
+        except Exception as e:
+            logger.error(f"Error extracting VectorBT signal: {e}")
+            # Return safe default signal
+            price = self._safe_get_last_value(historical_data['Close']) if len(historical_data) > 0 and 'Close' in historical_data.columns else 0.0
+            return self._safe_hold(price=price, error=e)
+
+    def _extract_signal_from_last_bar(self, data: pd.DataFrame, entries: pd.Series, exits: pd.Series, size: pd.Series = None) -> TradingSignal:
+        """Extract trading signal from the last bar of entries/exits"""
+        try:
             current_price = self._safe_get_last_value(data['Close'])
-
-            # 1. Did the strategy fire on THIS bar?
+            
+            # Check what happened on the last bar
             last_entry = bool(self._safe_get_last_value(entries, False))
-            last_exit  = bool(self._safe_get_last_value(exits, False))
-
+            last_exit = bool(self._safe_get_last_value(exits, False))
+            
+            # Extract size if provided
+            signal_size = None
+            if size is not None:
+                signal_size = self._safe_get_last_value(size, None)
+                if signal_size is not None:
+                    signal_size = abs(float(signal_size))  # Ensure positive
+            
+            # Determine signal type
             if last_entry and not last_exit:
                 signal = SignalType.BUY
             elif last_exit and not last_entry:
                 signal = SignalType.SELL
             else:
-                # 2. No new event – use portfolio exposure for context
-                _pos_attr2 = getattr(pf, "position_now", None)
-                if callable(_pos_attr2):
-                    pos_now = _pos_attr2()
-                else:
-                    pos_now = _pos_attr2 if _pos_attr2 is not None else 0
-
-                if pos_now > 0:
-                    signal = SignalType.BUY
-                elif pos_now < 0:
-                    signal = SignalType.SELL
-                else:
-                    signal = SignalType.HOLD
-
-            # Portfolio / debug metrics --------------------------------------
-            nav_now = getattr(pf, "value_now", None)
-            if callable(nav_now):
-                nav_now = nav_now()
-            if nav_now is None:
-                nav_now = pf.value().iloc[-1]
-
-            # Current exposure (works on every VectorBT version)
-            pos_now = 0
-            _pos_attr = getattr(pf, "position_now", None)
-            if callable(_pos_attr):
-                pos_now = _pos_attr()
-            elif _pos_attr is not None:
-                pos_now = _pos_attr
-
+                signal = SignalType.HOLD
+            
+            # Create indicators dictionary
             indicators = self._clean_indicators({
-                "vectorbt_nav": nav_now,
-                "position": pos_now,
-                "entries_count": entries.sum(),
-                "exits_count": exits.sum(),
+                "last_entry": last_entry,
+                "last_exit": last_exit,
                 "current_price": current_price,
                 "granularity": self.granularity,
+                "pandas_freq": granularity_to_pandas_freq(self.granularity)
             })
-            
-            logger.debug(f"VectorBT signal: {signal.value} "
-                        f"at price: ${current_price:.2f}")
             
             return TradingSignal(
                 signal=signal,
                 price=current_price,
                 timestamp=data.index[-1],
-                indicators=indicators
+                indicators=indicators,
+                size=signal_size  # Include size if provided by strategy
             )
             
         except Exception as e:
-            logger.error(f"Error extracting VectorBT signal: {e}")
-            # Return safe default signal using base class helper
-            price = self._safe_get_last_value(historical_data['Close']) if len(historical_data) > 0 else 0.0
-            return self._safe_hold(price=price, error=e)
-    
-    def _convert_granularity_to_freq(self, granularity: str) -> str:
-        """Convert StrateQueue granularity format to pandas/VectorBT frequency string"""
-        # Map common granularities to pandas frequency strings
-        granularity_map = {
-            '1s': '1S',      # 1 second
-            '5s': '5S',      # 5 seconds
-            '10s': '10S',    # 10 seconds
-            '30s': '30S',    # 30 seconds
-            '1m': '1T',      # 1 minute (T for minute to avoid confusion with month)
-            '1min': '1T',    # 1 minute
-            '5m': '5T',      # 5 minutes
-            '5min': '5T',    # 5 minutes
-            '15m': '15T',    # 15 minutes
-            '15min': '15T',  # 15 minutes
-            '30m': '30T',    # 30 minutes
-            '30min': '30T',  # 30 minutes
-            '1h': '1H',      # 1 hour
-            '1hour': '1H',   # 1 hour
-            '4h': '4H',      # 4 hours
-            '4hour': '4H',   # 4 hours
-            '1d': '1D',      # 1 day
-            '1day': '1D',    # 1 day
-            '1w': '1W',      # 1 week
-            '1week': '1W',   # 1 week
-        }
-        
-        # Return mapped frequency or default to the granularity as-is
-        return granularity_map.get(granularity.lower(), granularity)
-    
-    def _call_strategy(self, data: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series | None]:
-        """Call the strategy function and return entries/exits/(size)"""
-        try:
-            if inspect.isfunction(self.strategy_class):
-                # Function-based strategy
-                result = self.strategy_class(data, **self.strategy_params)
-            elif inspect.isclass(self.strategy_class):
-                # Class-based strategy ─ create an instance first
-                instance = self.strategy_class(**self.strategy_params)
-
-                if hasattr(instance, "run") and callable(getattr(instance, "run")):
-                    # Preferred: instance.run(data)
-                    result = instance.run(data)
-                elif callable(instance):
-                    # Fallback: class implements __call__(data)
-                    result = instance(data)
-                else:
-                    raise ValueError(
-                        "VectorBT strategy class must implement a 'run' method "
-                        "or be directly callable (__call__)."
-                    )
-            else:
-                raise ValueError("Strategy must be a function or a class")
-            
-            # Validate length
-            if not isinstance(result, tuple) or len(result) not in (2, 3):
-                raise ValueError(
-                    "VectorBT strategy must return (entries, exits) or (entries, exits, size)"
-                )
-            
-            # Unpack safely
-            entries, exits = result[0], result[1]
-            size = result[2] if len(result) == 3 else None
-            
-            # Convert to pandas Series if needed
-            if not isinstance(entries, pd.Series):
-                entries = pd.Series(entries, index=data.index)
-            if not isinstance(exits, pd.Series):
-                exits = pd.Series(exits, index=data.index)
-            if size is not None and not isinstance(size, pd.Series):
-                size = pd.Series(size, index=data.index)
-            
-            return entries, exits, size
-            
-        except Exception as e:
-            logger.error(f"Error calling VectorBT strategy: {e}")
-            # Return empty signals
-            empty_signal = pd.Series(False, index=data.index)
-            return empty_signal, empty_signal, None
-    
-    def get_minimum_bars_required(self) -> int:
-        """Get minimum number of bars needed for signal extraction"""
-        return max(self.min_bars_required, self.engine_strategy.get_lookback_period())
+            logger.error(f"Error extracting signal from last bar: {e}")
+            return self._safe_hold(error=e)
 
 
 class VectorBTMultiTickerSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):
-    """Multi-ticker signal extractor for VectorBT strategies - processes multiple symbols in one shot"""
+    """Multi-ticker signal extractor for VectorBT strategies"""
     
     def __init__(self, engine_strategy: VectorBTEngineStrategy, symbols: list[str], min_bars_required: int = 2, granularity: str = '1min', **strategy_params):
         super().__init__(engine_strategy)
@@ -376,17 +310,8 @@ class VectorBTMultiTickerSignalExtractor(BaseSignalExtractor, EngineSignalExtrac
         
         for symbol, df in symbol_data.items():
             try:
-                # Call strategy on single-symbol data (reuses robust single-ticker logic)
-                strategy_result = self._call_strategy(df)
-                
-                # Handle both (entries, exits) and (entries, exits, size) returns
-                if len(strategy_result) == 2:
-                    entries, exits = strategy_result
-                    size = None
-                elif len(strategy_result) == 3:
-                    entries, exits, size = strategy_result
-                else:
-                    raise ValueError("Strategy must return (entries, exits) or (entries, exits, size)")
+                # Call strategy on single-symbol data using shared function
+                entries, exits, size = call_vectorbt_strategy(self.strategy_class, df, **self.strategy_params)
                 
                 # Extract signal from the last timestep only
                 signal = self._extract_last_bar_signal(symbol, df['Close'], entries, exits, size)
@@ -397,56 +322,6 @@ class VectorBTMultiTickerSignalExtractor(BaseSignalExtractor, EngineSignalExtrac
                 signals[symbol] = self._safe_hold(error=e)
         
         return signals
-    
-    def _call_strategy(self, data: pd.DataFrame) -> tuple:
-        """Call the strategy function on single-symbol data and return entries/exits (and optional size)"""
-        try:
-            if inspect.isfunction(self.strategy_class):
-                # Function-based strategy
-                result = self.strategy_class(data, **self.strategy_params)
-            elif inspect.isclass(self.strategy_class):
-                # Class-based strategy ─ create an instance first
-                instance = self.strategy_class(**self.strategy_params)
-
-                if hasattr(instance, "run") and callable(getattr(instance, "run")):
-                    # Preferred: instance.run(data)
-                    result = instance.run(data)
-                elif callable(instance):
-                    # Fallback: class implements __call__(data)
-                    result = instance(data)
-                else:
-                    raise ValueError(
-                        "VectorBT strategy class must implement a 'run' method "
-                        "or be directly callable (__call__)."
-                    )
-            else:
-                raise ValueError("Strategy must be a function or a class")
-            
-            # Ensure result is a tuple of appropriate length
-            if not isinstance(result, tuple) or len(result) not in [2, 3]:
-                raise ValueError("VectorBT strategy must return (entries, exits) or (entries, exits, size) tuple")
-            
-            # Convert to pandas Series if needed
-            entries, exits = result[0], result[1]
-            if not isinstance(entries, pd.Series):
-                entries = pd.Series(entries, index=data.index)
-            if not isinstance(exits, pd.Series):
-                exits = pd.Series(exits, index=data.index)
-            
-            # Handle optional size
-            if len(result) == 3:
-                size = result[2]
-                if size is not None and not isinstance(size, pd.Series):
-                    size = pd.Series(size, index=data.index)
-                return entries, exits, size
-            else:
-                return entries, exits
-            
-        except Exception as e:
-            logger.error(f"Error calling VectorBT strategy: {e}")
-            # Return empty signals
-            empty_signal = pd.Series(False, index=data.index)
-            return empty_signal, empty_signal
     
     def _extract_last_bar_signal(self, symbol: str, close: pd.Series, entries: pd.Series, exits: pd.Series, size: pd.Series = None) -> TradingSignal:
         """Extract trading signal from the last bar only (no portfolio needed)"""
@@ -491,128 +366,58 @@ class VectorBTMultiTickerSignalExtractor(BaseSignalExtractor, EngineSignalExtrac
         except Exception as e:
             logger.error(f"Error extracting signal for {symbol}: {e}")
             return self._safe_hold(error=e)
-    
-    def extract_signal(self, historical_data: pd.DataFrame) -> TradingSignal:
-        """Single-symbol interface for compatibility - delegates to extract_signals"""
-        # For backward compatibility, extract first symbol from multi-symbol result
-        if self.symbols:
-            symbol_data = {self.symbols[0]: historical_data}
-            signals = self.extract_signals(symbol_data)
-            return signals.get(self.symbols[0], self._safe_hold())
-        else:
-            return self._safe_hold()
-    
-    def get_minimum_bars_required(self) -> int:
-        """Get minimum number of bars needed for signal extraction"""
-        return max(self.min_bars_required, self.engine_strategy.get_lookback_period())
 
 
 class VectorBTEngine(TradingEngine):
     """Trading engine implementation for VectorBT"""
     
-    def __init__(self):
-        if not VECTORBT_AVAILABLE:
-            raise ImportError(
-                "VectorBT support is not installed. Run:\n"
-                "    pip install stratequeue[vectorbt]\n"
-                "or\n"
-                "    pip install vectorbt"
-            )
+    # Set dependency management attributes
+    _dependency_available_flag = VECTORBT_AVAILABLE
+    _dependency_help = (
+        "VectorBT support is not installed. Run:\n"
+        "    pip install stratequeue[vectorbt]\n"
+        "or\n"
+        "    pip install vectorbt"
+    )
     
-    @staticmethod
-    def dependencies_available() -> bool:
+    @classmethod
+    def dependencies_available(cls) -> bool:
         """Check if VectorBT dependencies are available"""
         return VECTORBT_AVAILABLE
     
     def get_engine_info(self) -> EngineInfo:
         """Get information about this engine"""
-        return EngineInfo(
+        return build_engine_info(
             name="vectorbt",
-            version=vbt.__version__ if vbt else "unknown",
-            supported_features={
-                "signal_extraction": True,
-                "live_trading": True,
-                "multi_strategy": True,
-                "limit_orders": True,
-                "stop_orders": True,
-                "vectorized_backtesting": True,
-                "numba_acceleration": True
-            },
-            description="High-performance vectorized backtesting library with Numba acceleration"
+            lib_version=vbt.__version__ if vbt else "unknown",
+            description="High-performance vectorized backtesting library with Numba acceleration",
+            vectorized_backtesting=True,
+            numba_acceleration=True
         )
     
-    def load_strategy_from_file(self, strategy_path: str) -> VectorBTEngineStrategy:
-        """Load a VectorBT strategy from file"""
-        try:
-            if not os.path.exists(strategy_path):
-                raise FileNotFoundError(f"Strategy file not found: {strategy_path}")
-            
-            # Load the module using shared helper
-            module = load_module_from_path(strategy_path, "vectorbt_strategy")
-            
-            # Find strategy functions or classes
-            strategy_candidates = {}  # name -> obj mapping for better error messages
-            
-            for name, obj in inspect.getmembers(module):
-                # Look for functions that could be VectorBT strategies
-                if inspect.isfunction(obj):
-                    # Check if function has data parameter and returns entries/exits
-                    sig = inspect.signature(obj)
-                    if 'data' in sig.parameters:
-                        strategy_candidates[name] = obj
-                
-                # Look for classes marked as VectorBT strategies
-                elif inspect.isclass(obj):
-                    if (hasattr(obj, '__vbt_strategy__') or 
-                        hasattr(obj, 'run') or 
-                        name.endswith('Strategy')):
-                        strategy_candidates[name] = obj
-            
-            if not strategy_candidates:
-                raise ValueError(f"No valid VectorBT strategy found in {strategy_path}")
-            
-            # Check for explicit marker first
-            marked_strategies = {
-                name: obj for name, obj in strategy_candidates.items()
-                if hasattr(obj, '__vbt_strategy__') and getattr(obj, '__vbt_strategy__', False)
-            }
-            
-            if marked_strategies:
-                if len(marked_strategies) == 1:
-                    # Exactly one explicitly marked strategy
-                    strategy_name, strategy_obj = next(iter(marked_strategies.items()))
-                    logger.info(f"Using explicitly marked VectorBT strategy: {strategy_name}")
-                else:
-                    # Multiple marked strategies - this is an error
-                    marked_names = list(marked_strategies.keys())
-                    raise ValueError(
-                        f"Multiple VectorBT strategies marked with __vbt_strategy__ = True in {strategy_path}: {marked_names}.\n"
-                        "Only one strategy should be marked per file."
-                    )
-            else:
-                # No explicit markers - check for single implicit candidate
-                if len(strategy_candidates) == 1:
-                    # Exactly one candidate - use it
-                    strategy_name, strategy_obj = next(iter(strategy_candidates.items()))
-                else:
-                    # Multiple candidates without explicit selection - fail fast
-                    candidate_names = list(strategy_candidates.keys())
-                    raise ValueError(
-                        f"Multiple VectorBT strategies detected in {strategy_path}: {candidate_names}.\n"
-                        "Either:\n"
-                        f"  • Keep only one strategy per file, or\n"
-                        f"  • Add  __vbt_strategy__ = True  to exactly one of them."
-                    )
-            logger.info(f"Loaded VectorBT strategy: {strategy_name} from {strategy_path}")
-            
-            # Create wrapper
-            engine_strategy = VectorBTEngineStrategy(strategy_obj)
-            
-            return engine_strategy
-            
-        except Exception as e:
-            logger.error(f"Error loading VectorBT strategy from {strategy_path}: {e}")
-            raise
+    def is_valid_strategy(self, name: str, obj: Any) -> bool:
+        """Check if object is a valid VectorBT strategy"""
+        # Look for functions that could be VectorBT strategies
+        if inspect.isfunction(obj):
+            # Check if function has data parameter and returns entries/exits
+            sig = inspect.signature(obj)
+            return 'data' in sig.parameters
+        
+        # Look for classes marked as VectorBT strategies
+        elif inspect.isclass(obj):
+            return (hasattr(obj, '__vbt_strategy__') or 
+                    hasattr(obj, 'run') or 
+                    name.endswith('Strategy'))
+        
+        return False
+    
+    def get_explicit_marker(self) -> str:
+        """Get the explicit marker for VectorBT strategies"""
+        return '__vbt_strategy__'
+    
+    def create_engine_strategy(self, strategy_obj: Any) -> VectorBTEngineStrategy:
+        """Create a VectorBT engine strategy wrapper"""
+        return VectorBTEngineStrategy(strategy_obj)
     
     def create_signal_extractor(self, engine_strategy: VectorBTEngineStrategy, 
                               **kwargs) -> VectorBTSignalExtractor:
@@ -622,7 +427,4 @@ class VectorBTEngine(TradingEngine):
     def create_multi_ticker_signal_extractor(self, engine_strategy: VectorBTEngineStrategy, 
                                            symbols: list[str], **kwargs) -> VectorBTMultiTickerSignalExtractor:
         """Create a multi-ticker signal extractor for processing multiple symbols in one shot"""
-        return VectorBTMultiTickerSignalExtractor(engine_strategy, symbols, **kwargs)
-    
-    # Convenience alias for consistent API
-    load_strategy = load_strategy_from_file 
+        return VectorBTMultiTickerSignalExtractor(engine_strategy, symbols, **kwargs) 

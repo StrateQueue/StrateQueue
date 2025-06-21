@@ -5,8 +5,7 @@ Handles all data ingestion, processing, and source management.
 Now includes standardized factory pattern for data providers.
 """
 
-# Import factory system - new standardized approach
-# Import backward compatibility functions
+# Import factory system - standardized approach
 from .ingestion import IngestionInit, MinimalSignalGenerator, setup_data_ingestion
 from .provider_factory import (
     DataProviderConfig,
@@ -27,7 +26,7 @@ from .sources import (
 )
 
 __all__ = [
-    # New factory system
+    # Factory system
     "DataProviderFactory",
     "DataProviderConfig",
     "DataProviderInfo",
@@ -36,7 +35,7 @@ __all__ = [
     "get_supported_providers",
     "validate_provider_credentials",
     "list_provider_features",
-    # Backward compatibility functions
+    # Legacy functions (maintained for compatibility)
     "setup_data_ingestion",
     "IngestionInit",
     "MinimalSignalGenerator",

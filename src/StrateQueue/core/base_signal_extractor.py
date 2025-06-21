@@ -117,6 +117,19 @@ class BaseSignalExtractor(ABC):
             metadata=metadata
         )
     
+    def get_minimum_bars_required(self) -> int:
+        """
+        Get minimum number of bars needed for signal extraction.
+        
+        Default implementation combines min_bars_required and engine strategy lookback.
+        Concrete extractors can override this if they need different logic.
+        """
+        min_bars = getattr(self, 'min_bars_required', 2)
+        engine_strategy = getattr(self, 'engine_strategy', None)
+        if engine_strategy:
+            return max(min_bars, engine_strategy.get_lookback_period())
+        return min_bars
+    
     @abstractmethod
     def extract_signal(self, data: pd.DataFrame) -> TradingSignal:
         """Extract trading signal from data. Must be implemented by concrete classes."""

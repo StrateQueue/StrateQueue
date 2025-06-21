@@ -44,7 +44,7 @@ engine = auto_create_engine('strategies/my_strategy.py')
 is_compatible = validate_strategy_compatibility('strategies/my_strategy.py', 'backtesting')
 
 # Run strategy with engine
-if engine.load_strategy('strategies/my_strategy.py'):
+if engine.load_strategy_from_file('strategies/my_strategy.py'):
     results = engine.run(['AAPL', 'MSFT'])
     print(f"Total Return: {results.total_return:.2%}")
 ```
@@ -414,7 +414,7 @@ class MultiStrategyEngine(BaseEngine):
             strategy_path = config['path']
             allocation = config['allocation']  # Percentage of capital
             
-            if self.load_strategy(strategy_path):
+            if self.load_strategy_from_file(strategy_path):
                 strategy_name = config.get('name', strategy_path)
                 self.strategies[strategy_name] = self.strategy
                 self.strategy_allocations[strategy_name] = allocation

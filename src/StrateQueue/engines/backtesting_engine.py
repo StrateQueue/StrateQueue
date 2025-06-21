@@ -9,7 +9,6 @@ and extracting signals.
 import contextlib
 import inspect
 import logging
-import os
 from typing import Any
 
 import pandas as pd
@@ -25,7 +24,10 @@ except ImportError as e:
 from ..core.signal_extractor import SignalType, TradingSignal
 from ..core.strategy_loader import StrategyLoader
 from ..core.base_signal_extractor import BaseSignalExtractor
-from .engine_base import EngineInfo, EngineSignalExtractor, EngineStrategy, TradingEngine, load_module_from_path
+from .engine_base import (
+    EngineInfo, EngineSignalExtractor, EngineStrategy, TradingEngine, 
+    build_engine_info
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,10 +91,6 @@ class BacktestingSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):
             price = self._safe_get_last_value(historical_data["Close"]) if len(historical_data) > 0 else 0.0
             return self._safe_hold(price=price, error=e)
 
-    def get_minimum_bars_required(self) -> int:
-        """Get minimum number of bars needed for signal extraction"""
-        return max(self.min_bars_required, self.engine_strategy.get_lookback_period())
-
     def _extract_signal_legacy(self, data: pd.DataFrame) -> TradingSignal:
         """Legacy signal extraction method (full backtest each time)"""
         # Create a backtest instance and run full backtest
@@ -120,87 +118,44 @@ class BacktestingSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):
 class BacktestingEngine(TradingEngine):
     """Trading engine implementation for backtesting.py"""
 
-    def __init__(self):
-        if not BACKTESTING_AVAILABLE:
-            raise ImportError(
-                "backtesting.py support is not installed. Run:\n"
-                "    pip install stratequeue[backtesting]\n"
-                "or\n"
-                "    pip install backtesting"
-            )
+    # Set dependency management attributes
+    _dependency_available_flag = BACKTESTING_AVAILABLE
+    _dependency_help = (
+        "backtesting.py support is not installed. Run:\n"
+        "    pip install stratequeue[backtesting]\n"
+        "or\n"
+        "    pip install backtesting"
+    )
 
-    @staticmethod
-    def dependencies_available() -> bool:
+    @classmethod
+    def dependencies_available(cls) -> bool:
         """Check if backtesting.py dependencies are available"""
         return BACKTESTING_AVAILABLE
 
     def get_engine_info(self) -> EngineInfo:
         """Get information about this engine"""
-        return EngineInfo(
+        return build_engine_info(
             name="backtesting.py",
-            version="0.3.3",  # Common version
-            supported_features={
-                "signal_extraction": True,
-                "live_trading": True,
-                "multi_strategy": True,
-                "limit_orders": True,
-                "stop_orders": True,
-            },
-            description="Python backtesting library for trading strategies",
+            lib_version="0.3.3",  # Common version
+            description="Python backtesting library for trading strategies"
         )
 
-    def load_strategy_from_file(self, strategy_path: str) -> BacktestingEngineStrategy:
-        """Load a backtesting.py strategy from file"""
-        try:
-            if not os.path.exists(strategy_path):
-                raise FileNotFoundError(f"Strategy file not found: {strategy_path}")
+    def is_valid_strategy(self, name: str, obj: Any) -> bool:
+        """Check if object is a valid backtesting.py strategy"""
+        return (
+            inspect.isclass(obj)
+            and hasattr(obj, "init")
+            and hasattr(obj, "next")
+            and name != "Strategy"
+            and name != "SignalExtractorStrategy"
+        )
 
-            # Load the module using shared helper
-            module = load_module_from_path(strategy_path, "strategy_module")
-
-            # Find strategy classes
-            strategy_classes = []
-            for name, obj in inspect.getmembers(module):
-                if (
-                    inspect.isclass(obj)
-                    and hasattr(obj, "init")
-                    and hasattr(obj, "next")
-                    and name != "Strategy"
-                    and name != "SignalExtractorStrategy"
-                ):
-                    strategy_classes.append(obj)
-
-            if not strategy_classes:
-                raise ValueError(f"No valid strategy class found in {strategy_path}")
-
-            if len(strategy_classes) > 1:
-                logger.warning(
-                    f"Multiple strategy classes found, using first one: {strategy_classes[0].__name__}"
-                )
-
-            strategy_class = strategy_classes[0]
-            logger.info(f"Loaded strategy: {strategy_class.__name__} from {strategy_path}")
-
-            # Create wrapper
-            engine_strategy = BacktestingEngineStrategy(strategy_class)
-
-            return engine_strategy
-
-        except Exception as e:
-            logger.error(f"Error loading strategy from {strategy_path}: {e}")
-            raise
+    def create_engine_strategy(self, strategy_obj: Any) -> BacktestingEngineStrategy:
+        """Create a backtesting engine strategy wrapper"""
+        return BacktestingEngineStrategy(strategy_obj)
 
     def create_signal_extractor(
         self, engine_strategy: BacktestingEngineStrategy, **kwargs
     ) -> BacktestingSignalExtractor:
         """Create a signal extractor for the given strategy"""
         return BacktestingSignalExtractor(engine_strategy, **kwargs)
-
-    def validate_strategy_file(self, strategy_path: str) -> bool:
-        """Validate that a strategy file is compatible with this engine"""
-        try:
-            self.load_strategy_from_file(strategy_path)
-            return True
-        except Exception as e:
-            logger.error(f"Strategy validation failed: {e}")
-            return False

@@ -106,17 +106,7 @@ def register_command_parsers(subparsers) -> None:
             command.setup_parser(subparser)
 
 
-# Legacy function - now handled by color_formatter
-# Keeping for backward compatibility but redirecting to enhanced version
-def create_help_epilog() -> str:
-    """
-    Create help epilog with examples and available commands
 
-    Returns:
-        Help epilog string
-    """
-    supported_commands = get_supported_commands()
-    return create_enhanced_help_epilog(supported_commands)
 
 
 def show_welcome_message() -> None:

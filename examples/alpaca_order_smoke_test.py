@@ -21,7 +21,7 @@ import time
 
 import pandas as pd
 
-from StrateQueue.brokers.alpaca_broker import create_alpaca_broker_from_env
+from StrateQueue.brokers.broker_factory import auto_create_broker
 from StrateQueue.core.signal_extractor import SignalType, TradingSignal
 
 
@@ -247,7 +247,7 @@ def main():
     )
     log = logging.getLogger("smoke")
 
-    broker = create_alpaca_broker_from_env()
+    broker = auto_create_broker()
     if not broker.connect():
         log.error("Could not connect to Alpaca with given credentials.")
         sys.exit(1)

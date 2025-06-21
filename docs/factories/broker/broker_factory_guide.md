@@ -259,7 +259,7 @@ class BrokerFactory:
         'alpaca': {
             'module': 'StrateQueue.brokers.alpaca_broker',
             'class': 'AlpacaBroker',
-            'create_func': 'create_alpaca_broker_from_env'
+            'create_func': 'auto_create_broker'
         },
         'your_broker': {  # Add your broker here
             'module': 'StrateQueue.brokers.your_broker',
