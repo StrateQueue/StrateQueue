@@ -153,23 +153,21 @@ class DataManager:
                     last_timestamp = self.cumulative_data[symbol].index[-1]
                     time_diff = (current_data.timestamp - last_timestamp).total_seconds()
 
-                    # Add new bar if: significant time difference OR price changed OR first few bars
-                    last_price = self.cumulative_data[symbol]["Close"].iloc[-1]
-                    price_changed = (
-                        abs(current_data.close - last_price) > 0.01
-                    )  # Price changed by more than 1 cent
+                    # Add a new bar whenever we move to a *new* timestamp,
+                    # or while we are still building up the initial look-back window.
                     need_more_bars = len(self.cumulative_data[symbol]) < self.lookback_period
 
-                    if time_diff >= 30 or price_changed or need_more_bars:
+                    if time_diff > 0 or need_more_bars:
                         self.cumulative_data[symbol] = pd.concat(
                             [self.cumulative_data[symbol], new_bar]
                         )
                         logger.debug(
-                            f"📊 Added new bar for {symbol}: ${current_data.close:.2f} (time_diff: {time_diff}s, price_changed: {price_changed}, need_more: {need_more_bars})"
+                            f"📊 Added new bar for {symbol}: ${current_data.close:.8f} "
+                            f"(time_diff: {time_diff}s, need_more: {need_more_bars})"
                         )
                     else:
                         logger.debug(
-                            f"⏭️  Skipping duplicate bar for {symbol}: same timestamp and price"
+                            f"⏭️  Skipping duplicate bar for {symbol}: identical timestamp ({current_data.timestamp})"
                         )
                 else:
                     # First bar
