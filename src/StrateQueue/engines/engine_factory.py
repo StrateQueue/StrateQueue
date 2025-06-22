@@ -41,6 +41,20 @@ class EngineFactory:
         except ImportError as e:
             logger.debug(f"Could not import backtesting engine module: {e}")
         
+        # Backtrader engine
+        try:
+            from .backtrader_engine import BacktraderEngine
+            cls._all_known_engines['backtrader'] = BacktraderEngine
+            
+            if BacktraderEngine.dependencies_available():
+                cls._engines['backtrader'] = BacktraderEngine
+                logger.debug("Registered Backtrader engine")
+            else:
+                cls._unavailable_engines['backtrader'] = "Backtrader not installed. Run: pip install stratequeue[backtrader]"
+                logger.debug("Backtrader dependencies not available - engine skipped")
+        except ImportError as e:
+            logger.debug(f"Could not import Backtrader engine module: {e}")
+        
         # VectorBT engine
         try:
             from .vectorbt_engine import VectorBTEngine

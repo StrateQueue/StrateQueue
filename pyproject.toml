@@ -69,6 +69,11 @@ vectorbt = [
     "vectorbt>=0.26",
 ]
 
+# Backtrader engine support
+backtrader = [
+    "backtrader>=1.9.78.123",
+]
+
 # Advanced data processing
 analytics = [
     "scipy>=1.11.0",
@@ -119,6 +124,7 @@ all = [
     "prometheus-client>=0.17.0",
     "structlog>=23.1.0",
     "questionary>=1.10.0",
+    "backtrader>=1.9.78.123",
 ]
 
 [project.urls]
