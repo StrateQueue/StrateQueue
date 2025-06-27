@@ -47,7 +47,10 @@ class SMAStrategy(Strategy):
 ### Deploy to live trading:
 ```
 pip install stratequeue
-stratequeue deploy --strategy my_sma_strategy.py --symbol AAPL
+stratequeue deploy \
+  --strategy examples/strategies/backtestingpy/sma.py \
+  --symbol AAPL \
+  --timeframe 1m
 ```
 
 ![Quick Start Demo](examples/vhs/quick-start.gif)

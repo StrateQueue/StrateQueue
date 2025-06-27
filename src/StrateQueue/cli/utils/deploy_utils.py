@@ -6,6 +6,8 @@ Utility functions for processing and validating deploy command arguments.
 import logging
 import os
 from argparse import Namespace
+from pathlib import Path
+import StrateQueue
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +227,8 @@ def generate_strategy_ids_with_symbols(strategies: list[str], symbols: list[str]
 
 def validate_files_exist(file_paths: list[str]) -> list[str]:
     """
-    Validate that all files in the list exist
+    Validate that all files in the list exist - if they aren't in the CWD,
+    fall back to the examples bundled in the installed package.
 
     Args:
         file_paths: List of file paths to check
@@ -234,9 +237,22 @@ def validate_files_exist(file_paths: list[str]) -> list[str]:
         List of error messages for missing files
     """
     errors = []
-    for file_path in file_paths:
-        if not os.path.exists(file_path):
-            errors.append(f"Strategy file not found: {file_path}")
+    
+    # Helper to resolve bundled demo paths
+    pkg_root = Path(StrateQueue.__file__).resolve().parent.parent  # <site-packages>
+    
+    def _resolve_demo(rel_path: str) -> str | None:
+        candidate = (pkg_root / rel_path).resolve()
+        return str(candidate) if candidate.exists() else None
+    
+    for i, original in enumerate(file_paths):
+        if os.path.exists(original):
+            continue
+        resolved = _resolve_demo(original)
+        if resolved:
+            file_paths[i] = resolved  # mutate in-place so downstream code works
+        else:
+            errors.append(f"Strategy file not found: {original}")
     return errors
 
 

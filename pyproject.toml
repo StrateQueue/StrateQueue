@@ -146,11 +146,16 @@ sq = "StrateQueue.cli.cli:main"
 strateque = "StrateQueue.cli.cli:main"
 strateline = "StrateQueue.cli.cli:main" # for the Americans hehe
 
+[tool.setuptools]
+include-package-data = true
+
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "."]
+include = ["StrateQueue*", "examples*"]
 
 [tool.setuptools.package-data]
 StrateQueue = ["webui_static/**", "*.txt", "*.md"]
+examples = ["**/*"]
 
 # Black configuration
 [tool.black]

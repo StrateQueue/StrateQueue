@@ -390,3 +390,4 @@ venvs
 .DS_Store
 
 *cache*
+test_venv/
