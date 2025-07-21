@@ -190,6 +190,13 @@ def test_detect_provider_type_unknown_explicit_setting_ignored(reset_provider_fa
     monkeypatch.setenv("DATA_PROVIDER", "nonexistent")
     assert pf.detect_provider_type() == "demo"  # Falls back to demo
 
+def test_detect_provider_type_with_ccxt_credentials(reset_provider_factory, clean_env, monkeypatch):
+    """Test that with CCXT credentials set, detect_provider_type returns 'ccxt'."""
+    monkeypatch.setenv("CCXT_EXCHANGE", "binance")
+    monkeypatch.setenv("CCXT_API_KEY", "dummy_key")
+    monkeypatch.setenv("CCXT_SECRET_KEY", "dummy_secret")
+    assert pf.detect_provider_type() == "ccxt"
+
 
 # ---------------------------------------------------------------------------
 # Test Group 4: Create Provider Error Branches
@@ -258,6 +265,17 @@ def test_get_provider_info_returns_data_for_valid_providers(reset_provider_facto
     assert info.name == "Demo/Test Data"
     assert info.requires_api_key is False
     assert "1m" in info.supported_granularities
+
+def test_get_provider_info_ccxt_provider(reset_provider_factory):
+    """Test that CCXT provider info is correctly returned."""
+    info = DataProviderFactory.get_provider_info("ccxt")
+    
+    assert info is not None
+    assert info.name == "CCXT"
+    assert info.requires_api_key is True
+    assert "crypto" in info.supported_markets
+    assert "1m" in info.supported_granularities
+    assert info.supported_features["multiple_exchanges"] is True
 
 
 def test_get_provider_info_returns_none_for_invalid_providers(reset_provider_factory):

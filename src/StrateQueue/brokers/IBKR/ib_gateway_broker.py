@@ -239,7 +239,8 @@ class IBGatewayBroker(IBKRBroker):
                     'ask': ticker.ask if ticker.ask == ticker.ask else None,
                     'timestamp': datetime.now()
                 })
-                logger.info(f"📊 Subscribed to market data for {symbol} - Initial price: ${ticker.last:.2f}")
+                from ...utils.price_formatter import PriceFormatter
+                logger.info(f"📊 Subscribed to market data for {symbol} - Initial price: {PriceFormatter.format_price_for_logging(ticker.last)}")
             else:
                 logger.info(f"📊 Subscribed to market data for {symbol} - Waiting for price data...")
             
@@ -372,16 +373,23 @@ class IBGatewayBroker(IBKRBroker):
                 try:
                     # Get latest ticker data
                     latest_ticker = self.ib.ticker(ticker_obj.contract)
-                    if latest_ticker:
+                    if latest_ticker is not None:
                         # Try different price sources
-                        market_price = latest_ticker.marketPrice() if hasattr(latest_ticker, 'marketPrice') else None
-                        last_price = latest_ticker.last if latest_ticker.last == latest_ticker.last else None
-                        close_price = latest_ticker.close if latest_ticker.close == latest_ticker.close else None
+                        market_price = None
+                        if hasattr(latest_ticker, 'marketPrice'):
+                            if callable(latest_ticker.marketPrice):
+                                market_price = latest_ticker.marketPrice()
+                            else:
+                                market_price = latest_ticker.marketPrice
+                        
+                        last_price = latest_ticker.last if hasattr(latest_ticker, 'last') and latest_ticker.last == latest_ticker.last else None
+                        close_price = latest_ticker.close if hasattr(latest_ticker, 'close') and latest_ticker.close == latest_ticker.close else None
                         
                         # Return the best available price
                         for price in [market_price, last_price, close_price]:
-                            if price and price == price:  # Check for NaN
-                                logger.debug(f"📊 Fresh price for {symbol}: ${price:.2f}")
+                            if price is not None and price == price:  # Check for NaN
+                                from ...utils.price_formatter import PriceFormatter
+                                logger.debug(f"📊 Fresh price for {symbol}: {PriceFormatter.format_price_for_logging(price)}")
                                 return price
                 except Exception as e:
                     logger.debug(f"Error getting fresh price for {symbol}: {e}")
@@ -630,7 +638,7 @@ class IBGatewayBroker(IBKRBroker):
                                 'timestamp': datetime.now()
                             })
                             
-                            logger.debug(f"📊 Updated price for {symbol}: ${market_price:.2f}")
+                            logger.debug(f"📊 Updated price for {symbol}: {PriceFormatter.format_price_for_logging(market_price)}")
                             
                             # Call registered callbacks
                             if symbol in self.streaming_callbacks:

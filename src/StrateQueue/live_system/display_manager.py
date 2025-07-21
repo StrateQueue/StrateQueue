@@ -11,6 +11,7 @@ Handles all display and logging operations for the live trading system:
 import logging
 
 from ..core.signal_extractor import TradingSignal
+from ..utils.price_formatter import PriceFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ class DisplayManager:
         print(f"\n🎯 SIGNAL #{count} - {timestamp_str}{strategy_info}")
         print(f"Symbol: {symbol}")
         print(f"Action: {signal_emoji.get(signal.signal.value, '❓')} {signal.signal.value}")
-        print(f"Price: ${signal.price:.2f}")
+        print(f"Price: {PriceFormatter.format_price_for_display(signal.price)}")
 
         # Removed verbose indicator output to keep the console log concise
 
@@ -160,13 +161,13 @@ class DisplayManager:
                     if isinstance(signal_or_signals, dict):
                         for strategy_id, signal in signal_or_signals.items():
                             print(
-                                f"  • {symbol} [{strategy_id}]: {signal.signal.value} @ ${signal.price:.2f}"
+                                f"  • {symbol} [{strategy_id}]: {signal.signal.value} @ {PriceFormatter.format_price_for_display(signal.price)}"
                             )
                     else:
                         print(f"  • {symbol}: No signals")
             else:
                 for symbol, signal in active_signals.items():
-                    print(f"  • {symbol}: {signal.signal.value} @ ${signal.price:.2f}")
+                    print(f"  • {symbol}: {signal.signal.value} @ {PriceFormatter.format_price_for_display(signal.price)}")
 
         # Show trading summary if enabled
         if alpaca_executor:
@@ -195,8 +196,8 @@ class DisplayManager:
                 print("\n🎯 ACTIVE POSITIONS:")
                 for symbol, pos in positions.items():
                     print(
-                        f"  • {symbol}: {pos['qty']} shares @ ${pos['avg_entry_price']:.2f} "
-                        f"(P&L: ${pos['unrealized_pl']:.2f})"
+                        f"  • {symbol}: {PriceFormatter.format_quantity(pos['qty'])} shares @ {PriceFormatter.format_price_for_display(pos['avg_entry_price'])} "
+                        f"(P&L: {PriceFormatter.format_price_for_display(pos['unrealized_pl'])})"
                     )
             else:
                 print("\n🎯 No active positions")

@@ -99,6 +99,22 @@ class Position:
 
 
 @dataclass
+class BrokerCapabilities:
+    """Broker trading capabilities and constraints"""
+    
+    min_notional: float = 10.0  # Minimum order value in USD
+    max_position_size: float | None = None  # Maximum position size
+    min_lot_size: float = 0.0  # Minimum lot size (0 = no constraint)
+    step_size: float = 0.0  # Price/quantity step size (0 = no constraint)
+    fractional_shares: bool = True  # Whether fractional shares are supported
+    supported_order_types: list[str] = None  # Supported order types
+    
+    def __post_init__(self):
+        if self.supported_order_types is None:
+            self.supported_order_types = ["market", "limit"]
+
+
+@dataclass
 class OrderResult:
     """Standardized order execution result"""
 
@@ -131,6 +147,11 @@ class BaseBroker(ABC):
     @abstractmethod
     def get_broker_info(self) -> BrokerInfo:
         """Get information about this broker"""
+        pass
+
+    @abstractmethod
+    def get_broker_capabilities(self) -> BrokerCapabilities:
+        """Get broker trading capabilities and constraints"""
         pass
 
     @abstractmethod

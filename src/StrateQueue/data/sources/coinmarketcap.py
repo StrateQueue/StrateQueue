@@ -262,7 +262,8 @@ class CoinMarketCapDataIngestion(BaseDataIngestion):
             price = float(quote_data['price'])
             volume_24h = int(quote_data.get('volume_24h', 0))
 
-            logger.info(f"✅ Real CMC data for {symbol}: ${price:.2f} (24h volume: ${volume_24h:,})")
+            from ...utils.price_formatter import PriceFormatter
+            logger.info(f"✅ Real CMC data for {symbol}: {PriceFormatter.format_price_for_display(price)} (24h volume: ${volume_24h:,})")
 
             # Status info from API response
             if 'status' in data:

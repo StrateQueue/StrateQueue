@@ -123,7 +123,8 @@ async def advanced_data_usage_example():
 
     if len(historical_data) > 0:
         latest_price = historical_data["Close"].iloc[-1]
-        print(f"  💰 Latest AAPL price: ${latest_price:.2f}")
+        from src.StrateQueue.utils.price_formatter import PriceFormatter
+        print(f"  💰 Latest AAPL price: {PriceFormatter.format_price_for_display(latest_price)}")
 
     print()
 

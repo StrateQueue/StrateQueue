@@ -119,13 +119,13 @@ class IBKRDataIngestion(BaseDataIngestion):
                 base_client_id = int(os.getenv('IB_CLIENT_ID', '1'))
                 data_client_id = base_client_id + 10  # Offset for data source
                 
-                # Create broker config
+                # Create broker config - support data-specific credentials from broker setup
                 config = BrokerConfig(
                     broker_type='ib_gateway',
                     paper_trading=self.paper_trading,
                     credentials={
-                        'host': os.getenv('IB_TWS_HOST', 'localhost'),
-                        'port': int(os.getenv('IB_TWS_PORT', default_port)),
+                        'host': os.getenv('IBKR_DATA_HOST') or os.getenv('IB_TWS_HOST', 'localhost'),
+                        'port': int(os.getenv('IBKR_DATA_PORT') or os.getenv('IB_TWS_PORT', default_port)),
                         'client_id': data_client_id,
                         'paper_trading': self.paper_trading
                     }

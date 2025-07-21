@@ -227,7 +227,8 @@ async def monitor_strategy_output(job_id: str, proc: subprocess.Popen):
                     price = float(trade_match.group(2))
                     meta["last_signal"] = datetime.now(timezone.utc).isoformat()
                     meta["last_signal_type"] = trade_type
-                    log.info(f"Strategy {job_id}: {trade_type} @ ${price:.2f}")
+                    from ..utils.price_formatter import PriceFormatter
+                    log.info(f"Strategy {job_id}: {trade_type} @ {PriceFormatter.format_price_for_logging(price)}")
                     
     except Exception as e:
         log.error(f"Error monitoring strategy {job_id}: {e}")

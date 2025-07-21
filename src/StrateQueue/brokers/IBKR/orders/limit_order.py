@@ -224,7 +224,8 @@ class LimitOrderHandler(BaseOrderHandler):
         Returns:
             Order description string
         """
-        desc = f"Limit {side.value} {quantity} shares @ ${price:.2f}"
+        from ....utils.price_formatter import PriceFormatter
+        desc = f"Limit {side.value} {PriceFormatter.format_quantity(quantity)} shares @ {PriceFormatter.format_price_for_display(price)}"
         
         if kwargs.get('outside_rth', False):
             desc += " (Extended Hours)"

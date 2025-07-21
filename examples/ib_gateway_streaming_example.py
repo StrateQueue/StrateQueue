@@ -73,7 +73,10 @@ class StreamingStrategy:
                 if current_price is None:
                     return
                 
-                logger.info(f"📊 {symbol}: ${current_price:.2f} (bid: ${data.get('bid', 'N/A')}, ask: ${data.get('ask', 'N/A')})")
+                from src.StrateQueue.utils.price_formatter import PriceFormatter
+                bid_str = PriceFormatter.format_price_for_display(data.get('bid')) if data.get('bid') != 'N/A' else 'N/A'
+                ask_str = PriceFormatter.format_price_for_display(data.get('ask')) if data.get('ask') != 'N/A' else 'N/A'
+                logger.info(f"📊 {symbol}: {PriceFormatter.format_price_for_display(current_price)} (bid: {bid_str}, ask: {ask_str})")
                 
                 # Simple momentum strategy logic
                 self._check_momentum_signal(symbol, current_price)

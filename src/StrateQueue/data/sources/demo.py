@@ -205,6 +205,8 @@ class TestDataIngestion(BaseDataIngestion):
             # Append to existing data
             if symbol in self.historical_data:
                 self.historical_data[symbol] = pd.concat([self.historical_data[symbol], new_row])
+                # Ensure data is sorted by timestamp to avoid backtesting.py warnings
+                self.historical_data[symbol] = self.historical_data[symbol].sort_index()
             else:
                 self.historical_data[symbol] = new_row
 

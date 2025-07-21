@@ -96,9 +96,40 @@ class TradingSignal:
         if self.metadata is None:
             self.metadata = {}
         
-        # Backward compatibility: if size is set but quantity is not, copy it
-        if self.size is not None and self.quantity is None:
-            self.quantity = self.size
+        # Note: Removed automatic size->quantity copying to preserve sizing intent detection
+        # The get_sizing_intent() method will handle legacy size field properly
+    
+    def get_sizing_intent(self) -> tuple[str, float] | None:
+        """
+        Extract sizing intent from the signal
+        
+        Returns:
+            Tuple of (intent_type, intent_value) or None if no explicit intent
+            - intent_type: "units", "equity_pct", or "notional"
+            - intent_value: the numeric value for that intent type
+        """
+        # Check for explicit sizing intents (new Zipline-style)
+        if self.value is not None and self.value > 0:
+            return ("notional", self.value)
+        elif self.percent is not None and self.percent > 0:
+            return ("equity_pct", self.percent)
+        elif self.target_value is not None and self.target_value > 0:
+            return ("notional", self.target_value)
+        elif self.target_percent is not None and self.target_percent > 0:
+            return ("equity_pct", self.target_percent)
+        elif self.quantity is not None and self.quantity > 0:
+            return ("units", self.quantity)
+        
+        # Check legacy size field - prioritize after explicit Zipline fields
+        elif self.size is not None and self.size > 0:
+            # Assume size is in dollars (notional) if > 1, otherwise treat as percentage
+            if self.size > 1:
+                return ("notional", self.size)
+            else:
+                return ("equity_pct", self.size)
+        
+        # No explicit sizing intent found
+        return None
 
 
 class SignalExtractorStrategy(Strategy if BACKTESTING_AVAILABLE else object):
@@ -321,9 +352,10 @@ class LiveSignalExtractor:
 
             self.last_signal = current_signal
 
+            from ..utils.price_formatter import PriceFormatter
             logger.info(
                 f"Extracted signal: {current_signal.signal.value} "
-                f"at price: ${current_signal.price:.2f}"
+                f"at price: {PriceFormatter.format_price_for_logging(current_signal.price)}"
             )
 
             return current_signal

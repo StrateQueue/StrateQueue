@@ -187,12 +187,24 @@ class TestSetupCommandDocs:
         result = self._run_cli_command(cli_runner, 'setup', 'data-provider', 'coinmarketcap', '--docs')
         
         assert result.returncode == 0
-        assert "📊 Data Provider Setup Documentation" in result.stdout
-        assert "🔸 CoinMarketCap Setup:" in result.stdout
-        assert "https://pro.coinmarketcap.com/" in result.stdout
+        assert "CoinMarketCap Setup:" in result.stdout
+        assert "pro.coinmarketcap.com" in result.stdout
         assert "CMC_API_KEY" in result.stdout
-        assert "export CMC_API_KEY=your_key_here" in result.stdout
-        assert "333 requests/day" in result.stdout
+        assert "Supported markets: Cryptocurrency" in result.stdout
+
+    def test_setup_data_provider_ccxt_docs_shows_ccxt_specific(self, cli_runner):
+        """setup data-provider ccxt --docs shows CCXT-specific instructions"""
+        result = self._run_cli_command(cli_runner, 'setup', 'data-provider', 'ccxt', '--docs')
+        
+        assert result.returncode == 0
+        assert "📊 Data Provider Setup Documentation" in result.stdout
+        assert "🔸 CCXT Data Provider Setup:" in result.stdout
+        assert "pip install ccxt" in result.stdout
+        assert "250+ supported exchanges" in result.stdout
+        assert "CCXT_EXCHANGE" in result.stdout
+        assert "CCXT_API_KEY" in result.stdout
+        assert "CCXT_SECRET_KEY" in result.stdout
+        assert "Popular exchanges: Binance, Coinbase, Kraken, Bitfinex" in result.stdout
         assert "Supported markets: Cryptocurrency" in result.stdout
 
     def test_setup_docs_exit_code_success(self, cli_runner):

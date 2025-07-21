@@ -374,6 +374,21 @@ class DeployCommand(BaseCommand):
             granularity = args._granularities[0] if args._granularities else "1m"
             broker_type = args._brokers[0] if args._brokers and args._brokers[0] != 'auto' else None
 
+            # Configure position sizer based on allocation type
+            position_sizer = None
+            if hasattr(args, '_allocations') and args._allocations:
+                allocation_value = float(args._allocations[0])
+                if allocation_value > 1.0:
+                    # Dollar allocation - use FixedDollarSizing
+                    from ...core.position_sizer import FixedDollarSizing, PositionSizer
+                    position_sizer = PositionSizer(FixedDollarSizing(allocation_value))
+                    print(f"💰 Using fixed dollar allocation: ${allocation_value:.2f} per trade")
+                else:
+                    # Percentage allocation - use PercentOfCapitalSizing
+                    from ...core.position_sizer import PercentOfCapitalSizing, PositionSizer
+                    position_sizer = PositionSizer(PercentOfCapitalSizing(allocation_value))
+                    print(f"💰 Using percentage allocation: {allocation_value*100:.1f}% of capital per trade")
+
             # Initialize single strategy system
             system = LiveTradingSystem(
                 strategy_path=strategy_path,
@@ -384,7 +399,8 @@ class DeployCommand(BaseCommand):
                 broker_type=broker_type,
                 paper_trading=paper_trading,
                 lookback_override=args.lookback,
-                engine_type=getattr(args, 'engine', None)
+                engine_type=getattr(args, 'engine', None),
+                position_sizer=position_sizer
             )
 
             print(f"🚀 Starting single strategy system for {args.duration} minutes...")

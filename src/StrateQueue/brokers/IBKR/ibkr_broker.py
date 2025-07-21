@@ -41,6 +41,7 @@ from ...core.signal_extractor import TradingSignal
 from ..broker_base import (
     AccountInfo,
     BaseBroker,
+    BrokerCapabilities,
     BrokerConfig,
     BrokerInfo,
     OrderResult,
@@ -139,6 +140,17 @@ class IBKRBroker(BaseBroker):
             description="Interactive Brokers TWS/IB Gateway integration",
             supported_markets=["stocks", "crypto", "options", "futures", "forex"],
             paper_trading=self.config.paper_trading,
+        )
+
+    def get_broker_capabilities(self) -> BrokerCapabilities:
+        """Get broker trading capabilities and constraints"""
+        return BrokerCapabilities(
+            min_notional=1.0,  # IBKR allows very small orders
+            max_position_size=None,  # No hard limit (subject to account size)
+            min_lot_size=0.0,  # No lot size constraints for most instruments
+            step_size=0.0,  # No step size constraints
+            fractional_shares=True,  # IBKR supports fractional shares
+            supported_order_types=["market", "limit", "stop", "stop_limit"]
         )
 
     def connect(self) -> bool:

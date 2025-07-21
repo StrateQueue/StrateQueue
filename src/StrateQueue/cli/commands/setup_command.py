@@ -170,6 +170,11 @@ class SetupCommand(BaseCommand):
                     canonical_brokers.add('ibkr')
                 elif broker.lower() == 'alpaca':
                     canonical_brokers.add('alpaca')
+                elif broker.lower() == 'ccxt':
+                    canonical_brokers.add('ccxt')
+                elif broker.startswith('ccxt.'):
+                    # Skip exchange-specific aliases - they're handled by the main ccxt broker
+                    continue
                 else:
                     canonical_brokers.add(broker)
             
@@ -180,6 +185,10 @@ class SetupCommand(BaseCommand):
                     broker_map[display_name] = broker
                 elif broker == "ibkr":
                     display_name = "Interactive Brokers (stocks, options, futures, forex)"
+                    broker_choices.append(display_name)
+                    broker_map[display_name] = broker
+                elif broker == "ccxt":
+                    display_name = "CCXT (250+ cryptocurrency exchanges)"
                     broker_choices.append(display_name)
                     broker_map[display_name] = broker
                 else:
@@ -203,6 +212,8 @@ class SetupCommand(BaseCommand):
                 return self._setup_alpaca()
             elif broker == "ibkr":
                 return self._setup_ibkr()
+            elif broker == "ccxt":
+                return self._setup_ccxt()
             else:
                 print(f"❌ {broker.title()} setup not yet implemented.")
                 return None
@@ -265,16 +276,26 @@ class SetupCommand(BaseCommand):
                 "PAPER_KEY": api_key,
                 "PAPER_SECRET": secret_key,
                 "PAPER_ENDPOINT": "https://paper-api.alpaca.markets",
+                # Also store as data source credentials
+                "ALPACA_DATA_API_KEY": api_key,
+                "ALPACA_DATA_SECRET_KEY": secret_key,
+                "ALPACA_DATA_BASE_URL": "https://paper-api.alpaca.markets",
             }
         else:
             env_vars = {
                 "ALPACA_API_KEY": api_key,
                 "ALPACA_SECRET_KEY": secret_key,
                 "ALPACA_BASE_URL": "https://api.alpaca.markets",
+                # Also store as data source credentials
+                "ALPACA_DATA_API_KEY": api_key,
+                "ALPACA_DATA_SECRET_KEY": secret_key,
+                "ALPACA_DATA_BASE_URL": "https://api.alpaca.markets",
             }
 
         # Save credentials
         self._write_env_file(env_vars)
+        
+        print("💡 These credentials can also be used for Alpaca market data")
 
         return "alpaca"
 
@@ -358,6 +379,11 @@ class SetupCommand(BaseCommand):
             "IB_TWS_PORT": port,
             "IB_CLIENT_ID": client_id,
             "IB_PAPER": "true" if is_paper else "false",
+            # Also store as data source credentials (IBKR can provide market data)
+            "IBKR_DATA_HOST": host,
+            "IBKR_DATA_PORT": port,
+            "IBKR_DATA_CLIENT_ID": client_id,
+            "IBKR_DATA_PAPER": "true" if is_paper else "false",
         }
 
         # Test connection using lightweight credential checker
@@ -402,12 +428,167 @@ class SetupCommand(BaseCommand):
         self._write_env_file(env_vars)
 
         print(f"\n✅ IBKR configured for {mode_choice.split(' (')[0]}")
+        print("💡 These credentials can also be used for Interactive Brokers market data")
         print("💡 Next steps:")
         print("  1. Make sure TWS/Gateway is running")
         print("  2. Test with: stratequeue status")
         print("  3. Try a paper trade: stratequeue deploy --broker ibkr --paper")
 
         return "ibkr"
+
+    def _setup_ccxt(self) -> str | None:
+        """Setup CCXT broker credentials with exchange selection"""
+        try:
+            # Check if CCXT is available
+            try:
+                import ccxt
+                print("✅ CCXT library is installed")
+            except ImportError:
+                print("❌ CCXT library not found. Install with: pip install ccxt")
+                return None
+
+            # Import and use the exchange selector
+            from ...brokers.CCXT.exchange_selector import ExchangeSelector
+            
+            selector = ExchangeSelector()
+            
+            # Show exchange selection menu
+            try:
+                exchange_id = selector.show_exchange_menu()
+            except KeyboardInterrupt:
+                print("\n⚠️  Exchange selection cancelled.")
+                return None
+            
+            if not exchange_id:
+                print("❌ No exchange selected.")
+                return None
+
+            # Get exchange requirements
+            exchange_info = selector.get_exchange_requirements(exchange_id)
+            
+            print(f"\n📋 {exchange_id.title()} Setup")
+            print("=" * 50)
+            
+            # Trading mode selection
+            mode_choice = select(
+                "Select trading mode:",
+                choices=[
+                    "Paper Trading (testnet/sandbox - recommended for testing)",
+                    "Live Trading (real money - use with caution!)",
+                ],
+            ).ask()
+
+            if mode_choice is None:
+                return None
+
+            is_paper = "Paper Trading" in mode_choice
+            
+            # Check if exchange supports sandbox/testnet
+            if is_paper and exchange_info and not exchange_info.supports_sandbox:
+                print(f"⚠️  {exchange_id.title()} does not support testnet/sandbox.")
+                print("🔄 Switching to live trading mode...")
+                is_paper = False
+                print("⚠️  WARNING: This will enable REAL MONEY trading!")
+
+            # Get API credentials
+            print(f"\n🔑 Enter your {exchange_id.title()} API credentials:")
+            if exchange_info and exchange_info.setup_instructions:
+                print(f"💡 {exchange_info.setup_instructions}")
+            print()
+
+            api_key = text(f"{exchange_id.title()} API Key:").ask()
+            if not api_key:
+                print("❌ API key is required.")
+                return None
+
+            secret_key = password(f"{exchange_id.title()} Secret Key:").ask()
+            if not secret_key:
+                print("❌ Secret key is required.")
+                return None
+
+            # Get passphrase if required
+            passphrase = ""
+            if exchange_info and exchange_info.requires_passphrase:
+                passphrase = password(f"{exchange_id.title()} Passphrase:").ask()
+                if not passphrase:
+                    print("❌ Passphrase is required for this exchange.")
+                    return None
+
+            # Prepare environment variables
+            exchange_upper = exchange_id.upper()
+            env_vars = {
+                "CCXT_EXCHANGE": exchange_id,
+                "CCXT_API_KEY": api_key,
+                "CCXT_SECRET_KEY": secret_key,
+                "CCXT_PAPER_TRADING": "true" if is_paper else "false",
+                # Also store as exchange-specific data source credentials
+                f"CCXT_{exchange_upper}_API_KEY": api_key,
+                f"CCXT_{exchange_upper}_SECRET_KEY": secret_key,
+                f"CCXT_{exchange_upper}_PAPER_TRADING": "true" if is_paper else "false",
+            }
+            
+            if passphrase:
+                env_vars["CCXT_PASSPHRASE"] = passphrase
+                env_vars[f"CCXT_{exchange_upper}_PASSPHRASE"] = passphrase
+
+            # Test connection
+            print(f"\n🔌 Testing connection to {exchange_id.title()}...")
+            try:
+                # Create temporary exchange instance to test credentials
+                exchange_class = getattr(ccxt, exchange_id)
+                temp_exchange = exchange_class({
+                    'apiKey': api_key,
+                    'secret': secret_key,
+                    'password': passphrase,
+                    'sandbox': is_paper,
+                    'enableRateLimit': True,
+                })
+                
+                # Test by fetching balance
+                balance = temp_exchange.fetch_balance()
+                print("✅ Connection successful!")
+                
+                # Show account info if available
+                if balance.get('info'):
+                    print("✅ Account information retrieved")
+                
+            except Exception as e:
+                print(f"❌ Connection test failed: {e}")
+                print(f"\n💡 Common issues:")
+                print(f"  - Check your API key and secret are correct")
+                print(f"  - Ensure API key has trading permissions")
+                if exchange_info and exchange_info.requires_passphrase:
+                    print(f"  - Verify your passphrase is correct")
+                if is_paper:
+                    print(f"  - Make sure testnet/sandbox is enabled for your API key")
+                
+                continue_anyway = select(
+                    "Save settings anyway?",
+                    choices=["No, let me fix the credentials first", "Yes, save settings"],
+                ).ask()
+                
+                if continue_anyway != "Yes, save settings":
+                    return None
+
+            # Save credentials
+            self._write_env_file(env_vars)
+
+            print(f"\n✅ {exchange_id.title()} configured for {mode_choice.split(' (')[0]}")
+            print("💡 These credentials can also be used for market data from this exchange")
+            print("💡 Next steps:")
+            print("  1. Test with: stratequeue status")
+            print(f"  2. Try a deployment: stratequeue deploy --broker ccxt.{exchange_id}")
+            if is_paper:
+                print("  3. Switch to live trading when ready by re-running setup")
+
+            return "ccxt"
+
+        except KeyboardInterrupt:
+            print("\n⚠️  Setup cancelled.")
+            return None
+        except Exception as e:
+            print(f"❌ CCXT setup failed: {e}")
+            return None
 
     def _write_env_file(self, new_vars: dict) -> None:
         """
@@ -507,6 +688,8 @@ class SetupCommand(BaseCommand):
         try:
             print("\n🔧 StrateQueue Setup")
             print("=" * 50)
+            print("💡 Tip: Broker credentials can often be used for market data too!")
+            print()
 
             setup_choice = select(
                 "What would you like to configure?",
@@ -574,6 +757,13 @@ class SetupCommand(BaseCommand):
                     display_name = "CoinMarketCap (cryptocurrency data)"
                     provider_choices.append(display_name)
                     provider_map[display_name] = provider
+                elif provider == "ccxt":
+                    display_name = "CCXT (250+ cryptocurrency exchanges)"
+                    provider_choices.append(display_name)
+                    provider_map[display_name] = provider
+                elif provider.startswith("ccxt."):
+                    # Skip exchange-specific aliases - they're handled by the main ccxt provider
+                    continue
                 # Skip demo provider in setup - it doesn't need credentials
 
             if not provider_choices:
@@ -598,6 +788,8 @@ class SetupCommand(BaseCommand):
                 return self._setup_polygon()
             elif provider == "coinmarketcap":
                 return self._setup_coinmarketcap()
+            elif provider == "ccxt":
+                return self._setup_ccxt_data_provider()
             else:
                 print(f"❌ {provider.title()} setup not yet implemented.")
                 return None
@@ -652,6 +844,217 @@ class SetupCommand(BaseCommand):
 
         return "coinmarketcap"
 
+    def _setup_ccxt_data_provider(self) -> str | None:
+        """Setup CCXT data provider credentials with exchange selection"""
+        try:
+            # Check if CCXT is available
+            try:
+                import ccxt
+                print("✅ CCXT library is installed")
+            except ImportError:
+                print("❌ CCXT library not found. Install with: pip install ccxt")
+                return None
+
+            print("\n📊 CCXT Data Provider Setup")
+            print("=" * 50)
+            print("Configure cryptocurrency market data from 250+ exchanges")
+            print()
+            
+            # Check if CCXT broker credentials already exist
+            existing_exchange = os.getenv("CCXT_EXCHANGE")
+            if existing_exchange:
+                existing_api_key = os.getenv("CCXT_API_KEY")
+                existing_secret_key = os.getenv("CCXT_SECRET_KEY")
+                
+                if existing_api_key and existing_secret_key:
+                    print(f"🔍 Found existing CCXT broker credentials for {existing_exchange.title()}")
+                    
+                    reuse_choice = select(
+                        f"Would you like to reuse the existing {existing_exchange.title()} credentials for data?",
+                        choices=[
+                            f"✅ Yes, use existing {existing_exchange.title()} credentials",
+                            "🔄 No, configure different exchange for data",
+                        ]
+                    ).ask()
+                    
+                    if reuse_choice and "Yes, use existing" in reuse_choice:
+                        # Reuse existing broker credentials for data
+                        exchange_upper = existing_exchange.upper()
+                        existing_passphrase = os.getenv("CCXT_PASSPHRASE", "")
+                        
+                        env_vars = {
+                            f"CCXT_{exchange_upper}_API_KEY": existing_api_key,
+                            f"CCXT_{exchange_upper}_SECRET_KEY": existing_secret_key,
+                            f"CCXT_{exchange_upper}_PAPER_TRADING": os.getenv("CCXT_PAPER_TRADING", "true"),
+                        }
+                        
+                        if existing_passphrase:
+                            env_vars[f"CCXT_{exchange_upper}_PASSPHRASE"] = existing_passphrase
+                        
+                        self._write_env_file(env_vars)
+                        
+                        print(f"\n✅ {existing_exchange.title()} configured as data provider using existing broker credentials")
+                        print("💡 Next steps:")
+                        print("  1. Test with: stratequeue status")
+                        print(f"  2. Use in deployments: --data-source ccxt.{existing_exchange}")
+                        
+                        return "ccxt"
+
+            # Import and use the exchange selector for new setup
+            from ...brokers.CCXT.exchange_selector import ExchangeSelector
+            
+            selector = ExchangeSelector()
+            
+            # Show exchange selection menu (same as broker)
+            try:
+                exchange_id = selector.show_exchange_menu()
+            except KeyboardInterrupt:
+                print("\n⚠️  Exchange selection cancelled.")
+                return None
+            
+            if not exchange_id:
+                print("❌ No exchange selected.")
+                return None
+
+            # Get exchange requirements (same as broker)
+            exchange_info = selector.get_exchange_requirements(exchange_id)
+            
+            print(f"\n📋 {exchange_id.title()} Data Provider Setup")
+            print("=" * 50)
+            print("💡 Data provider credentials can be read-only (no trading permissions needed)")
+            print()
+
+            # Get API credentials (same as broker)
+            print(f"🔑 Enter your {exchange_id.title()} API credentials:")
+            if exchange_info and exchange_info.setup_instructions:
+                print(f"💡 {exchange_info.setup_instructions}")
+            print()
+
+            api_key = text(f"{exchange_id.title()} API Key:").ask()
+            if not api_key:
+                print("❌ API key is required.")
+                return None
+
+            secret_key = password(f"{exchange_id.title()} Secret Key:").ask()
+            if not secret_key:
+                print("❌ Secret key is required.")
+                return None
+
+            # Get passphrase if required (same as broker)
+            passphrase = ""
+            if exchange_info and exchange_info.requires_passphrase:
+                passphrase = password(f"{exchange_id.title()} Passphrase:").ask()
+                if not passphrase:
+                    print("❌ Passphrase is required for this exchange.")
+                    return None
+
+            # Check if we're about to overwrite existing broker credentials
+            exchange_upper = exchange_id.upper()
+            existing_broker_key = os.getenv(f"CCXT_{exchange_upper}_API_KEY")
+            existing_broker_secret = os.getenv(f"CCXT_{exchange_upper}_SECRET_KEY")
+            
+            if existing_broker_key and existing_broker_secret:
+                if existing_broker_key != api_key or existing_broker_secret != secret_key:
+                    print(f"\n⚠️  Warning: {exchange_id.title()} broker credentials already exist!")
+                    print("Setting up different data source credentials will overwrite the broker credentials.")
+                    
+                    overwrite_choice = select(
+                        "How would you like to proceed?",
+                        choices=[
+                            "🔄 Use existing broker credentials for data (recommended)",
+                            "⚠️  Overwrite with new data source credentials",
+                            "❌ Cancel setup"
+                        ]
+                    ).ask()
+                    
+                    if overwrite_choice is None or "Cancel setup" in overwrite_choice:
+                        print("Setup cancelled.")
+                        return None
+                    elif "Use existing broker credentials" in overwrite_choice:
+                        # Reuse existing broker credentials
+                        existing_passphrase = os.getenv(f"CCXT_{exchange_upper}_PASSPHRASE", "")
+                        existing_paper_trading = os.getenv(f"CCXT_{exchange_upper}_PAPER_TRADING", "true")
+                        
+                        env_vars = {
+                            f"CCXT_{exchange_upper}_API_KEY": existing_broker_key,
+                            f"CCXT_{exchange_upper}_SECRET_KEY": existing_broker_secret,
+                            f"CCXT_{exchange_upper}_PAPER_TRADING": existing_paper_trading,
+                        }
+                        
+                        if existing_passphrase:
+                            env_vars[f"CCXT_{exchange_upper}_PASSPHRASE"] = existing_passphrase
+                        
+                        self._write_env_file(env_vars)
+                        
+                        print(f"\n✅ {exchange_id.title()} configured as data provider using existing broker credentials")
+                        print("💡 Next steps:")
+                        print("  1. Test with: stratequeue status")
+                        print(f"  2. Use in deployments: --data-source ccxt.{exchange_id}")
+                        
+                        return "ccxt"
+            
+            # Prepare exchange-specific environment variables for new credentials
+            env_vars = {
+                f"CCXT_{exchange_upper}_API_KEY": api_key,
+                f"CCXT_{exchange_upper}_SECRET_KEY": secret_key,
+                "CCXT_SANDBOX": "true"  # Default to sandbox for data
+            }
+            
+            if passphrase:
+                env_vars[f"CCXT_{exchange_upper}_PASSPHRASE"] = passphrase
+
+            # Test connection (same as broker)
+            print(f"\n🔌 Testing connection to {exchange_id.title()}...")
+            try:
+                # Create temporary exchange instance to test credentials
+                exchange_class = getattr(ccxt, exchange_id)
+                temp_exchange = exchange_class({
+                    'apiKey': api_key,
+                    'secret': secret_key,
+                    'password': passphrase,
+                    'sandbox': True,  # Use sandbox for testing
+                    'enableRateLimit': True,
+                })
+                
+                # Test by loading markets
+                markets = temp_exchange.load_markets()
+                print("✅ Connection successful!")
+                print(f"✅ Found {len(markets)} trading pairs")
+                
+            except Exception as e:
+                print(f"❌ Connection test failed: {e}")
+                print(f"\n💡 Common issues:")
+                print(f"  - Check your API key and secret are correct")
+                print(f"  - API key needs read permissions for market data")
+                if exchange_info and exchange_info.requires_passphrase:
+                    print(f"  - Verify your passphrase is correct")
+                
+                continue_anyway = select(
+                    "Save settings anyway?",
+                    choices=["No, let me fix the credentials first", "Yes, save settings"],
+                ).ask()
+                
+                if continue_anyway != "Yes, save settings":
+                    return None
+
+            # Save credentials
+            self._write_env_file(env_vars)
+
+            print(f"\n✅ {exchange_id.title()} configured as data provider")
+            print("💡 Next steps:")
+            print("  1. Test with: stratequeue status")
+            print(f"  2. Use in deployments: --data-source ccxt.{exchange_id}")
+            print("  3. Available symbols depend on the exchange")
+
+            return "ccxt"
+
+        except KeyboardInterrupt:
+            print("\n⚠️  Setup cancelled.")
+            return None
+        except Exception as e:
+            print(f"❌ CCXT data provider setup failed: {e}")
+            return None
+
     def _show_data_provider_docs(self, provider_name: str | None = None) -> None:
         """Show data provider setup documentation"""
         print("\n📊 Data Provider Setup Documentation")
@@ -677,6 +1080,21 @@ class SetupCommand(BaseCommand):
             print("\nSupported markets: Cryptocurrency")
             print("Rate limits: 333 requests/day (free tier)")
 
+        elif provider_name == "ccxt":
+            print("\n🔸 CCXT Data Provider Setup:")
+            print("1. Install CCXT: pip install ccxt")
+            print("2. Choose from 250+ supported exchanges")
+            print("3. Get API credentials from your chosen exchange")
+            print("4. Set environment variables:")
+            print("   export CCXT_EXCHANGE=binance  # or your exchange")
+            print("   export CCXT_API_KEY=your_api_key")
+            print("   export CCXT_SECRET_KEY=your_secret_key")
+            print("   export CCXT_PASSPHRASE=your_passphrase  # if required")
+            print("   export DATA_PROVIDER=ccxt")
+            print("\nPopular exchanges: Binance, Coinbase, Kraken, Bitfinex")
+            print("Supported markets: Cryptocurrency")
+            print("Rate limits: Varies by exchange")
+
         else:
             print("\n🔸 Available Data Providers:")
             print()
@@ -689,6 +1107,11 @@ class SetupCommand(BaseCommand):
             print("   - Cryptocurrency market data")
             print("   - Free tier: 333 requests/day")
             print("   - Setup: stratequeue setup data-provider --docs coinmarketcap")
+            print()
+            print("🔗 CCXT")
+            print("   - 250+ cryptocurrency exchanges")
+            print("   - Exchange-specific API keys required")
+            print("   - Setup: stratequeue setup data-provider --docs ccxt")
             print()
             print("🧪 Demo Provider")
             print("   - Simulated data for testing")

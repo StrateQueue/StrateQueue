@@ -45,6 +45,12 @@ def detect_broker_from_environment() -> str | None:
     if os.getenv('IB_TWS_PORT') or os.getenv('IB_CLIENT_ID') or os.getenv('IB_TWS_HOST'):
         return 'ibkr'
 
+    # Check for CCXT credentials (exchange-specific format)
+    ccxt_exchanges = ['BINANCE', 'COINBASE', 'KRAKEN', 'BYBIT', 'OKX', 'KUCOIN', 'HUOBI', 'BITFINEX', 'GATEIO', 'MEXC']
+    for exchange in ccxt_exchanges:
+        if os.getenv(f'CCXT_{exchange}_API_KEY') and os.getenv(f'CCXT_{exchange}_SECRET_KEY'):
+            return 'ccxt'
+
     # Check for TD Ameritrade credentials
     if os.getenv('TD_CLIENT_ID') or os.getenv('TD_REFRESH_TOKEN'):
         return 'td_ameritrade'
@@ -86,6 +92,13 @@ def detect_all_brokers_from_environment() -> list[str]:
     # Check for Interactive Brokers
     if os.getenv('IB_TWS_PORT') or os.getenv('IB_CLIENT_ID') or os.getenv('IB_TWS_HOST'):
         detected_brokers.append('ibkr')
+
+    # Check for CCXT (exchange-specific format)
+    ccxt_exchanges = ['BINANCE', 'COINBASE', 'KRAKEN', 'BYBIT', 'OKX', 'KUCOIN', 'HUOBI', 'BITFINEX', 'GATEIO', 'MEXC']
+    for exchange in ccxt_exchanges:
+        if os.getenv(f'CCXT_{exchange}_API_KEY') and os.getenv(f'CCXT_{exchange}_SECRET_KEY'):
+            detected_brokers.append('ccxt')
+            break
 
     # Check for TD Ameritrade
     if os.getenv('TD_CLIENT_ID') or os.getenv('TD_REFRESH_TOKEN'):
@@ -184,6 +197,29 @@ def get_interactive_brokers_config_from_env() -> dict[str, Any]:
     }
 
 
+def get_ccxt_config_from_env(exchange_id: str = None) -> dict[str, Any]:
+    """
+    Extract CCXT configuration from environment variables
+    
+    Args:
+        exchange_id: Specific exchange ID to get credentials for
+        
+    Returns:
+        Configuration dictionary for CCXT broker
+    """
+    if not exchange_id:
+        exchange_id = 'binance'  # Default exchange
+    
+    exchange_upper = exchange_id.upper()
+    return {
+        'exchange': exchange_id,
+        'api_key': os.getenv(f'CCXT_{exchange_upper}_API_KEY'),
+        'secret_key': os.getenv(f'CCXT_{exchange_upper}_SECRET_KEY'),
+        'passphrase': os.getenv(f'CCXT_{exchange_upper}_PASSPHRASE', ''),
+        'paper_trading': os.getenv(f'CCXT_{exchange_upper}_PAPER_TRADING', 'true').lower() == 'true',
+    }
+
+
 def get_td_ameritrade_config_from_env() -> dict[str, Any]:
     """
     Extract TD Ameritrade configuration from environment variables
@@ -222,6 +258,12 @@ def validate_broker_environment(broker_type: str) -> tuple[bool, str]:
         broker_name = "IB Gateway" if 'gateway' in broker_type.lower() else "Interactive Brokers"
         return True, f"{broker_name} environment variables validated"
 
+    elif broker_type == 'ccxt':
+        config = get_ccxt_config_from_env()
+        if not config.get('api_key') or not config.get('secret_key'):
+            return False, "Missing required CCXT environment variables: CCXT_{EXCHANGE}_API_KEY and CCXT_{EXCHANGE}_SECRET_KEY"
+        return True, "CCXT environment variables validated"
+
     elif broker_type == 'td_ameritrade':
         config = get_td_ameritrade_config_from_env()
         if not config.get('client_id'):
@@ -249,6 +291,12 @@ def get_broker_config_from_env(broker_type: str) -> dict[str, Any]:
         return get_alpaca_config_from_env()
     elif broker_type in ['ibkr', 'IBKR', 'interactive-brokers', 'interactive_brokers', 'ib_gateway', 'ibkr_gateway', 'ib-gateway', 'gateway']:
         return get_interactive_brokers_config_from_env()
+    elif broker_type == 'ccxt':
+        return get_ccxt_config_from_env()
+    elif broker_type.startswith('ccxt.'):
+        # Handle ccxt.exchange syntax by extracting exchange ID
+        exchange_id = broker_type.split('.', 1)[1]
+        return get_ccxt_config_from_env(exchange_id)
     elif broker_type == 'td_ameritrade':
         return get_td_ameritrade_config_from_env()
     else:
@@ -369,6 +417,39 @@ def get_broker_environment_status() -> dict[str, dict[str, Any]]:
 
     status['ibkr'] = ib_status
 
+    # Check CCXT
+    ccxt_status = {
+        'broker_type': 'ccxt',
+        'detected': False,
+        'valid': False,
+        'error_message': None,
+        'config_available': False
+    }
+
+    try:
+        # Check for any exchange-specific CCXT credentials
+        ccxt_exchanges = ['BINANCE', 'COINBASE', 'KRAKEN', 'BYBIT', 'OKX', 'KUCOIN', 'HUOBI', 'BITFINEX', 'GATEIO', 'MEXC']
+        found_exchange = False
+        for exchange in ccxt_exchanges:
+            if os.getenv(f'CCXT_{exchange}_API_KEY') and os.getenv(f'CCXT_{exchange}_SECRET_KEY'):
+                found_exchange = True
+                break
+        
+        if found_exchange:
+            ccxt_status['detected'] = True
+            ccxt_status['config_available'] = True
+
+            is_valid, message = validate_broker_environment('ccxt')
+            ccxt_status['valid'] = is_valid
+            if not is_valid:
+                ccxt_status['error_message'] = message
+        else:
+            ccxt_status['error_message'] = "No CCXT credentials found in environment"
+    except Exception as e:
+        ccxt_status['error_message'] = str(e)
+
+    status['ccxt'] = ccxt_status
+
     # Check TD Ameritrade
     td_status = {
         'broker_type': 'td_ameritrade',
@@ -464,6 +545,22 @@ Requirements:
 1. Install TWS or IB Gateway
 2. Enable API access in TWS settings
 3. Start TWS/Gateway before running the system
+"""
+
+    elif broker_type == 'ccxt':
+        return """
+Environment setup for CCXT:
+
+# Exchange-specific CCXT setup (required format)
+export CCXT_BINANCE_API_KEY="your_binance_key"
+export CCXT_BINANCE_SECRET_KEY="your_binance_secret"
+export CCXT_COINBASE_API_KEY="your_coinbase_key"
+export CCXT_COINBASE_SECRET_KEY="your_coinbase_secret"
+export CCXT_COINBASE_PASSPHRASE="your_coinbase_passphrase"  # Required for Coinbase
+export CCXT_BINANCE_PAPER_TRADING="true"  # Use testnet/sandbox if available
+
+Supported exchanges: 250+ including Binance, Coinbase, Kraken, Bybit, OKX, etc.
+Get API keys from your exchange's developer/API section.
 """
 
     elif broker_type == 'td_ameritrade':

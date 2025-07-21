@@ -41,6 +41,7 @@ from ...core.signal_extractor import SignalType, TradingSignal
 from ..broker_base import (
     AccountInfo,
     BaseBroker,
+    BrokerCapabilities,
     BrokerConfig,
     BrokerInfo,
     OrderResult,
@@ -176,6 +177,17 @@ class AlpacaBroker(BaseBroker):
             paper_trading=self.config.paper_trading,
         )
 
+    def get_broker_capabilities(self) -> BrokerCapabilities:
+        """Get broker trading capabilities and constraints"""
+        return BrokerCapabilities(
+            min_notional=1.0,  # Alpaca allows $1 minimum orders
+            max_position_size=None,  # No hard limit
+            min_lot_size=0.0,  # No lot size constraints
+            step_size=0.0,  # No step size constraints
+            fractional_shares=True,  # Alpaca supports fractional shares
+            supported_order_types=["market", "limit", "stop", "stop_limit", "trailing_stop"]
+        )
+
     def connect(self) -> bool:
         """
         Establish connection to Alpaca API
@@ -267,9 +279,10 @@ class AlpacaBroker(BaseBroker):
             strategy_id = getattr(signal, "strategy_id", None)
             strategy_info = f" [{strategy_id}]" if strategy_id else ""
 
+            from ...utils.price_formatter import PriceFormatter
             logger.info(
                 f"Executing signal{strategy_info} for {symbol} ({alpaca_symbol}): "
-                f"{signal.signal.value} @ ${signal.price:.2f}"
+                f"{signal.signal.value} @ {PriceFormatter.format_price_for_logging(signal.price)}"
             )
 
             # Validate portfolio constraints if in multi-strategy mode
@@ -848,7 +861,7 @@ class AlpacaBroker(BaseBroker):
                     # For all other buys (stock or crypto limit), calculate quantity
                     quantity = position_size / signal.price if signal.price else 1
                     logger.debug(
-                        f"📊 Creating buy order: {quantity:.6f} {symbol} @ ${signal.price:.2f}"
+                        f"📊 Creating buy order: {PriceFormatter.format_quantity(quantity)} {symbol} @ {PriceFormatter.format_price_for_logging(signal.price)}"
                     )
             else:
                 # For sell orders, get current position quantity

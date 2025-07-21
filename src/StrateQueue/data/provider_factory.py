@@ -120,14 +120,27 @@ class DataProviderFactory:
             logger.warning(f"Could not load IBKR data provider: {e}")
             # Note: This will happen if ib_insync is not installed
 
+        # Register CCXT data provider
         try:
-            # from .sources.binance import BinanceDataIngestion
-            # cls._providers['binance'] = BinanceDataIngestion
-            # logger.debug("Registered Binance data provider")
-            pass
-        except ImportError:
-            # Binance data provider not implemented yet
-            pass
+            from .sources.ccxt_data import CCXTDataIngestion
+            cls._providers['ccxt'] = CCXTDataIngestion
+            
+            # Register exchange-specific aliases for popular exchanges
+            popular_exchanges = [
+                'binance', 'coinbase', 'kraken', 'bitfinex', 'huobi', 'okx', 
+                'bybit', 'kucoin', 'gate', 'bitget', 'mexc', 'coinex',
+                'bitstamp', 'gemini', 'ftx', 'bitmex', 'deribit', 'bittrex'
+            ]
+            
+            for exchange in popular_exchanges:
+                cls._providers[f'ccxt.{exchange}'] = CCXTDataIngestion
+            
+            if CCXTDataIngestion.dependencies_available():
+                logger.debug(f"Registered CCXT data provider with {len(popular_exchanges)} exchange aliases")
+            else:
+                logger.debug("CCXT provider registered but library not available; will raise at instantiation")
+        except ImportError as e:
+            logger.warning(f"Could not load CCXT data provider: {e}")
 
         cls._initialized = True
 
@@ -208,10 +221,11 @@ class DataProviderFactory:
 
         # New: Alpaca provider creation
         elif provider_type == "alpaca":
-            # Support multiple credential naming conventions (same as broker)
+            # Support multiple credential naming conventions (same as broker + new data-specific)
             api_key = config.api_key
             if not api_key:
                 api_key = (
+                    os.getenv("ALPACA_DATA_API_KEY") or  # New: data-specific credentials from broker setup
                     os.getenv("PAPER_KEY") or
                     os.getenv("PAPER_API_KEY") or
                     os.getenv("ALPACA_API_KEY")
@@ -220,6 +234,7 @@ class DataProviderFactory:
             secret_key = config.additional_params.get("secret_key") if config.additional_params else None
             if not secret_key:
                 secret_key = (
+                    os.getenv("ALPACA_DATA_SECRET_KEY") or  # New: data-specific credentials from broker setup
                     os.getenv("PAPER_SECRET") or
                     os.getenv("PAPER_SECRET_KEY") or
                     os.getenv("ALPACA_SECRET_KEY")
@@ -232,9 +247,61 @@ class DataProviderFactory:
             return provider_class(api_key, secret_key, paper=paper, granularity=config.granularity)
 
         elif provider_type == "ibkr":
-            # IBKR provider uses IB Gateway for data
-            paper_trading = bool(os.getenv("IB_PAPER", "true").lower() == "true")
-            return provider_class(granularity=config.granularity, paper_trading=paper_trading)
+            # IBKR provider uses IB Gateway for data - support data-specific credentials from broker setup
+            host = os.getenv("IBKR_DATA_HOST") or os.getenv("IB_TWS_HOST", "localhost")
+            port = int(os.getenv("IBKR_DATA_PORT") or os.getenv("IB_TWS_PORT", "4002"))
+            client_id = int(os.getenv("IBKR_DATA_CLIENT_ID") or os.getenv("IB_CLIENT_ID", "1"))
+            paper_trading = bool((os.getenv("IBKR_DATA_PAPER") or os.getenv("IB_PAPER", "true")).lower() == "true")
+            
+            return provider_class(
+                granularity=config.granularity, 
+                paper_trading=paper_trading,
+                host=host,
+                port=port,
+                client_id=client_id
+            )
+
+        elif provider_type == "ccxt" or provider_type.startswith("ccxt."):
+            # CCXT provider for cryptocurrency exchanges
+            exchange_id = None
+            
+            # Parse exchange from provider_type if using ccxt.exchange format
+            if provider_type.startswith("ccxt."):
+                exchange_id = provider_type.split(".", 1)[1]
+            else:
+                # Generic ccxt provider - get exchange from config or environment
+                exchange_id = config.additional_params.get("exchange_id") if config.additional_params else None
+                if not exchange_id:
+                    exchange_id = os.getenv('CCXT_EXCHANGE')
+                    if not exchange_id:
+                        raise ValueError("CCXT data provider requires exchange ID. Set CCXT_EXCHANGE environment variable.")
+            
+            # Get credentials using exchange-specific logic (same as broker)
+            api_key = config.api_key
+            secret_key = config.additional_params.get("secret_key") if config.additional_params else None
+            passphrase = config.additional_params.get("passphrase") if config.additional_params else None
+            
+            # If credentials not provided in config, get from environment with exchange-specific fallback
+            if not api_key or not secret_key:
+                # Try exchange-specific environment variables first
+                exchange_upper = exchange_id.upper()
+                if not api_key:
+                    api_key = os.getenv(f'CCXT_{exchange_upper}_API_KEY') or os.getenv('CCXT_API_KEY')
+                if not secret_key:
+                    secret_key = os.getenv(f'CCXT_{exchange_upper}_SECRET_KEY') or os.getenv('CCXT_SECRET_KEY')
+                if not passphrase:
+                    passphrase = os.getenv(f'CCXT_{exchange_upper}_PASSPHRASE') or os.getenv('CCXT_PASSPHRASE', '')
+            
+            sandbox = bool(os.getenv('CCXT_SANDBOX', 'true').lower() == 'true')
+            
+            return provider_class(
+                exchange_id=exchange_id,
+                api_key=api_key,
+                secret_key=secret_key,
+                passphrase=passphrase,
+                granularity=config.granularity,
+                sandbox=sandbox
+            )
 
         else:
             # Generic provider creation for future providers
@@ -282,6 +349,45 @@ class DataProviderFactory:
             config['port'] = int(os.getenv('IB_TWS_PORT', '4002'))
             config['client_id'] = int(os.getenv('IB_CLIENT_ID', '1'))
             config['paper_trading'] = bool(os.getenv('IB_PAPER', 'true').lower() == 'true')
+
+        elif provider_type == "ccxt" or provider_type.startswith("ccxt."):
+            # CCXT uses exchange-specific environment variables
+            exchange_id = None
+            
+            # Parse exchange from provider_type if using ccxt.exchange format
+            if provider_type.startswith("ccxt."):
+                exchange_id = provider_type.split(".", 1)[1]
+            else:
+                exchange_id = os.getenv('CCXT_EXCHANGE')
+            
+            # Get credentials using exchange-specific logic with fallback
+            api_key = None
+            secret_key = None
+            passphrase = ''
+            
+            if exchange_id:
+                # Try exchange-specific environment variables first
+                exchange_upper = exchange_id.upper()
+                api_key = os.getenv(f'CCXT_{exchange_upper}_API_KEY') or os.getenv('CCXT_API_KEY')
+                secret_key = os.getenv(f'CCXT_{exchange_upper}_SECRET_KEY') or os.getenv('CCXT_SECRET_KEY')
+                passphrase = os.getenv(f'CCXT_{exchange_upper}_PASSPHRASE') or os.getenv('CCXT_PASSPHRASE', '')
+            else:
+                # Fallback to generic CCXT variables
+                api_key = os.getenv('CCXT_API_KEY')
+                secret_key = os.getenv('CCXT_SECRET_KEY')
+                passphrase = os.getenv('CCXT_PASSPHRASE', '')
+            
+            sandbox = bool(os.getenv('CCXT_SANDBOX', 'true').lower() == 'true')
+            
+            if exchange_id:
+                config['exchange_id'] = exchange_id
+            if api_key:
+                config['api_key'] = api_key
+            if secret_key:
+                config['secret_key'] = secret_key
+            if passphrase:
+                config['passphrase'] = passphrase
+            config['sandbox'] = sandbox
 
         # Common granularity setting
         granularity = os.getenv('DATA_GRANULARITY', "1m")
@@ -448,6 +554,24 @@ class DataProviderFactory:
                 supported_granularities=["1s", "5s", "10s", "15s", "30s", "1m", "2m", "3m", "5m", "10m", "15m", "20m", "30m", "1h", "2h", "3h", "4h", "8h", "1d", "1w", "1mo"]
             )
 
+        elif provider_type == "ccxt":
+            return DataProviderInfo(
+                name="CCXT",
+                version="1.0",
+                supported_features={
+                    "historical_data": True,
+                    "real_time_data": True,
+                    "multiple_granularities": True,
+                    "crypto": True,
+                    "multiple_exchanges": True,
+                    "250_plus_exchanges": True
+                },
+                description="Cryptocurrency market data from 250+ exchanges via CCXT library",
+                supported_markets=["crypto"],
+                requires_api_key=True,
+                supported_granularities=["1s", "5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w"]
+            )
+
         else:
             raise ValueError(f"Unknown provider type: {provider_type}")
 
@@ -490,6 +614,27 @@ def detect_provider_type() -> str:
         if os.getenv('IB_TWS_PORT') or os.getenv('IB_CLIENT_ID') or os.getenv('IB_TWS_HOST'):
             logger.info("Detected IB Gateway credentials, suggesting ibkr provider")
             return 'ibkr'
+
+        # Check for CCXT credentials (generic or exchange-specific)
+        ccxt_exchange = os.getenv('CCXT_EXCHANGE')
+        ccxt_key = os.getenv('CCXT_API_KEY')
+        ccxt_secret = os.getenv('CCXT_SECRET_KEY')
+        if ccxt_exchange and ccxt_key and ccxt_secret:
+            logger.info("Detected CCXT credentials, suggesting ccxt provider")
+            return 'ccxt'
+        
+        # Check for exchange-specific CCXT credentials
+        popular_exchanges = [
+            'binance', 'coinbase', 'kraken', 'bitfinex', 'huobi', 'okx', 
+            'bybit', 'kucoin', 'gate', 'bitget', 'mexc', 'coinex'
+        ]
+        for exchange in popular_exchanges:
+            exchange_upper = exchange.upper()
+            exchange_key = os.getenv(f'CCXT_{exchange_upper}_API_KEY')
+            exchange_secret = os.getenv(f'CCXT_{exchange_upper}_SECRET_KEY')
+            if exchange_key and exchange_secret:
+                logger.info(f"Detected CCXT {exchange} credentials, suggesting ccxt provider")
+                return 'ccxt'
 
         # Check for explicit provider setting
         explicit_provider = os.getenv('DATA_PROVIDER')

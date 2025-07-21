@@ -157,9 +157,10 @@ class BacktestingSignalExtractor(BaseSignalExtractor, EngineSignalExtractor):
         # Get the current signal
         current_signal = strategy_instance.get_current_signal()
 
+        from ..utils.price_formatter import PriceFormatter
         logger.debug(
             f"Extracted signal: {current_signal.signal.value} "
-            f"at price: ${current_signal.price:.2f}"
+            f"at price: {PriceFormatter.format_price_for_logging(current_signal.price)}"
         )
 
         return current_signal

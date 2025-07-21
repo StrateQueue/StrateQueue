@@ -1113,7 +1113,8 @@ class StatisticsManager:
                     signal_type = signal_data["signal"]
                     price = signal_data["price"]
                     color = {"BUY": "green", "SELL": "red", "HOLD": "yellow", "CLOSE": "blue"}.get(signal_type, "white")
-                    table.add_row(f"  • {symbol}: [{color}]{signal_type}[/{color}] @ ${price:,.2f}")
+                    from ..utils.price_formatter import PriceFormatter
+                    table.add_row(f"  • {symbol}: [{color}]{signal_type}[/{color}] @ {PriceFormatter.format_price_for_logging(price)}")
         
         return Panel(table, title="📊 Session Overview", box=box.ROUNDED)
     

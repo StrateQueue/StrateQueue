@@ -45,6 +45,7 @@ class BrokerFactory:
             'ibkr_gateway': 'ib_gateway',
             'ib-gateway': 'ib_gateway',
             'gateway': 'ib_gateway',
+            'ccxt': 'ccxt',
         }
         
         return alias_map.get(broker_type, broker_type)
@@ -93,6 +94,24 @@ class BrokerFactory:
             logger.warning(f"Could not load IB Gateway broker: {e}")
             # Note: This will happen if ib_insync is not installed
 
+        # Register CCXT broker with exchange-specific aliases
+        try:
+            from .CCXT.ccxt_broker import CCXTBroker
+            from .CCXT.exchange_config import ExchangeConfig
+            
+            # Register main CCXT broker
+            cls._brokers['ccxt'] = CCXTBroker
+            
+            # Register exchange-specific aliases for deploy command (ccxt.binance, etc.)
+            top_exchanges = ExchangeConfig.get_top_10_exchanges()
+            for exchange in top_exchanges:
+                cls._brokers[f'ccxt.{exchange.id}'] = CCXTBroker
+            
+            logger.debug(f"Registered CCXT broker with {len(top_exchanges)} exchange aliases")
+        except ImportError as e:
+            logger.warning(f"Could not load CCXT broker: {e}")
+            # Note: This will happen if ccxt is not installed
+
         try:
             # from .td_ameritrade_broker import TDAmeritradeBroker
             # cls._brokers['td_ameritrade'] = TDAmeritradeBroker
@@ -129,13 +148,21 @@ class BrokerFactory:
             available = list(cls._brokers.keys())
             raise ValueError(f"Unsupported broker type '{broker_type}'. Available: {available}")
 
-        broker_class = cls._brokers[broker_type]
-        logger.debug(f"Creating {broker_type} broker instance")
+        # Handle ccxt.exchange syntax by extracting exchange info FIRST
+        original_broker_type = broker_type
+        if broker_type.startswith('ccxt.'):
+            exchange_id = broker_type.split('.', 1)[1]
+            broker_type = 'ccxt'  # Normalize to base ccxt type
+        else:
+            exchange_id = None
+
+        broker_class = cls._brokers[original_broker_type]
+        logger.debug(f"Creating {original_broker_type} broker instance")
 
         # Auto-generate config from environment if not provided
         if config is None:
             try:
-                env_config = get_broker_config_from_env(broker_type)
+                env_config = get_broker_config_from_env(original_broker_type)
                 config = BrokerConfig(
                     broker_type=broker_type,
                     paper_trading=env_config.get('paper_trading', True),
@@ -143,8 +170,13 @@ class BrokerFactory:
                     additional_params=env_config
                 )
             except Exception as e:
-                logger.error(f"Failed to create config from environment for {broker_type}: {e}")
+                logger.error(f"Failed to create config from environment for {original_broker_type}: {e}")
                 raise ValueError(f"No config provided and failed to auto-detect from environment: {e}")
+
+        # Set exchange info if this is a ccxt.exchange broker
+        if exchange_id:
+            config.additional_params = config.additional_params or {}
+            config.additional_params['exchange'] = exchange_id
 
         # Normalize broker type for configuration
         normalized_broker_type = cls._normalize_broker_type(broker_type)
@@ -168,6 +200,16 @@ class BrokerFactory:
             except Exception as e:
                 logger.error(f"Failed to get IBKR credentials: {e}")
                 raise ValueError(f"Failed to configure IBKR: {e}")
+
+        # For CCXT, get credentials from environment if not provided
+        if normalized_broker_type == 'ccxt' and not config.credentials:
+            try:
+                from .broker_helpers import get_ccxt_config_from_env
+                ccxt_config = get_ccxt_config_from_env(config.additional_params.get('exchange'))
+                config.credentials = ccxt_config
+            except Exception as e:
+                logger.error(f"Failed to get CCXT credentials: {e}")
+                raise ValueError(f"Failed to configure CCXT: {e}")
 
         # Create broker instance with appropriate parameters
         if normalized_broker_type == 'alpaca':

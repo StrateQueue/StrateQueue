@@ -12,6 +12,7 @@ import logging
 
 from ..core.signal_extractor import LiveSignalExtractor, TradingSignal
 from ..utils.crypto_pairs import ALPACA_CRYPTO_SYMBOLS, to_alpaca_pair
+from ..utils.price_formatter import PriceFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +150,7 @@ class TradingProcessor:
                         
                     logger.debug(
                         f"Multi-ticker processing {symbol}: {len(current_data_df)} total bars, "
-                        f"latest price: ${current_data_df['Close'].iloc[-1]:.2f}"
+                        f"latest price: {PriceFormatter.format_price_for_logging(current_data_df['Close'].iloc[-1])}"
                     )
                 else:
                     all_symbols_ready = False
@@ -222,7 +223,7 @@ class TradingProcessor:
                     # Log the data growth
                     logger.debug(
                         f"Processing {symbol}: {len(current_data_df)} total bars, "
-                        f"latest price: ${current_data_df['Close'].iloc[-1]:.2f}"
+                        f"latest price: {PriceFormatter.format_price_for_logging(current_data_df['Close'].iloc[-1])}"
                     )
 
                 elif len(current_data_df) > 0:
@@ -317,7 +318,7 @@ class TradingProcessor:
                     # Log the data and signal info
                     logger.debug(
                         f"Processing {symbol}: {len(current_data_df)} total bars, "
-                        f"latest price: ${current_data_df['Close'].iloc[-1]:.2f}"
+                        f"latest price: {PriceFormatter.format_price_for_logging(current_data_df['Close'].iloc[-1])}"
                     )
 
                     # Show progress for strategies that might still be waiting for more data

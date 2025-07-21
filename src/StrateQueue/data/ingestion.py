@@ -154,8 +154,9 @@ class MinimalSignalGenerator:
             else:
                 signal = "HOLD"
 
+            from ..utils.price_formatter import PriceFormatter
             logger.info(
-                f"{symbol}: {signal} - Price: {price}, Short MA: {short_ma:.2f}, Long MA: {long_ma:.2f}"
+                f"{symbol}: {signal} - Price: {PriceFormatter.format_price_for_logging(price)}, Short MA: {PriceFormatter.format_price_for_logging(short_ma)}, Long MA: {PriceFormatter.format_price_for_logging(long_ma)}"
             )
 
 

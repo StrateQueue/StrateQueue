@@ -159,6 +159,20 @@ class GranularityParser:
             else:
                 return False
 
+        elif data_source == "ccxt" or data_source.startswith("ccxt."):
+            # CCXT supports various granularities depending on exchange
+            # Most exchanges support common timeframes
+            if granularity.unit == TimeUnit.SECOND:
+                return granularity.multiplier in [1, 5, 10, 30]  # Common second intervals
+            elif granularity.unit == TimeUnit.MINUTE:
+                return granularity.multiplier in [1, 5, 15, 30]  # Common minute intervals
+            elif granularity.unit == TimeUnit.HOUR:
+                return granularity.multiplier in [1, 2, 4]  # Common hour intervals
+            elif granularity.unit == TimeUnit.DAY:
+                return granularity.multiplier >= 1  # Any day interval >= 1
+            else:
+                return False
+
         else:
             return False
 
@@ -177,6 +191,8 @@ class GranularityParser:
             return ["1m", "2m", "5m", "10m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "1w"]
         elif data_source == "ibkr":
             return ["1s", "5s", "10s", "15s", "30s", "1m", "2m", "3m", "5m", "10m", "15m", "20m", "30m", "1h", "2h", "3h", "4h", "8h", "1d", "1w", "1mo"]
+        elif data_source == "ccxt" or data_source.startswith("ccxt."):
+            return ["1s", "5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w"]
         else:
             return []
 

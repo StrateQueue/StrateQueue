@@ -45,7 +45,7 @@ def test_display_signal_emits_emoji(disp: DisplayManager, capsys):
 
     out = capsys.readouterr().out
     assert "📈" in out  # correct emoji for BUY
-    assert "$123.46" in out  # rounded price
+    assert "$123.456" in out  # precise price without floating point artifacts
 
 
 def test_log_trade_side_effects(disp: DisplayManager, stats_stub):

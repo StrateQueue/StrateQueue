@@ -239,9 +239,10 @@ class SignalCoordinator:
 
                 # Log non-hold signals
                 if signal.signal != SignalType.HOLD:
+                    from ..utils.price_formatter import PriceFormatter
                     logger.info(
                         f"Signal from {strategy_id} for {symbol}: {signal.signal.value} "
-                        f"@ ${signal.price:.2f}"
+                        f"@ {PriceFormatter.format_price_for_logging(signal.price)}"
                     )
 
             except Exception as e:
