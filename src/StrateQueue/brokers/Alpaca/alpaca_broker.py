@@ -38,6 +38,7 @@ except ImportError:
 
 
 from ...core.signal_extractor import SignalType, TradingSignal
+from ...utils.price_formatter import PriceFormatter
 from ..broker_base import (
     AccountInfo,
     BaseBroker,
