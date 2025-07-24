@@ -98,6 +98,8 @@ pip install "stratequeue[backtrader]"
 pip install "stratequeue[backtesting]"
 # VectorBT support
 pip install "stratequeue[vectorbt]"
+# BT support
+pip install "stratequeue[bt]"
 # Everything
 pip install "stratequeue[all]"
 ```
@@ -118,6 +120,7 @@ stratequeue webui
 | ├─ backtesting.py | ✅ Implemented |
 | ├─ VectorBT | ✅ Implemented |
 | ├─ Backtrader | ✅ Implemented |
+| ├─ BT | ✅ Implemented |
 | └─ Zipline-Reloaded | ✅ Implemented |
 | **Brokers** | |
 | ├─ Alpaca | ✅ Implemented |

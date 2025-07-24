@@ -63,6 +63,7 @@ ENGINE_STRATEGY_MAP = {
     "vectorbt": Path("examples/strategies/vectorbt/sma.py"),
     "zipline": Path("examples/strategies/zipline-reloaded/sma.py"),
     "backtrader": Path("examples/strategies/backtrader/sma.py"),
+    "bt": Path("examples/strategies/bt/sma.py"),
 }
 
 

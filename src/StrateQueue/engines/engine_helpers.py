@@ -86,6 +86,7 @@ def _detect_engine_indicators(content: str) -> Dict[str, List[str]]:
         'backtrader': [],
         'zipline': [],
         'vectorbt': [],
+        'bt': [],
         'unknown': []
     }
     
@@ -154,6 +155,30 @@ def _detect_engine_indicators(content: str) -> Dict[str, List[str]]:
         (r'return\s+\w+,\s*\w+', 'returns tuple (entries, exits)')
     ]
     
+    # bt (backtest library) indicators
+    bt_patterns = [
+        (r'import\s+bt\b', 'imports bt'),
+        (r'from\s+bt\s+import', 'imports from bt'),
+        (r'bt\.Strategy\(', 'creates bt.Strategy'),
+        (r'bt\.algos\.\w+', 'uses bt.algos'),
+        (r'bt\.Backtest\(', 'creates bt.Backtest'),
+        (r'__bt_strategy__', 'marked as bt strategy'),
+        (r'\.run\(\)', 'calls run method'),
+        (r'security_weights', 'accesses security_weights'),
+        (r'SelectWhere\(', 'uses SelectWhere algo'),
+        (r'WeighEqually\(', 'uses WeighEqually algo'),
+        (r'Rebalance\(', 'uses Rebalance algo'),
+        (r'RunMonthly\(', 'uses RunMonthly algo'),
+        (r'RunDaily\(', 'uses RunDaily algo'),
+        (r'RunWeekly\(', 'uses RunWeekly algo'),
+        (r'SelectAll\(', 'uses SelectAll algo'),
+        (r'SelectN\(', 'uses SelectN algo'),
+        (r'WeighTarget\(', 'uses WeighTarget algo'),
+        (r'WeighSpecified\(', 'uses WeighSpecified algo'),
+        (r'bt\.backtest\.\w+', 'uses bt.backtest module'),
+        (r'\.algos\s*=', 'assigns algos list')
+    ]
+    
     # Check backtesting.py patterns
     for pattern, description in backtesting_patterns:
         if re.search(pattern, content, re.MULTILINE):
@@ -174,6 +199,11 @@ def _detect_engine_indicators(content: str) -> Dict[str, List[str]]:
         if re.search(pattern, content, re.MULTILINE):
             indicators['vectorbt'].append(description)
     
+    # Check bt patterns
+    for pattern, description in bt_patterns:
+        if re.search(pattern, content, re.MULTILINE):
+            indicators['bt'].append(description)
+    
     return indicators
 
 
@@ -185,7 +215,7 @@ def detect_engine_from_analysis(analysis: Dict[str, any]) -> str:
         analysis: Result from analyze_strategy_file()
         
     Returns:
-        Engine name ('backtesting', 'zipline', 'unknown')
+        Engine name ('backtesting', 'backtrader', 'zipline', 'vectorbt', 'bt', 'unknown')
     """
     indicators = analysis['engine_indicators']
     
@@ -193,15 +223,17 @@ def detect_engine_from_analysis(analysis: Dict[str, any]) -> str:
     backtrader_score = len(indicators['backtrader'])
     zipline_score = len(indicators['zipline'])
     vectorbt_score = len(indicators['vectorbt'])
+    bt_score = len(indicators['bt'])
     
-    logger.debug(f"Engine detection scores - backtesting: {backtesting_score}, backtrader: {backtrader_score}, zipline: {zipline_score}, vectorbt: {vectorbt_score}")
+    logger.debug(f"Engine detection scores - backtesting: {backtesting_score}, backtrader: {backtrader_score}, zipline: {zipline_score}, vectorbt: {vectorbt_score}, bt: {bt_score}")
     
     # Return the engine with the highest score
     scores = {
         'backtesting': backtesting_score,
         'backtrader': backtrader_score,
         'zipline': zipline_score,
-        'vectorbt': vectorbt_score
+        'vectorbt': vectorbt_score,
+        'bt': bt_score
     }
     
     max_score = max(scores.values())

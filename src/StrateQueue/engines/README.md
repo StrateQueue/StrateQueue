@@ -1,6 +1,6 @@
 # Trading Engine Abstraction Layer
 
-This directory contains the engine abstraction layer that allows the trading system to support multiple trading frameworks (backtesting.py, Zipline, backtrader, etc.) through a unified interface.
+This directory contains the engine abstraction layer that allows the trading system to support multiple trading frameworks (backtesting.py, Zipline, backtrader, bt, etc.) through a unified interface.
 
 ## 🏗️ Architecture Overview
 
