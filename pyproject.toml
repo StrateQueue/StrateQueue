@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "StrateQueue"
-version = "v0.3.2"
+version = "v0.3.2r"
 description = "The fastest way from backtest to live trading"
 readme = "README.md"
 license = {text = "AGPL-3.0"}
@@ -85,6 +85,11 @@ zipline = [
     "zipline-reloaded>=3.0",
 ]
 
+# BT engine support
+bt = [
+    "bt>=0.2.9",
+]
+
 # Advanced data processing
 analytics = [
     "scipy>=1.11.0",
@@ -137,6 +142,7 @@ all = [
     "vectorbt>=0.25,<0.29",
     "numba>=0.56,<0.57",
     "zipline-reloaded>=3.0",
+    "bt>=0.2.9",
     "scipy>=1.11.0",
     "ta-lib>=0.4.0",
     "psycopg2-binary>=2.9.7",
