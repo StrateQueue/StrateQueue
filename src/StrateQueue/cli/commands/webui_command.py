@@ -6,6 +6,9 @@ import os
 import subprocess
 import time
 import requests
+import http.server
+import socketserver
+import threading
 from pathlib import Path
 
 from .base_command import BaseCommand
@@ -14,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class WebUICommand(BaseCommand):
-    """Launch the StrateQueue Web UI (dashboard) in development mode."""
+    """Launch the StrateQueue Web UI (dashboard)."""
 
     @property
     def name(self) -> str:  # noqa: D401, D403
@@ -22,7 +25,7 @@ class WebUICommand(BaseCommand):
 
     @property
     def description(self) -> str:  # noqa: D401
-        return "Start the StrateQueue Web UI (dashboard) using `npm run dev`."
+        return "Start the StrateQueue Web UI (dashboard)."
 
     @property
     def aliases(self) -> list[str]:  # noqa: D401
@@ -34,17 +37,20 @@ class WebUICommand(BaseCommand):
     # ---------------------------------------------------------------------
     def setup_parser(self, parser: argparse.ArgumentParser) -> argparse.ArgumentParser:  # noqa: D401
         parser.description = (
-            "Launches the Web UI dev server (vite) so you can interact with "
-            "StrateQueue in the browser. If this is the first time you run "
-            "the command, the necessary npm dependencies will automatically "
-            "be installed."
+            "Launches the StrateQueue Web UI. By default serves the built production "
+            "version. Use --dev for development mode with hot reload."
+        )
+        parser.add_argument(
+            "--dev",
+            action="store_true",
+            help="Run in development mode with hot reload (requires npm)",
         )
         parser.add_argument(
             "--port",
             "-p",
             default=5173,
             type=int,
-            help="Port number for the dev server (default: 5173)",
+            help="Port number for the web server (default: 5173)",
         )
         return parser
 
@@ -52,18 +58,70 @@ class WebUICommand(BaseCommand):
     # Execution
     # ------------------------------------------------------------------
     def execute(self, args: argparse.Namespace) -> int:  # noqa: D401
-        """Run `npm run dev` inside the *webui* directory.
+        """Launch the Web UI in production or development mode."""
+        
+        # Check and start daemon if needed --------------------------------------------------------
+        daemon_port = 8400
+        if not self._check_daemon_running(daemon_port):
+            print("🔍 No daemon detected, starting background daemon...")
+            daemon_process = self._start_daemon(daemon_port)
+            if not daemon_process:
+                print("⚠️  Warning: Failed to start daemon. Some Web UI features may not work.")
+                print("💡 You can manually start the daemon with: stratequeue daemon")
+        else:
+            print(f"✅ Daemon already running on port {daemon_port}")
 
-        If *node_modules* are missing, `npm install` will be executed first so
-        the user does not have to worry about doing that manually.
-        """
+        if args.dev:
+            return self._run_development_mode(args.port, daemon_port)
+        else:
+            return self._run_production_mode(args.port, daemon_port)
+
+    def _run_production_mode(self, port: int, daemon_port: int) -> int:
+        """Serve the built static files."""
+        # Find the webui_static directory in the package
+        package_root = Path(__file__).resolve().parent.parent.parent
+        webui_static_dir = package_root / "webui_static"
+        
+        if not webui_static_dir.exists():
+            self.logger.error("WebUI static directory not found at %s", webui_static_dir)
+            print(
+                f"❌ WebUI static directory was not found at {webui_static_dir}. "
+                "The frontend may not have been built during package installation."
+            )
+            return 1
+
+        print(f"🚀 Launching StrateQueue Web UI (production) at http://localhost:{port}")
+        print(f"🔗 API backend available at http://localhost:{daemon_port}")
+        
+        # Change to the static directory and start HTTP server
+        os.chdir(webui_static_dir)
+        
+        try:
+            with socketserver.TCPServer(("", port), http.server.SimpleHTTPRequestHandler) as httpd:
+                print(f"📁 Serving static files from {webui_static_dir}")
+                print(f"🌐 Web UI available at http://localhost:{port}")
+                print("Press Ctrl+C to stop the server")
+                httpd.serve_forever()
+        except KeyboardInterrupt:
+            print("\n👋 Web UI server stopped")
+            return 0
+        except OSError as e:
+            if e.errno == 48:  # Address already in use
+                print(f"❌ Port {port} is already in use. Try a different port with --port")
+            else:
+                print(f"❌ Failed to start server: {e}")
+            return 1
+
+    def _run_development_mode(self, port: int, daemon_port: int) -> int:
+        """Run the development server with npm."""
         project_root = Path(__file__).resolve().parent.parent.parent.parent.parent
         webui_dir = project_root / "webui"
 
         if not webui_dir.exists():
             self.logger.error("WebUI directory not found at %s", webui_dir)
             print(
-                f"❌ WebUI directory was not found at {webui_dir}. Did you forget to initialise the frontend?"
+                f"❌ WebUI directory was not found at {webui_dir}. "
+                "Development mode requires the source code to be available."
             )
             return 1
 
@@ -76,25 +134,16 @@ class WebUICommand(BaseCommand):
                 self.logger.error("npm install failed with exit code %s", result.returncode)
                 return result.returncode
 
-        # Check and start daemon if needed --------------------------------------------------------
-        daemon_port = 8400
-        if not self._check_daemon_running(daemon_port):
-            print("🔍 No daemon detected, starting background daemon...")
-            daemon_process = self._start_daemon(daemon_port)
-            if not daemon_process:
-                print("⚠️  Warning: Failed to start daemon. Some Web UI features may not work.")
-                print("💡 You can manually start the daemon with: stratequeue daemon")
-        else:
-            print(f"✅ Daemon already running on port {daemon_port}")
-
         # Launch the dev server ------------------------------------------------------------------
         env = os.environ.copy()
-        env["PORT"] = str(args.port)
+        env["PORT"] = str(port)
 
-        print("🚀 Launching StrateQueue Web UI at http://localhost:" + str(args.port))
+        print(f"🚀 Launching StrateQueue Web UI (development) at http://localhost:{port}")
         print(f"🔗 API backend available at http://localhost:{daemon_port}")
+        print("🔄 Development mode with hot reload enabled")
+        
         # Pass the port through to vite so it binds to the correct port.
-        process = subprocess.run(["npm", "run", "dev", "--", "--port", str(args.port)], cwd=webui_dir, env=env)
+        process = subprocess.run(["npm", "run", "dev", "--", "--port", str(port)], cwd=webui_dir, env=env)
         return process.returncode
 
     def _check_daemon_running(self, port: int = 8400) -> bool:

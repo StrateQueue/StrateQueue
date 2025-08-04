@@ -20,6 +20,17 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
     
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: webui/package-lock.json
+    
+    - name: Build frontend
+      run: |
+        python tools/build_frontend.py
+    
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip

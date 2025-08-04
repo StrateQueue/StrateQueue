@@ -183,6 +183,7 @@ stratequeue webui [options]
 ```
 
 **Options:**
+- `--dev` - Run in development mode with hot reload (requires npm)
 - `--port` - Web server port (default: 5173)
 
 **Features:**
@@ -192,8 +193,11 @@ stratequeue webui [options]
 - Trade history and logs
 - System controls (pause/resume/stop)
 
+**Modes:**
+- **Production mode** (default): Serves built static files - no setup required
+- **Development mode** (`--dev`): Runs npm dev server with hot reload - requires Node.js/npm
+
 **Auto-Setup:**
-- Installs npm dependencies on first run
 - Starts daemon automatically if not running
 - Opens browser automatically
 

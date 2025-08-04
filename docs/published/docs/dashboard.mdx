@@ -40,33 +40,32 @@ stratequeue webui
 
 What happens under the hood:
 
-1. `stratequeue webui` calls `start_daemon_process()` – the FastAPI daemon is
-   started (or reused) on **127.0.0.1 : 8400**.  
-2. The Next.js dev server boots on **http://localhost:3000** (`npm run dev`).  
-3. Your default browser opens automatically (omit with `--no-browser`).  
-4. Logs are tee'd to `~/.stratequeue/logs/webui_<timestamp>.log`.
+1. `stratequeue webui` starts the FastAPI daemon (or reuses existing) on **127.0.0.1:8400**
+2. Serves the built production Web UI on **http://localhost:5173** using a static file server
+3. Your default browser opens automatically (omit with `--no-browser`)
+
+For development mode with hot reload:
+
+```bash
+stratequeue webui --dev
+```
 
 Flags:
 
 | Flag | Effect |
 |------|--------|
-| `--dev` | Skip auto-open, useful while iterating on the front-end |
+| `--dev` | Run in development mode with hot reload (requires npm) |
+| `--port PORT` | Use custom port (default: 5173) |
 | `--no-browser` | Never open a browser tab |
 | `--verbose` | Print extra daemon startup info |
 
 ---
 
-## 3 · Initial Setup (first run only)
+## 3 · Initial Setup
 
-If `npm` dependencies are missing you'll see:
+The Web UI works out of the box with the built production version. No additional setup required.
 
-❌ Frontend dependencies are not installed.
-💡 Please run 'npm install' in the frontend directory:
-cd src/StrateQueue/webui/frontend
-npm install
-
-
-After running those commands, rerun `stratequeue webui`.
+For development mode (`--dev` flag), you'll need Node.js and npm installed.
 
 ---
 
@@ -118,8 +117,8 @@ exact error string produced by `DeployValidator`.
 | Symptom | Diagnosis | Fix |
 |---------|-----------|-----|
 | Browser says *"Can't reach daemon"* | FastAPI not running | `stratequeue daemon start` or rerun `stratequeue webui` |
-| Port 3000 already in use | Another dev server running | `lsof -i :3000` then kill, or change `npm run dev -- -p 3001` |
-| `npm: command not found` | Node.js missing | Install from https://nodejs.org |
+| Port 5173 already in use | Another server running | Use `--port` to specify a different port |
+| `npm: command not found` (dev mode) | Node.js missing | Install from https://nodejs.org |
 | CORS error in console | Front-end hitting remote daemon | Ensure daemon allows origin or use same host |
 | Live data not updating | Daemon status stale | Check `~/.stratequeue/logs/webui_*.log` for 500 errors |
 
@@ -131,12 +130,11 @@ exact error string produced by `DeployValidator`.
 # 1. Start backend daemon (in one terminal)
 stratequeue daemon start --verbose
 
-# 2. Start front-end in watch mode (second terminal)
-cd src/StrateQueue/webui/frontend
-npm run dev     # Hot-reload Next.js app
+# 2. Start front-end in development mode (second terminal)
+stratequeue webui --dev
 ```
 
-Edit any file under `frontend/src/**` and the page refreshes instantly.
+Edit any file under `webui/src/**` and the page refreshes instantly.
 
 ---
 
@@ -148,8 +146,11 @@ Combine it with CLI power:
 # Deploy from terminal, monitor in browser
 stratequeue deploy --strategy sma.py --symbol AAPL &
 
-# Open dashboard
-stratequeue webui --no-browser   # if you already have a tab open
+# Open dashboard (production mode)
+stratequeue webui
+
+# Or for development with hot reload
+stratequeue webui --dev
 ```
 
 Happy visual trading!
