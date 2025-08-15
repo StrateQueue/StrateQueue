@@ -14,12 +14,20 @@ import pandas as pd
 import yfinance as yf
 
 from .data_source_base import BaseDataIngestion, MarketData
+from ...core.resample import plan_base_granularity, resample_ohlcv
 
 logger = logging.getLogger(__name__)
 
 
 class YahooFinanceDataIngestion(BaseDataIngestion):
     """Yahoo! Finance data ingestion for stock market signals"""
+
+    # Declare static capability set
+    SUPPORTED_GRANULARITIES = {
+        "1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h",
+        "1d", "5d", "1wk", "1mo", "3mo",
+    }
+    DEFAULT_GRANULARITY = "1m"
 
     def __init__(self, granularity: str = "1m"):
         super().__init__()
@@ -52,6 +60,12 @@ class YahooFinanceDataIngestion(BaseDataIngestion):
             raise ValueError(f"Granularity '{granularity}' not supported by Yahoo Finance. Supported: {supported}")
         
         self.yf_interval = self.interval_map[granularity]
+
+        # Keep class-level capability authoritative (defensive sync)
+        try:
+            type(self).SUPPORTED_GRANULARITIES = set(self.interval_map.keys())
+        except Exception:
+            pass
         
         # Real-time simulation parameters
         self.update_interval = max(60, self.granularity_seconds)  # Yahoo data updates every minute at best
@@ -75,9 +89,13 @@ class YahooFinanceDataIngestion(BaseDataIngestion):
         # Use provided granularity or fall back to instance default
         target_granularity = granularity
         if target_granularity not in self.interval_map:
-            raise ValueError(f"Granularity '{target_granularity}' not supported by Yahoo Finance")
+            # If not directly supported by Yahoo, attempt resampling from a base
+            plan = plan_base_granularity(self.interval_map.keys(), target_granularity)
+        else:
+            plan = None  # direct fetch
         
-        yf_interval = self.interval_map[target_granularity]
+        base_token = target_granularity if plan is None else plan.source_granularity
+        yf_interval = self.interval_map[base_token]
         
         try:
             # Run yfinance download in thread to avoid blocking async code
@@ -142,7 +160,11 @@ class YahooFinanceDataIngestion(BaseDataIngestion):
             # Ensure timezone-naive datetime index
             if df.index.tz is not None:
                 df.index = df.index.tz_convert(None)
-            
+
+            # Resample if a base plan is in effect
+            if plan is not None and plan.target_granularity:
+                df = resample_ohlcv(df, plan.target_granularity)
+
             # Cache the data
             self.historical_data[symbol] = df
             
@@ -152,6 +174,14 @@ class YahooFinanceDataIngestion(BaseDataIngestion):
         except Exception as e:
             logger.error(f"Error fetching Yahoo Finance historical data for {symbol}: {e}")
             return pd.DataFrame()
+
+    @classmethod
+    def get_supported_granularities(cls, **_context) -> set[str]:
+        return set(cls.SUPPORTED_GRANULARITIES)
+
+    @classmethod
+    def accepts_granularity(cls, granularity: str, **_context) -> bool:
+        return granularity in cls.SUPPORTED_GRANULARITIES
 
     def _fetch_current_quote(self, symbol: str) -> MarketData | None:
         """Fetch current quote for a symbol from Yahoo Finance"""

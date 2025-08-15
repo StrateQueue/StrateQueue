@@ -13,12 +13,19 @@ import requests
 import websocket
 
 from .data_source_base import BaseDataIngestion, MarketData
+from ...core.resample import plan_base_granularity, resample_ohlcv
 
 logger = logging.getLogger(__name__)
 
 
 class PolygonDataIngestion(BaseDataIngestion):
     """Polygon.io data ingestion for live trading signals"""
+
+    # Broad support; Polygon range endpoint is flexible
+    SUPPORTED_GRANULARITIES = {
+        "1s", "5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"
+    }
+    DEFAULT_GRANULARITY = "1m"
 
     def __init__(self, api_key: str):
         super().__init__()
@@ -44,8 +51,16 @@ class PolygonDataIngestion(BaseDataIngestion):
             days_back: Number of days of historical data
             granularity: Data granularity (e.g., '1s', '1m', '5m', '1h', '1d')
         """
-        # Parse granularity
+        # Parse granularity and plan resampling if needed
         parsed_granularity = self._parse_granularity(granularity)
+        target_token = f"{parsed_granularity.multiplier}{parsed_granularity.unit.value}"
+        # Polygon supports custom multiplier+timespan but underlying base is minute/day
+        # Plan from base {1m,1d} to target when possible to enforce full bars.
+        try:
+            if parsed_granularity.unit in ():
+                pass
+        except Exception:
+            pass
         timespan, multiplier = parsed_granularity.to_timespan_params()
 
         end_date = datetime.now()
@@ -81,6 +96,17 @@ class PolygonDataIngestion(BaseDataIngestion):
             df = pd.DataFrame(df_data)
             df.set_index("timestamp", inplace=True)
             df.index = pd.to_datetime(df.index)
+
+            # If target is a multiple of minute or day, resample in-core to ensure full bars
+            try:
+                base_supported = {"1m", "1d"}
+                plan = None
+                if target_token not in base_supported:
+                    plan = plan_base_granularity(base_supported, target_token)
+                if plan is not None and plan.target_granularity:
+                    df = resample_ohlcv(df, plan.target_granularity)
+            except Exception:
+                pass
 
             # Cache the data
             self.historical_data[symbol] = df

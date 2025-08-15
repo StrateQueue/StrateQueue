@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from .data_source_base import BaseDataIngestion, MarketData
+from ...core.resample import plan_base_granularity, resample_ohlcv
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,13 @@ class IBKRDataIngestion(BaseDataIngestion):
     """
     IBKR data ingestion using IB Gateway broker for historical and real-time data
     """
+    SUPPORTED_GRANULARITIES = {
+        "1s", "5s", "10s", "15s", "30s",
+        "1m", "2m", "3m", "5m", "10m", "15m", "20m", "30m",
+        "1h", "2h", "3h", "4h", "8h",
+        "1d", "1w", "1mo",
+    }
+    DEFAULT_GRANULARITY = "1m"
     
     def __init__(self, granularity: str = "1m", paper_trading: bool = True):
         """
@@ -86,6 +94,14 @@ class IBKRDataIngestion(BaseDataIngestion):
         }
         
         logger.info(f"IBKR data source initialized with granularity {granularity} (bar size: {self.ib_bar_size})")
+
+    @classmethod
+    def get_supported_granularities(cls, **_context) -> set[str]:
+        return set(cls.SUPPORTED_GRANULARITIES)
+
+    @classmethod
+    def accepts_granularity(cls, granularity: str, **_context) -> bool:
+        return granularity in cls.SUPPORTED_GRANULARITIES
     
     def _get_duration_string(self, days_back: int) -> str:
         """Convert days back to IB duration string"""
@@ -164,12 +180,13 @@ class IBKRDataIngestion(BaseDataIngestion):
             # Use provided granularity or fall back to instance default
             target_granularity = granularity or self.granularity
             
-            # Validate granularity
-            if target_granularity not in self.bar_size_map:
-                supported = ", ".join(self.bar_size_map.keys())
-                raise ValueError(f"Granularity '{target_granularity}' not supported by IBKR. Supported: {supported}")
-            
-            ib_bar_size = self.bar_size_map[target_granularity]
+            # Validate / plan granularity
+            if target_granularity in self.bar_size_map:
+                plan = None
+                ib_bar_size = self.bar_size_map[target_granularity]
+            else:
+                plan = plan_base_granularity(self.bar_size_map.keys(), target_granularity)
+                ib_bar_size = self.bar_size_map[plan.source_granularity]
             duration = self._get_duration_string(days_back)
             
             # Get historical data from broker
@@ -208,6 +225,10 @@ class IBKRDataIngestion(BaseDataIngestion):
             if hasattr(df.index, 'tz') and df.index.tz is not None:
                 df.index = df.index.tz_convert(None)
             
+            # Resample if needed
+            if plan is not None and plan.target_granularity:
+                df = resample_ohlcv(df, plan.target_granularity)
+
             # Cache the data
             self.historical_data[symbol] = df
             

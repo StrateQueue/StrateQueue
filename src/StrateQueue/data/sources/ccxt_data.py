@@ -18,12 +18,16 @@ except ImportError:
     ccxt = None
 
 from .data_source_base import BaseDataIngestion
+from ...core.resample import plan_base_granularity, resample_ohlcv
 
 logger = logging.getLogger(__name__)
 
 
 class CCXTDataIngestion(BaseDataIngestion):
     """CCXT data provider for cryptocurrency exchanges"""
+    # Dynamic capability – per-exchange
+    SUPPORTED_GRANULARITIES = None
+    DEFAULT_GRANULARITY = "1m"
     
     def __init__(self, exchange_id: str = None, api_key: str = None, 
                  secret_key: str = None, passphrase: str = None,
@@ -138,8 +142,19 @@ class CCXTDataIngestion(BaseDataIngestion):
             DataFrame with OHLCV data
         """
         try:
-            # Convert granularity to CCXT timeframe
-            timeframe = self._convert_granularity_to_timeframe(self.granularity)
+            # Determine base timeframe plan: if target not directly supported by
+            # the exchange, fetch at a supported base and resample.
+            supported = set(getattr(self.exchange, 'timeframes', {}) or {})
+            if self.granularity in supported:
+                plan = None
+                base_token = self.granularity
+            else:
+                # Fall back to a conservative baseline if the exchange doesn't expose timeframes
+                baselines = supported or self.get_supported_granularities()
+                plan = plan_base_granularity(baselines, self.granularity)
+                base_token = plan.source_granularity
+
+            timeframe = self._convert_granularity_to_timeframe(base_token)
             
             # Prepare parameters
             since = None
@@ -155,8 +170,16 @@ class CCXTDataIngestion(BaseDataIngestion):
             )
             
             if not ohlcv:
-                logger.warning(f"No data returned for {symbol}")
-                return pd.DataFrame()
+                # Retry with a smaller base if possible to avoid empty results for odd targets
+                try:
+                    if plan is not None and plan.source_granularity != '1m' and '1m' in (supported or {}):
+                        timeframe_retry = self._convert_granularity_to_timeframe('1m')
+                        ohlcv = self.exchange.fetch_ohlcv(symbol=symbol, timeframe=timeframe_retry, since=since, limit=limit)
+                except Exception:
+                    pass
+                if not ohlcv:
+                    logger.warning(f"No data returned for {symbol}")
+                    return pd.DataFrame()
             
             # Convert to DataFrame with title case columns (StrateQueue standard)
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
@@ -166,7 +189,11 @@ class CCXTDataIngestion(BaseDataIngestion):
             # Filter by end_date if provided
             if end_date:
                 df = df[df.index <= end_date]
-                
+            
+            # Resample if a base plan is in effect
+            if plan is not None and plan.target_granularity:
+                df = resample_ohlcv(df, plan.target_granularity)
+
             logger.debug(f"Retrieved {len(df)} candles for {symbol}")
             return df
             
@@ -193,28 +220,46 @@ class CCXTDataIngestion(BaseDataIngestion):
             return []
     
     def _convert_granularity_to_timeframe(self, granularity: str) -> str:
-        """Convert StrateQueue granularity to CCXT timeframe"""
-        mapping = {
-            '1s': '1s',
-            '5s': '5s', 
-            '10s': '10s',
-            '30s': '30s',
-            '1m': '1m',
-            '5m': '5m',
-            '15m': '15m',
-            '30m': '30m',
-            '1h': '1h',
-            '2h': '2h',
-            '4h': '4h',
-            '1d': '1d',
-            '1w': '1w'
+        """Convert StrateQueue granularity to CCXT timeframe.
+
+        Prefer the exchange's advertised `timeframes` mapping when available.
+        """
+        tf_map = getattr(self.exchange, 'timeframes', None)
+        if isinstance(tf_map, dict) and tf_map:
+            if granularity in tf_map:
+                return granularity
+            # Fallback to 1m if available on the exchange
+            if '1m' in tf_map:
+                logger.warning(
+                    f"Unsupported granularity {granularity} for {self.exchange_id}; falling back to 1m"
+                )
+                return '1m'
+        # Conservative baseline if exchange has no map
+        baseline = {
+            '1s', '5s', '10s', '30s', '1m', '5m', '15m', '30m', '1h', '2h', '4h', '1d', '1w'
         }
-        
-        if granularity not in mapping:
-            logger.warning(f"Unsupported granularity {granularity}, defaulting to 1m")
-            return '1m'
-            
-        return mapping[granularity]
+        if granularity in baseline:
+            return granularity
+        logger.warning(f"Unsupported granularity {granularity}; defaulting to 1m")
+        return '1m'
+
+    # Capability helpers -------------------------------------------------
+    @classmethod
+    def get_supported_granularities(cls, **context) -> set[str]:
+        """Return supported granularities. If an `exchange` is provided in
+        context, derive directly from `exchange.timeframes` keys; otherwise
+        return a conservative baseline.
+        """
+        exchange = context.get('exchange')
+        if exchange is not None and isinstance(getattr(exchange, 'timeframes', None), dict):
+            return set(exchange.timeframes.keys())
+        return {
+            '1s', '5s', '10s', '30s', '1m', '5m', '15m', '30m', '1h', '2h', '4h', '1d', '1w'
+        }
+
+    @classmethod
+    def accepts_granularity(cls, granularity: str, **context) -> bool:
+        return granularity in cls.get_supported_granularities(**context)
     
     def validate_symbol(self, symbol: str) -> bool:
         """Validate if symbol is available on exchange"""

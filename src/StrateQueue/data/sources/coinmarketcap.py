@@ -14,6 +14,7 @@ import pandas as pd
 import requests
 
 from ...core.granularity import TimeUnit
+from ...core.resample import plan_base_granularity, resample_ohlcv
 from .data_source_base import BaseDataIngestion, MarketData
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,10 @@ logger = logging.getLogger(__name__)
 
 class CoinMarketCapDataIngestion(BaseDataIngestion):
     """CoinMarketCap data ingestion for cryptocurrency signals"""
+
+    # Contract: historical daily only; real-time updates >= 1m
+    SUPPORTED_GRANULARITIES = {"1d", "1m", "5m", "15m", "30m", "1h"}
+    DEFAULT_GRANULARITY = "1d"
 
     def __init__(self, api_key: str = None, granularity: str = "1d"):
         """Initialize CoinMarketCap data source with granularity validation"""
@@ -115,7 +120,18 @@ class CoinMarketCapDataIngestion(BaseDataIngestion):
 
         # CMC historical API only supports daily data
         if parsed_granularity.unit == TimeUnit.DAY:
-            return await self._fetch_daily_historical_data(symbol, days_back)
+            # Always fetch base 1d, optionally resample to N-day
+            df = await self._fetch_daily_historical_data(symbol, days_back)
+            # If multiplier > 1, resample to e.g. 2d, 3d
+            if df is not None and not df.empty and parsed_granularity.multiplier > 1:
+                try:
+                    plan = plan_base_granularity({"1d"}, f"{parsed_granularity.multiplier}d")
+                    if plan.target_granularity:
+                        df = resample_ohlcv(df, plan.target_granularity)
+                except Exception:
+                    # If plan fails, default to raw daily without resample
+                    pass
+            return df
         else:
             # For intraday granularities, we cannot provide historical data
             # But we should clarify that real-time data is available for 1m+

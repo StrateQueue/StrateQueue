@@ -13,6 +13,7 @@ from typing import Any
 # Load environment variables from .env file
 from dotenv import load_dotenv
 
+# Prefer provider-driven validation; core wrapper remains for legacy
 from ..core.granularity import validate_granularity
 from .sources.data_source_base import BaseDataIngestion
 
@@ -186,10 +187,45 @@ class DataProviderFactory:
                 else:
                     raise ValueError(f"No config provided and failed to auto-detect from environment: {e}")
 
-        # Validate granularity for the specified data source
-        is_valid, error_msg = validate_granularity(config.granularity, provider_type)
-        if not is_valid:
-            raise ValueError(error_msg)
+        # Validate granularity via provider capability first where available
+        # Fallback to legacy core wrapper if capability is absent
+        cls._initialize_providers()
+        provider_class = cls._providers.get(provider_type)
+        if provider_class and hasattr(provider_class, "accepts_granularity"):
+            try:
+                accepted = provider_class.accepts_granularity(config.granularity)  # type: ignore[attr-defined]
+            except Exception:
+                accepted = False
+            if not accepted:
+                supported = []
+                if hasattr(provider_class, "get_supported_granularities"):
+                    try:
+                        supported = sorted(list(provider_class.get_supported_granularities()))  # type: ignore[attr-defined]
+                    except Exception:
+                        supported = []
+                # Try resampling plan: if requested is a multiple of a supported base, allow
+                try:
+                    from ..core.resample import plan_base_granularity
+                    if supported:
+                        _ = plan_base_granularity(supported, config.granularity)
+                        accepted = True
+                except Exception:
+                    pass
+                if accepted:
+                    # proceed
+                    pass
+                else:
+                    if supported:
+                        raise ValueError(
+                            f"Granularity '{config.granularity}' not supported by {provider_type}. Supported: {', '.join(supported)}"
+                        )
+                    raise ValueError(
+                        f"Granularity '{config.granularity}' not supported by {provider_type}."
+                    )
+        else:
+            is_valid, error_msg = validate_granularity(config.granularity, provider_type)
+            if not is_valid:
+                raise ValueError(error_msg)
 
         # Create the appropriate data provider
         return cls._create_provider_instance(provider_class, provider_type, config)

@@ -13,12 +13,19 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 from .data_source_base import BaseDataIngestion, MarketData
+from ...core.resample import plan_base_granularity, resample_ohlcv
 
 logger = logging.getLogger(__name__)
 
 
 class TestDataIngestion(BaseDataIngestion):
     """Test data ingestor that generates realistic random market data for testing"""
+
+    # Unrestricted for demo purposes
+    SUPPORTED_GRANULARITIES = {
+        "1s", "5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w"
+    }
+    DEFAULT_GRANULARITY = "1m"
 
     def __init__(self, base_prices: dict[str, float] | None = None):
         super().__init__()
@@ -76,7 +83,7 @@ class TestDataIngestion(BaseDataIngestion):
             # Return the exact same object that was previously generated
             return self._historical_cache[cache_key]
 
-        # Parse granularity to determine time intervals
+        # Parse granularity to determine time intervals (support resampling from 1m base)
         parsed_granularity = self._parse_granularity(granularity)
         interval_seconds = parsed_granularity.to_seconds()
 
@@ -157,6 +164,21 @@ class TestDataIngestion(BaseDataIngestion):
             df = pd.DataFrame(data)
             df.set_index("timestamp", inplace=True)
             df.index = pd.to_datetime(df.index)
+
+        # Resample support: if requested is a multiple of 1m or 1s, we could resample here as well.
+        try:
+            base_supported = {"1m"}
+            target_token = f"{parsed_granularity.multiplier}{parsed_granularity.unit.value}"
+            plan = None
+            if target_token not in base_supported and len(data) > 0:
+                # Build 1m base on the fly then resample
+                # Here we already generated at target step, so only resample when coarser than 1m
+                if parsed_granularity.to_seconds() > 60:
+                    # Rebuild at 1m if feasible: if interval_seconds divides 60, or else skip
+                    # For simplicity, rely on existing df and resample only if coarser
+                    df = resample_ohlcv(df, target_token)
+        except Exception:
+            pass
 
         # Store in dedicated memo-cache **before** logging/returning so that
         # immediate subsequent calls hit the fast path above.

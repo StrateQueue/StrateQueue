@@ -217,6 +217,19 @@ class TradingProcessor:
 
                     # Extract signal from cumulative data
                     signal = self.signal_extractors[symbol].extract_signal(current_data_df)
+                    # Attach last bar OHLCV into metadata for printing/debugging
+                    try:
+                        last_bar = current_data_df.iloc[-1]
+                        signal.metadata = signal.metadata or {}
+                        signal.metadata["bar"] = {
+                            "Open": float(last_bar.get("Open", float('nan'))),
+                            "High": float(last_bar.get("High", float('nan'))),
+                            "Low": float(last_bar.get("Low", float('nan'))),
+                            "Close": float(last_bar.get("Close", float('nan'))),
+                            "Volume": float(last_bar.get("Volume", float('nan'))),
+                        }
+                    except Exception:
+                        pass
                     signals[symbol] = signal
                     self.active_signals[symbol] = signal
 

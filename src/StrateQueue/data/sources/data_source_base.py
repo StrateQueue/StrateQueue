@@ -30,6 +30,11 @@ class MarketData:
 class BaseDataIngestion(ABC):
     """Abstract base class for all data ingestion sources"""
 
+    # Granularity capability contract
+    # None means "unrestricted or dynamic; provider should override classmethods"
+    SUPPORTED_GRANULARITIES: set[str] | None = None
+    DEFAULT_GRANULARITY: str = "1m"
+
     def __init__(self):
         self.current_bars: dict[str, MarketData] = {}
         self.historical_data: dict[str, pd.DataFrame] = {}
@@ -118,3 +123,40 @@ class BaseDataIngestion(ABC):
     def _parse_granularity(self, granularity_str: str) -> Granularity:
         """Parse granularity string with validation"""
         return parse_granularity(granularity_str)
+
+    # ------------------------------------------------------------------
+    # Granularity capability helpers (override in providers as needed)
+    # ------------------------------------------------------------------
+    @classmethod
+    def get_supported_granularities(cls, **_context) -> set[str]:
+        """Return supported granularity tokens for this provider.
+
+        If `SUPPORTED_GRANULARITIES` is None, treat as unrestricted/dynamic.
+        Providers with dynamic capabilities should override this method and
+        compute support from runtime context (e.g., exchange features).
+        """
+        return set(cls.SUPPORTED_GRANULARITIES or [])
+
+    @classmethod
+    def accepts_granularity(cls, granularity: str, **context) -> bool:
+        """Return True if this provider accepts the given granularity token.
+
+        Default behavior uses `SUPPORTED_GRANULARITIES` when present. Dynamic
+        providers should override and use `get_supported_granularities(**context)`.
+        """
+        if cls.SUPPORTED_GRANULARITIES is None:
+            # Unrestricted or dynamically determined – assume accepted by default
+            return True
+        return granularity in cls.SUPPORTED_GRANULARITIES
+
+    def to_native_timeframe(self, g: Granularity):
+        """Convert a parsed granularity to the provider's native timeframe.
+
+        Default implementation returns the original token string. Providers
+        should override if their SDK requires a specialized enum/object.
+        """
+        return str(g)
+
+    def granularity_to_native(self, granularity: str):
+        """Parse and convert a granularity token to native provider value."""
+        return self.to_native_timeframe(self._parse_granularity(granularity))

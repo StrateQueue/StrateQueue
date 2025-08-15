@@ -12,6 +12,7 @@ The Stratequeue trading system includes a flexible data provider factory that ma
 2. **DataProviderFactory** - Factory class for creating data provider instances
 3. **Data Provider Utilities** - Environment detection and configuration helpers
 4. **Data Provider Implementations** - Specific provider implementations (Polygon, CoinMarketCap, Demo)
+5. **Granularity Capability** - Providers declare the timeframes they support
 
 ### Key Features
 
@@ -20,7 +21,7 @@ The Stratequeue trading system includes a flexible data provider factory that ma
 - **Graceful Fallbacks**: Handles missing dependencies gracefully with demo data
 - **Unified Interface**: Consistent API across all data provider implementations
 - **Environment-Based Configuration**: Configuration via environment variables
-- **Multi-Granularity Support**: Flexible time granularity handling
+- **Multi-Granularity Support**: Flexible time granularity handling driven by provider capabilities
 - **Real-time and Historical**: Support for both historical data and real-time feeds
 
 ## Using the Data Provider Factory
@@ -133,6 +134,21 @@ logger = logging.getLogger(__name__)
 
 class YourProviderDataIngestion(BaseDataIngestion):
     """Your Provider implementation of BaseDataIngestion interface"""
+
+    # Granularity capability contract
+    SUPPORTED_GRANULARITIES = {"1m", "5m", "15m", "1h", "1d"}  # or None if dynamic
+    DEFAULT_GRANULARITY = "1m"
+
+    @classmethod
+    def get_supported_granularities(cls, **context) -> set[str]:
+        # If the provider can fetch support dynamically (e.g., from an API), do so here
+        return set(cls.SUPPORTED_GRANULARITIES or [])
+
+    @classmethod
+    def accepts_granularity(cls, granularity: str, **context) -> bool:
+        if cls.SUPPORTED_GRANULARITIES is None:
+            return True
+        return granularity in cls.SUPPORTED_GRANULARITIES
     
     def __init__(self, api_key: str, granularity: str = "1m"):
         super().__init__()

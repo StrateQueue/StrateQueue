@@ -28,6 +28,7 @@ from .signal_extractor import (
 )
 from .strategy_loader import StrategyLoader
 from .statistics_manager import StatisticsManager
+from .resample import ResamplePlan, plan_base_granularity, resample_ohlcv, to_pandas_rule
 
 __all__ = [
     "LiveSignalExtractor",
@@ -48,4 +49,9 @@ __all__ = [
     "PercentOfCapitalSizing",
     "VolatilityBasedSizing",
     "default_position_sizer",
+    # Resampling utilities
+    "ResamplePlan",
+    "plan_base_granularity",
+    "resample_ohlcv",
+    "to_pandas_rule",
 ]

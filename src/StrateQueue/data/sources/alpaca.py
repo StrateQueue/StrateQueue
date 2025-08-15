@@ -32,6 +32,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 from .data_source_base import BaseDataIngestion, MarketData
+from ...core.resample import plan_base_granularity, resample_ohlcv
 
 # Conditional import so StrateQueue still imports if SDK is missing
 try:
@@ -72,6 +73,10 @@ logger = logging.getLogger(__name__)
 
 class AlpacaDataIngestion(BaseDataIngestion):
     """Alpaca Market Data ingestion (historical + realtime)."""
+
+    # Static capability – will be refined at runtime based on SDK availability
+    SUPPORTED_GRANULARITIES: set[str] | None = None
+    DEFAULT_GRANULARITY: str = "1m"
 
     # ---------------------------------------------------------------------
     # Public helpers
@@ -135,12 +140,13 @@ class AlpacaDataIngestion(BaseDataIngestion):
         if hasattr(TimeFrame, "Week"):
             self._tf_map["1w"] = TimeFrame.Week
 
-        if granularity not in self._tf_map:
-            msg = (
-                f"Granularity '{granularity}' not supported by Alpaca provider. "
-                f"Supported: {list(self._tf_map.keys())}"
-            )
-            raise ValueError(msg)
+        # Non-native granularities are allowed; we'll base-fetch and resample on demand
+
+        # Sync class-level capabilities with detected SDK members
+        try:
+            type(self).SUPPORTED_GRANULARITIES = set(self._tf_map.keys())
+        except Exception:
+            pass
 
         # Initialize clients based on crypto mode
         self._hist_client = None
@@ -252,11 +258,13 @@ class AlpacaDataIngestion(BaseDataIngestion):
 
         *symbol* is sent to `/v2/stocks/{symbol}/bars` or `/v2/crypto/bars`.
         """
-        if granularity not in self._tf_map:
-            raise ValueError(
-                f"Granularity '{granularity}' not supported. Supported: {list(self._tf_map)}"
-            )
-        tf_enum = self._tf_map[granularity]
+        if granularity in self._tf_map:
+            plan = None
+            tf_enum = self._tf_map[granularity]
+        else:
+            # Plan resampling from the best supported base
+            plan = plan_base_granularity(self._tf_map.keys(), granularity)
+            tf_enum = self._tf_map[plan.source_granularity]
 
         # Auto-detect crypto mode if needed
         self._ensure_crypto_mode(symbol)
@@ -317,6 +325,10 @@ class AlpacaDataIngestion(BaseDataIngestion):
         # Ensure datetime index & sort
         df.index = pd.to_datetime(df.index, utc=True).tz_convert(None)
         df.sort_index(inplace=True)
+
+        # Resample if needed
+        if plan is not None and plan.target_granularity:
+            df = resample_ohlcv(df, plan.target_granularity)
 
         self.historical_data[symbol] = df
         logger.info(
@@ -389,3 +401,16 @@ class AlpacaDataIngestion(BaseDataIngestion):
     def set_update_interval_from_granularity(self, granularity: str):
         """Method kept for API parity with Demo provider (no-op here)."""
         pass 
+
+    # Capability helpers -------------------------------------------------
+    @classmethod
+    def get_supported_granularities(cls, **_context) -> set[str]:
+        # If runtime already populated, return it; else, conservative default
+        if isinstance(cls.SUPPORTED_GRANULARITIES, set) and cls.SUPPORTED_GRANULARITIES:
+            return set(cls.SUPPORTED_GRANULARITIES)
+        # Conservative defaults common across Alpaca feeds
+        return {"1m", "2m", "5m", "10m", "15m", "30m", "1h", "2h", "4h", "1d", "1w"}
+
+    @classmethod
+    def accepts_granularity(cls, granularity: str, **_context) -> bool:
+        return granularity in cls.get_supported_granularities()

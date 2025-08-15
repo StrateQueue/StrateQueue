@@ -127,7 +127,18 @@ class DisplayManager:
         print(f"\n🎯 SIGNAL #{count} - {timestamp_str}{strategy_info}")
         print(f"Symbol: {symbol}")
         print(f"Action: {signal_emoji.get(signal.signal.value, '❓')} {signal.signal.value}")
-        print(f"Price: {PriceFormatter.format_price_for_display(signal.price)}")
+        # Print full OHLCV if available in metadata for easier debugging
+        ohlcv = signal.metadata.get("bar") if hasattr(signal, "metadata") and signal.metadata else None
+        if isinstance(ohlcv, dict) and all(k in ohlcv for k in ("Open","High","Low","Close","Volume")):
+            print(
+                f"OHLCV: O={PriceFormatter.format_price_for_display(ohlcv['Open'])}, "
+                f"H={PriceFormatter.format_price_for_display(ohlcv['High'])}, "
+                f"L={PriceFormatter.format_price_for_display(ohlcv['Low'])}, "
+                f"C={PriceFormatter.format_price_for_display(ohlcv['Close'])}, "
+                f"V={ohlcv['Volume']}"
+            )
+        else:
+            print(f"Price: {PriceFormatter.format_price_for_display(signal.price)}")
 
         # Removed verbose indicator output to keep the console log concise
 
@@ -143,16 +154,9 @@ class DisplayManager:
             }
         )
         
-        # Also record in statistics manager if available
-        if self.statistics_manager:
-            self.statistics_manager.record_signal(
-                timestamp=signal.timestamp,
-                symbol=symbol,
-                signal_type=signal.signal.value,
-                price=signal.price,
-                strategy_id=getattr(signal, 'strategy_id', None),
-                indicators=signal.indicators,
-            )
+        # Remove this duplicate recording - orchestrator handles it
+        # if self.statistics_manager:
+        #     self.statistics_manager.record_signal(...)
 
     def display_signals_summary(self, signals: dict, count: int):
         """Display summary of current signals"""

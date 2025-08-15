@@ -100,100 +100,44 @@ class GranularityParser:
     @classmethod
     def validate_for_data_source(cls, granularity: Granularity, data_source: str) -> bool:
         """
-        Validate if a granularity is supported by a specific data source
+        Deprecated: provider-specific validation now lives in each provider.
 
-        Args:
-            granularity: Granularity to validate
-            data_source: Data source name ('polygon', 'coinmarketcap', 'demo')
-
-        Returns:
-            True if supported, False otherwise
+        This method remains as a compatibility shim for code that still calls
+        into core-level validation. It attempts a best-effort delegation by
+        importing the provider factory and asking the provider class instance
+        whether the granularity is accepted. If delegation fails, returns False.
         """
-        if data_source == "polygon":
-            # Polygon supports seconds, minutes, hours, days
-            return True  # Pretty flexible
-
-        elif data_source == "coinmarketcap":
-            # CoinMarketCap historical endpoint only provides *daily* candles. For
-            # the purpose of StrateQueue's validation rules we treat *only* daily
-            # granularity as officially supported.  Intraday granularities (even
-            # 1-minute) are considered unsupported here so that
-            # `validate_granularity("1m", "coinmarketcap")` returns False – this
-            # matches the expectations encoded in the data-path test-suite.
-            return granularity.unit == TimeUnit.DAY
-
-        elif data_source == "demo":
-            # Demo data can generate any granularity
-            return True
-
-        elif data_source == "yfinance":
-            # Yahoo Finance supports various granularities but with limitations
-            supported_granularities = ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"]
-            granularity_str = f"{granularity.multiplier}{granularity.unit.value}"
-            return granularity_str in supported_granularities
-
-        elif data_source == "alpaca":
-            # Alpaca supports customizable timeframes for historical bars
-            # Based on API docs: timeframe is customizable, frequently used examples: 1Min, 15Min, 1Hour, 1Day
-            # Supports minutes, hours, and days with flexible multipliers
-            if granularity.unit == TimeUnit.MINUTE:
-                return granularity.multiplier >= 1  # Any minute interval >= 1
-            elif granularity.unit == TimeUnit.HOUR:
-                return granularity.multiplier >= 1  # Any hour interval >= 1
-            elif granularity.unit == TimeUnit.DAY:
-                return granularity.multiplier >= 1  # Any day interval >= 1
-            else:
-                return False  # Seconds not supported
-
-        elif data_source == "ibkr":
-            # Interactive Brokers supports extensive granularities through IB Gateway
-            # Supports seconds, minutes, hours, days, weeks, and months
-            if granularity.unit == TimeUnit.SECOND:
-                return granularity.multiplier in [1, 5, 10, 15, 30]  # Common second intervals
-            elif granularity.unit == TimeUnit.MINUTE:
-                return granularity.multiplier in [1, 2, 3, 5, 10, 15, 20, 30]  # Common minute intervals
-            elif granularity.unit == TimeUnit.HOUR:
-                return granularity.multiplier in [1, 2, 3, 4, 8]  # Common hour intervals
-            elif granularity.unit == TimeUnit.DAY:
-                return granularity.multiplier >= 1  # Any day interval >= 1
-            else:
+        try:
+            # Late import to avoid circulars on module import
+            from ..data.provider_factory import DataProviderFactory
+            DataProviderFactory._initialize_providers()  # ensure registry
+            provider_class = DataProviderFactory._providers.get(data_source)
+            if provider_class is None:
                 return False
-
-        elif data_source == "ccxt" or data_source.startswith("ccxt."):
-            # CCXT supports various granularities depending on exchange
-            # Most exchanges support common timeframes
-            if granularity.unit == TimeUnit.SECOND:
-                return granularity.multiplier in [1, 5, 10, 30]  # Common second intervals
-            elif granularity.unit == TimeUnit.MINUTE:
-                return granularity.multiplier in [1, 5, 15, 30]  # Common minute intervals
-            elif granularity.unit == TimeUnit.HOUR:
-                return granularity.multiplier in [1, 2, 4]  # Common hour intervals
-            elif granularity.unit == TimeUnit.DAY:
-                return granularity.multiplier >= 1  # Any day interval >= 1
-            else:
-                return False
-
-        else:
+            token = f"{granularity.multiplier}{granularity.unit.value}"
+            # Prefer classmethod if present
+            if hasattr(provider_class, "accepts_granularity"):
+                return bool(provider_class.accepts_granularity(token))  # type: ignore[attr-defined]
+            return False
+        except Exception:
             return False
 
     @classmethod
     def get_supported_granularities(cls, data_source: str) -> list[str]:
-        """Get list of commonly supported granularities for a data source"""
-        if data_source == "polygon":
-            return ["1s", "5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"]
-        elif data_source == "coinmarketcap":
-            return ["1d", "1m", "5m", "15m", "30m", "1h"]  # 1d for historical, others for real-time
-        elif data_source == "demo":
-            return ["1s", "5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w"]
-        elif data_source == "yfinance":
-            return ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"]
-        elif data_source == "alpaca":
-            return ["1m", "2m", "5m", "10m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "1w"]
-        elif data_source == "ibkr":
-            return ["1s", "5s", "10s", "15s", "30s", "1m", "2m", "3m", "5m", "10m", "15m", "20m", "30m", "1h", "2h", "3h", "4h", "8h", "1d", "1w", "1mo"]
-        elif data_source == "ccxt" or data_source.startswith("ccxt."):
-            return ["1s", "5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w"]
-        else:
+        """Deprecated: use provider.get_supported_granularities().
+
+        Kept for compatibility. Best-effort delegation to provider class.
+        """
+        try:
+            from ..data.provider_factory import DataProviderFactory
+            DataProviderFactory._initialize_providers()
+            provider_class = DataProviderFactory._providers.get(data_source)
+            if provider_class is None:
+                return []
+            if hasattr(provider_class, "get_supported_granularities"):
+                return sorted(list(provider_class.get_supported_granularities()))  # type: ignore[attr-defined]
+            return []
+        except Exception:
             return []
 
 
@@ -224,22 +168,50 @@ def parse_granularity(granularity_str: str) -> Granularity:
 
 
 def validate_granularity(granularity_str: str, data_source: str) -> tuple[bool, str | None]:
-    """
-    Validate a granularity string for a specific data source
+    """Compatibility wrapper: prefer provider-level validation.
 
-    Returns:
-        (is_valid, error_message)
+    Returns (is_valid, error_message).
     """
     try:
-        granularity = parse_granularity(granularity_str)
-        is_valid = GranularityParser.validate_for_data_source(granularity, data_source)
-
-        if not is_valid:
-            supported = GranularityParser.get_supported_granularities(data_source)
-            error_msg = f"Granularity '{granularity_str}' not supported by {data_source}. Supported: {', '.join(supported)}"
-            return False, error_msg
-
-        return True, None
-
+        # Parse to ensure format is valid
+        _ = parse_granularity(granularity_str)
     except ValueError as e:
         return False, str(e)
+
+    # Delegate to provider capability when available
+    try:
+        from ..data.provider_factory import DataProviderFactory
+        DataProviderFactory._initialize_providers()
+        provider_class = DataProviderFactory._providers.get(data_source)
+        if provider_class and hasattr(provider_class, "accepts_granularity"):
+            # Direct native support
+            if provider_class.accepts_granularity(granularity_str):  # type: ignore[attr-defined]
+                return True, None
+
+            # Try resampling plan: if requested is a clean multiple of a supported base, accept
+            supported: list[str] = []
+            if hasattr(provider_class, "get_supported_granularities"):
+                try:
+                    supported = sorted(list(provider_class.get_supported_granularities()))  # type: ignore[attr-defined]
+                except Exception:
+                    supported = []
+
+            if supported:
+                try:
+                    from .resample import plan_base_granularity
+                    _ = plan_base_granularity(supported, granularity_str)
+                    # A valid plan exists: allow and provider will fetch base+resample
+                    return True, None
+                except Exception:
+                    pass
+
+            error_msg = (
+                f"Granularity '{granularity_str}' not supported by {data_source}. "
+                + (f"Supported: {', '.join(supported)}" if supported else "")
+            )
+            return False, error_msg
+    except Exception:
+        pass
+
+    # If delegation failed, be conservative
+    return False, f"Unable to validate granularity '{granularity_str}' for data source '{data_source}'"
