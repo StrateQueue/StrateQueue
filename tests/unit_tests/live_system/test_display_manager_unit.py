@@ -53,8 +53,8 @@ def test_log_trade_side_effects(disp: DisplayManager, stats_stub):
     disp.log_trade("BTCUSD", sig)
 
     assert disp.get_trade_count() == 1
-    # ensure trade cloned into statistics manager
-    assert stats_stub.calls == 1
+    # Statistics manager recording is now handled by orchestrator, not display manager
+    assert stats_stub.calls == 0  # Changed from 1 to 0
 
     # returned trade log must be a *copy*
     log_copy = disp.get_trade_log()

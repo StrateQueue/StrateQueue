@@ -490,7 +490,7 @@ class TestSetupDataIngestionEdgeCases:
     def test_invalid_granularity_handled(self, async_mock_patch):
         """Test that invalid granularity is handled properly"""
         # Act & Assert - Should raise ValueError for invalid granularity
-        with pytest.raises(ValueError, match="Invalid granularity format"):
+        with pytest.raises(ValueError, match=r"Granularity 'invalid' not supported by demo"):
             setup_data_ingestion(
                 data_source="demo",
                 symbols=["AAPL"],

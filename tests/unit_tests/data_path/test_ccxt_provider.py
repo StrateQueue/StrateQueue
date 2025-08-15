@@ -107,6 +107,9 @@ class TestCCXTDataIngestion:
         mock_exchange_instance = Mock()
         mock_exchange_instance.load_markets.return_value = {}
         
+        # Add timeframes attribute that the new code expects
+        mock_exchange_instance.timeframes = {'1m': '1m', '5m': '5m', '1h': '1h', '1d': '1d'}
+        
         # Mock OHLCV data
         mock_ohlcv_data = [
             [1640995200000, 47000.0, 47500.0, 46500.0, 47200.0, 1.5],  # timestamp, o, h, l, c, v
@@ -142,6 +145,10 @@ class TestCCXTDataIngestion:
         mock_exchange_class = Mock()
         mock_exchange_instance = Mock()
         mock_exchange_instance.load_markets.return_value = {}
+        
+        # Add timeframes attribute that the new code expects
+        mock_exchange_instance.timeframes = {'1m': '1m', '5m': '5m', '1h': '1h', '1d': '1d'}
+        
         mock_exchange_instance.fetch_ohlcv.return_value = []
         mock_exchange_class.return_value = mock_exchange_instance
         
@@ -267,6 +274,10 @@ class TestCCXTDataIngestion:
         mock_exchange_class = Mock()
         mock_exchange_instance = Mock()
         mock_exchange_instance.load_markets.return_value = {}
+        
+        # Add timeframes attribute that the new code expects
+        mock_exchange_instance.timeframes = {'1m': '1m', '5m': '5m', '1h': '1h', '1d': '1d'}
+        
         mock_exchange_instance.fetch_ohlcv.side_effect = Exception("API Error")
         mock_exchange_instance.fetch_ticker.side_effect = Exception("API Error")
         mock_exchange_class.return_value = mock_exchange_instance

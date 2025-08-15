@@ -52,5 +52,6 @@ def test_cmc_validation_rules():
     ok, _ = validate_granularity("1d", "coinmarketcap")
     assert ok
 
-    not_ok, _ = validate_granularity("1m", "coinmarketcap")
-    assert not not_ok 
+    # 1m is actually supported by CoinMarketCap according to their provider
+    ok, _ = validate_granularity("1m", "coinmarketcap")
+    assert ok 
