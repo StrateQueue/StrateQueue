@@ -16,12 +16,6 @@
 
 > ⭐️ If StrateQueue saved you time or taught you something, consider [starring us on GitHub](https://github.com/StrateQueue/StrateQueue) — it helps more quants discover the project!
 
-<!---
-## 🌍 README Translations
-
-[🇺🇸 English](README.md) • [🇨🇳 简体中文](README.zh-CN.md) • [繁體中文](README.zh-TW.md) • [🇮🇳 हिंदी](README.hi.md) • [🇫🇷 Français](README.fr.md) • [🇸🇦 العربية](README.ar.md)
--->
-
 ## 📈 StrateQueue 📉
 
 Backtest to live in seconds. StrateQueue lets you deploy any Python trading strategy (**backtrader**, **zipline**, **vectorbt**, **backtrader**, etc.) to any broker with one command: ```stratequeue deploy --strategy ./your_script.py```. No code changes.
