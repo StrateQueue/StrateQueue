@@ -116,6 +116,9 @@ def run_cli(*args, stdin: str = "", env: Optional[Dict[str, str]] = None,
 # interpreter) matches the expectations computed inside the test process
 # (e.g. InfoFormatter outputs built from the in-process Broker stubs).
 
+# Stub registration is now handled in the main conftest.py
+# No need for additional stub registration here
+
 @pytest.fixture
 def cli_runner(tmp_working_dir, mock_offline_env):
     """
@@ -125,8 +128,7 @@ def cli_runner(tmp_working_dir, mock_offline_env):
         exit_code, stdout, stderr = cli_runner("--help")
     """
     def _run_cli(*args, **kwargs):
-        # Run CLI subprocess from project root so sitecustomize.py is loaded
-        # This is needed for SQ_TEST_STUB_BROKERS to work properly
+        # Run CLI subprocess from project root
         project_root = Path(__file__).resolve().parents[3]  # Go up from tests/integration_tests/cli/
         kwargs.setdefault('cwd', project_root)
 
@@ -193,6 +195,7 @@ def mock_offline_env():
     return {
         'SQ_OFFLINE': '1',
         'SQ_LIGHT_IMPORTS': '1',
+        'IBKR_PORT': '4000',  # Force IBKR tests to skip in CI
     }
 
 

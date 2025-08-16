@@ -32,81 +32,7 @@ from . import command_registry  # noqa: F401
 logger = get_cli_logger('main')
 
 
-def _load_test_stubs_if_needed() -> None:
-    """Load test stubs if SQ_TEST_STUB_BROKERS environment variable is set"""
-    import os
-    
-    if os.getenv("SQ_TEST_STUB_BROKERS") != "1":
-        return
-        
-    try:
-        # Add tests directory to Python path
-        import sys
-        import pathlib
-        
-        # Find the project root by looking for pyproject.toml
-        current_dir = Path(__file__).resolve()
-        project_root = None
-        for parent in current_dir.parents:
-            if (parent / "pyproject.toml").exists():
-                project_root = parent
-                break
-        
-        if not project_root:
-            return  # Can't find project root, skip stub loading
-            
-        tests_dir = project_root / "tests"
-        if tests_dir.exists() and str(tests_dir) not in sys.path:
-            sys.path.insert(0, str(tests_dir))
-        
-        # Import the stub modules to register them in sys.modules
-        import importlib
-        importlib.import_module("unit_tests.brokers.alpaca.alpaca_stubs")
-        importlib.import_module("unit_tests.brokers.ibkr.ibkr_stubs")
-        
-        # Register broker stubs using the same approach as sitecustomize.py
-        import types
-        
-        def _register_stub(module_name: str, cls_name: str) -> None:
-            stub_mod = types.ModuleType(module_name)
-            
-            class _StubBroker:
-                def __init__(self, *_, **__):
-                    pass
-                
-                def get_broker_info(self):
-                    import types
-                    name_map = {
-                        "AlpacaBroker": "Alpaca-Stub",
-                        "IBKRBroker": "IBKR-Stub"
-                    }
-                    return types.SimpleNamespace(
-                        name=name_map.get(cls_name, f"stub-{cls_name.lower()}"),
-                        version="0",
-                        supported_features={},
-                        description="stub",
-                        supported_markets=["stocks"],
-                        paper_trading=True,
-                    )
-                
-                def validate_credentials(self) -> bool:
-                    return True
-            
-            setattr(stub_mod, cls_name, _StubBroker)
-            sys.modules[module_name] = stub_mod
-            
-            # Make sure parent packages expose the sub-module attribute
-            parent, _, child = module_name.rpartition(".")
-            if parent not in sys.modules:
-                sys.modules[parent] = types.ModuleType(parent)
-            setattr(sys.modules[parent], child, stub_mod)
-        
-        _register_stub("StrateQueue.brokers.Alpaca.alpaca_broker", "AlpacaBroker")
-        _register_stub("StrateQueue.brokers.IBKR.ibkr_broker", "IBKRBroker")
-        
-    except Exception:
-        # Silently continue if stub loading fails
-        pass
+# Stub loading is now handled in test fixtures
 
 
 def create_main_parser() -> argparse.ArgumentParser:
@@ -213,8 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Exit code (0 for success, non-zero for error)
     """
-    # Load test stubs if in test mode
-    _load_test_stubs_if_needed()
+    # Test stubs are now handled in test fixtures
     
     try:
         # Parse arguments

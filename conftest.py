@@ -4,6 +4,29 @@ import os
 import pytest
 import asyncio
 
+# Set IBKR_PORT to force IBKR tests to skip in CI (replaces sitecustomize.py functionality)
+os.environ.setdefault("IBKR_PORT", "4000")  # any port ≠ 7497 works for skip
+
+# Import stub modules at the very beginning to ensure they're registered before any broker imports
+def pytest_configure(config):
+    """Import stub modules at the very beginning of the test session"""
+    import sys
+    import importlib
+    from pathlib import Path
+    
+    # Add tests directory to path if not already there
+    project_root = Path(__file__).resolve().parent
+    tests_dir = project_root / "tests"
+    if str(tests_dir) not in sys.path:
+        sys.path.insert(0, str(tests_dir))
+    
+    # Import stub modules to register them in sys.modules
+    try:
+        importlib.import_module("unit_tests.brokers.alpaca.alpaca_stubs")
+        importlib.import_module("unit_tests.brokers.ibkr.ibkr_stubs")
+    except ImportError:
+        pass  # Stubs may not be available
+
 # ---------------------------------------------------------------------------
 # Skip *live* broker integration tests automatically – they require network
 # connectivity and genuine broker back-ends.  We still collect them (so the
@@ -65,6 +88,9 @@ def pytest_runtest_setup(item):
                 item.session._original_env_vars[var] = os.environ[var]
                 del os.environ[var]
     
+    # Import stub modules to ensure they're registered in sys.modules
+    _import_stub_modules()
+    
     mod_name = "StrateQueue.brokers.Alpaca.alpaca_broker"
     # Lazily import the broker & stubs so that they are guaranteed present.
     try:
@@ -78,6 +104,26 @@ def pytest_runtest_setup(item):
         setattr(_ab, "TradingClient", _FakeAlpacaClient)
     if not hasattr(_ab, "APIError"):
         setattr(_ab, "APIError", _FakeAPIError)
+
+
+def _import_stub_modules():
+    """Import stub modules to ensure they're registered in sys.modules - replaces sitecustomize.py functionality"""
+    import sys
+    import importlib
+    from pathlib import Path
+    
+    # Add tests directory to path if not already there
+    project_root = Path(__file__).resolve().parent
+    tests_dir = project_root / "tests"
+    if str(tests_dir) not in sys.path:
+        sys.path.insert(0, str(tests_dir))
+    
+    # Import stub modules to register them in sys.modules
+    try:
+        importlib.import_module("unit_tests.brokers.alpaca.alpaca_stubs")
+        importlib.import_module("unit_tests.brokers.ibkr.ibkr_stubs")
+    except ImportError:
+        pass  # Stubs may not be available
 
 # ---------------------------------------------------------------------------
 # Global fixtures for environment isolation and async support
