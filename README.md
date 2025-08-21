@@ -7,6 +7,7 @@
 [![GitHub contributors](https://img.shields.io/github/contributors/StrateQueue/StrateQueue)](https://github.com/StrateQueue/StrateQueue/graphs/contributors)
 [![Downloads](https://pepy.tech/badge/stratequeue)](https://pepy.tech/project/stratequeue)
 ![GitHub forks](https://img.shields.io/github/forks/StrateQueue/StrateQueue?style=social)
+![GitHub watchers](https://img.shields.io/github/watchers/StrateQueue/StrateQueue?style=social)
 [![GitHub stars](https://img.shields.io/github/stars/StrateQueue/StrateQueue?refresh=1)](https://github.com/StrateQueue/StrateQueue/stargazers)
 <!---[![codecov](https://codecov.io/gh/stratequeue/stratequeue/branch/main/graph/badge.svg)](https://codecov.io/gh/stratequeue/stratequeue)-->
 
