@@ -22,8 +22,8 @@ def pytest_configure(config):
     
     # Import stub modules to register them in sys.modules
     try:
-        importlib.import_module("unit_tests.brokers.alpaca.alpaca_stubs")
-        importlib.import_module("unit_tests.brokers.ibkr.ibkr_stubs")
+        importlib.import_module("tests.unit_tests.brokers.alpaca.alpaca_stubs")
+        importlib.import_module("tests.unit_tests.brokers.ibkr.ibkr_stubs")
     except ImportError:
         pass  # Stubs may not be available
 
@@ -120,8 +120,8 @@ def _import_stub_modules():
     
     # Import stub modules to register them in sys.modules
     try:
-        importlib.import_module("unit_tests.brokers.alpaca.alpaca_stubs")
-        importlib.import_module("unit_tests.brokers.ibkr.ibkr_stubs")
+        importlib.import_module("tests.unit_tests.brokers.alpaca.alpaca_stubs")
+        importlib.import_module("tests.unit_tests.brokers.ibkr.ibkr_stubs")
     except ImportError:
         pass  # Stubs may not be available
 
