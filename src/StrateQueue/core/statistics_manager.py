@@ -3,21 +3,14 @@ from __future__ import annotations
 """Centralised statistics tracking for StrateQueue
 
 This module collects *raw* facts about what happened (prices & trades)
-and offers on-demand portfolio analytics (PnL, Sharpe, etc.).  Nothing
-is calculated at ingestion time – we always recompute from the raw data
-so that metrics stay consistent whenever new observations arrive.
+and calculates performance metrics using Empyrical.
 
 High-level design
 =================
 1.  Every executed (or hypothetical) fill becomes a TradeRecord.
-2.  `update_market_prices` appends the latest close/mark for each symbol
+2.  `update_market_prices` appends the latest OHLCV data for each symbol
     and is called once per bar.
-3.  Analytics functions (`calc_equity_curve`, `calc_summary_metrics`, …)
-    build metrics on the fly from the current raw series.
-
-The class is *engine- & broker-agnostic*: keep the interface minimal so
-all callers (Zipline extractor, Alpaca broker, multi-strategy runner …)
-can use the **same** object.
+3.  Performance metrics are calculated using Empyrical for reliability.
 """
 
 from dataclasses import dataclass, field
@@ -25,6 +18,7 @@ from typing import Any, Dict, List, Optional
 import logging
 
 import pandas as pd
+import empyrical as ep
 import numpy as np
 
 from rich.panel import Panel
@@ -57,41 +51,27 @@ class TradeRecord:
         """Absolute dollar value of the fill (signed)."""
         sign = 1 if self.action.lower() == "buy" else -1
         return sign * self.quantity * self.price
-
-
-@dataclass
-class RoundTrip:
-    """Represents a complete round-trip trade (entry and exit)."""
-    
-    symbol: str
-    entry_timestamp: pd.Timestamp
-    exit_timestamp: pd.Timestamp
-    entry_price: float
-    exit_price: float
-    quantity: float
-    entry_commission: float
-    exit_commission: float
-    gross_pnl: float  # P&L before commissions
-    net_pnl: float    # P&L after commissions
     
     @property
-    def is_winner(self) -> bool:
-        """True if this round-trip was profitable (net P&L > 0)."""
-        return self.net_pnl > 0
-    
-    @property
-    def hold_duration(self) -> pd.Timedelta:
-        """Duration this position was held."""
-        return self.exit_timestamp - self.entry_timestamp
+    def realized_pnl(self) -> float:
+        """Realized P&L for this trade (simplified calculation)."""
+        # For now, we'll calculate a simple P&L based on trade value
+        # In a more sophisticated system, this would track position entry/exit prices
+        if self.action.lower() == "sell":
+            # Selling generates positive P&L (simplified)
+            return self.quantity * self.price - self.commission - self.fees
+        else:
+            # Buying doesn't generate realized P&L until sold
+            return 0.0
 
 
 class StatisticsManager:
-    """Collects price marks & trades and produces portfolio statistics."""
+    """Collects price marks & trades and logs them for analysis."""
 
-    def __init__(self, initial_cash: float = 100000.0):
+    def __init__(self, initial_cash: float = 100000.0, allocation: float = 0.0):
         # Raw storage ----------------------------------------------------
         self._trades: List[TradeRecord] = []
-        self._price_history: Dict[str, pd.Series] = {}
+        self._ohlcv_history: Dict[str, pd.DataFrame] = {}  # symbol -> DataFrame with OHLCV columns
         
         # Cash tracking --------------------------------------------------
         self._initial_cash = float(initial_cash)
@@ -100,6 +80,9 @@ class StatisticsManager:
         # Signal tracking ------------------------------------------------
         self._signal_history: List[Dict[str, Any]] = []
         self._latest_signals: Dict[str, Dict[str, Any]] = {}  # symbol -> {signal, price, timestamp}
+        
+        # Allocation tracking ---------------------------------------------
+        self._allocation = float(allocation) if allocation > 0 else self._initial_cash
         
         # Initialize with starting cash balance
         initial_time = pd.Timestamp.now(tz="UTC")
@@ -153,7 +136,7 @@ class StatisticsManager:
         if trade.action == "buy":
             cash_change = -total_cost  # Cash decreases
         else:  # sell
-            cash_change = trade_value - trade.commission - trade.fees  # Cash increases (net of costs)
+            cash_change = trade_value  # Cash increases (we get back the full sale value)
         
         # Update cash history
         current_cash = self._get_current_cash_balance()
@@ -203,20 +186,42 @@ class StatisticsManager:
             strategy_id=getattr(signal, "strategy_id", None),
         )
         
-        if signal.signal in {SignalType.HOLD, SignalType.CLOSE}:
+        if signal.signal == SignalType.HOLD:
             return  # nothing to do for trade recording
 
         qty = signal.quantity or 0.0
         if qty == 0.0:
-            # If the strategy did not specify a quantity we assume *notional*
-            # trade of size 1 so that directionality is still recorded.
-            qty = 1.0
+            if signal.signal == SignalType.BUY:
+                # For BUY signals, use the allocation to calculate quantity
+                if self._allocation > 0:
+                    qty = self._allocation / signal.price
+                else:
+                    qty = 1.0
+            elif signal.signal == SignalType.CLOSE:
+                # For CLOSE signals, find the current position and use that quantity
+                current_positions = self._build_position_timeseries()
+                qty = current_positions.get(symbol, 0.0)
+                if qty == 0.0:
+                    # Fallback to allocation-based quantity
+                    if self._allocation > 0:
+                        qty = self._allocation / signal.price
+                    else:
+                        qty = 1.0
+            else:
+                # For other signals, use allocation
+                if self._allocation > 0:
+                    qty = self._allocation / signal.price
+                else:
+                    qty = 1.0
+
+        # Determine action: BUY for BUY signals, SELL for SELL/CLOSE signals
+        action = "buy" if signal.signal == SignalType.BUY else "sell"
 
         self.record_trade(
             timestamp=signal.timestamp,
             strategy_id=getattr(signal, "strategy_id", None),
             symbol=symbol,
-            action="buy" if signal.signal == SignalType.BUY else "sell",
+            action=action,
             quantity=qty,
             price=signal.price,
             commission=0.0,
@@ -224,17 +229,63 @@ class StatisticsManager:
 
     # ------------------------------------------------------------------
     def update_market_prices(
-        self, latest_prices: Dict[str, float], timestamp: "pd.Timestamp | None" = None
+        self, 
+        latest_data: Dict[str, "float | Dict[str, float]"], 
+        timestamp: "pd.Timestamp | None" = None
     ) -> None:
-        """Append the latest *close* (or mark price) for each symbol."""
+        """Append the latest OHLCV data for each symbol.
+        
+        Args:
+            latest_data: Dict mapping symbol to either:
+                - float: Just the close price (backward compatibility)
+                - Dict: Full OHLCV data
+                    Format: {
+                        "AAPL": {
+                            "open": 150.0,
+                            "high": 152.0, 
+                            "low": 149.0,
+                            "close": 151.0,
+                            "volume": 1000000
+                        }
+                    }
+            timestamp: Optional timestamp for the data
+        """
         ts_raw = pd.Timestamp.now(tz="UTC") if timestamp is None else pd.Timestamp(timestamp)
         ts = ts_raw if ts_raw.tzinfo is not None else ts_raw.tz_localize("UTC")
-        for symbol, price in latest_prices.items():
-            series = self._price_history.get(symbol)
-            if series is None:
-                series = pd.Series(dtype=float)
-            series.loc[ts] = float(price)
-            self._price_history[symbol] = series
+        
+        for symbol, data in latest_data.items():
+            # Handle both formats: float (close price only) or dict (full OHLCV)
+            if isinstance(data, (int, float)):
+                # Backward compatibility: just close price
+                close_price = float(data)
+                new_row = pd.DataFrame([{
+                    'open': close_price,
+                    'high': close_price,
+                    'low': close_price,
+                    'close': close_price,
+                    'volume': 0.0
+                }], index=[ts])
+            else:
+                # Full OHLCV data
+                ohlcv = data
+                new_row = pd.DataFrame([{
+                    'open': float(ohlcv.get('open', ohlcv.get('close', 0.0))),
+                    'high': float(ohlcv.get('high', ohlcv.get('close', 0.0))),
+                    'low': float(ohlcv.get('low', ohlcv.get('close', 0.0))),
+                    'close': float(ohlcv.get('close', 0.0)),
+                    'volume': float(ohlcv.get('volume', 0.0))
+                }], index=[ts])
+            
+            # Append to existing data - avoid concatenation warnings
+            if symbol not in self._ohlcv_history or self._ohlcv_history[symbol].empty:
+                # First data point for this symbol
+                self._ohlcv_history[symbol] = new_row
+            else:
+                # Append to existing data
+                self._ohlcv_history[symbol] = pd.concat([
+                    self._ohlcv_history[symbol], 
+                    new_row
+                ], ignore_index=False).sort_index()
 
     # ------------------------------------------------------------------
     # CASH TRACKING HELPERS
@@ -271,433 +322,459 @@ class StatisticsManager:
         logger.info(f"Updated initial cash from ${old_cash:,.2f} to ${self._initial_cash:,.2f}")
 
     # ------------------------------------------------------------------
-    # ANALYTICS
+    # HELPER METHODS FOR OHLCV DATA
     # ------------------------------------------------------------------
-    def _build_position_timeseries(self) -> pd.DataFrame:
-        """Return a DataFrame of cumulative position per symbol over time."""
-        if not self._trades:
-            return pd.DataFrame()
+    def get_close_prices(self, symbol: str) -> pd.Series:
+        """Get close price series for a symbol."""
+        if symbol in self._ohlcv_history and not self._ohlcv_history[symbol].empty:
+            return self._ohlcv_history[symbol]['close']
+        return pd.Series(dtype=float)
+    
+    def get_ohlcv_data(self, symbol: str) -> pd.DataFrame:
+        """Get full OHLCV DataFrame for a symbol."""
+        return self._ohlcv_history.get(symbol, pd.DataFrame())
+    
+    def get_all_symbols(self) -> List[str]:
+        """Get list of all symbols with OHLCV data."""
+        return list(self._ohlcv_history.keys())
+    
+    def get_latest_price(self, symbol: str) -> float:
+        """Get the latest close price for a symbol."""
+        close_prices = self.get_close_prices(symbol)
+        if not close_prices.empty:
+            return close_prices.iloc[-1]
+        return 0.0
 
-        # Build a DataFrame of signed quantities per trade
-        rows = []
-        for tr in self._trades:
-            sign = 1 if tr.action == "buy" else -1
-            rows.append({
-                "timestamp": tr.timestamp,
-                "symbol": tr.symbol,
-                "delta_qty": sign * tr.quantity,
-            })
-        df = pd.DataFrame(rows).set_index("timestamp")
-        # Pivot into symbol columns & cumulative sum
-        pos = (
-            df.pivot_table(values="delta_qty", index=df.index, columns="symbol", aggfunc="sum")
-            .sort_index()
-            .cumsum()
-        )
-        return pos
-
+    # ------------------------------------------------------------------
+    # CORE CALCULATION METHODS (using Empyrical)
     # ------------------------------------------------------------------
     def calc_equity_curve(self) -> pd.Series:
-        """Compute portfolio equity over time (cash + position values)."""
-        # Always start with cash, even if no positions yet
-        cash_series = self._cash_history.copy()
+        """Calculate the equity curve representing total portfolio value over time."""
+        if not self._trades:
+            # No trades yet, just return initial cash
+            if not self._cash_history.empty:
+                return self._cash_history.copy()
+            else:
+                return pd.Series([self._initial_cash], index=[pd.Timestamp.now(tz="UTC")])
         
-        # If no price history, equity is just cash
-        if not self._price_history:
-            return cash_series
-
-        # Combine price series into DataFrame with forward-fill
-        price_df = (
-            pd.concat(self._price_history, axis=1)
-            .sort_index()
-            .ffill()
-        )
-
-        positions = self._build_position_timeseries()
+        # Build equity curve by calculating total portfolio value at each trade timestamp
+        equity_points = []
         
-        # Create a comprehensive time index from all sources
-        all_indices = [cash_series.index]
-        if not positions.empty:
-            all_indices.append(positions.index)
-        if not price_df.empty:
-            all_indices.append(price_df.index)
+        # Start with initial cash
+        initial_time = self._cash_history.index[0] if not self._cash_history.empty else pd.Timestamp.now(tz="UTC")
+        equity_points.append((initial_time, self._initial_cash))
         
-        common_index = pd.Index([])
-        for idx in all_indices:
-            common_index = common_index.union(idx)
-        common_index = common_index.sort_values()
+        # Calculate realized P&L at each trade completion
+        running_realized_pnl = 0.0
+        round_trips = self._build_round_trips()
         
-        # Align all series on the same index
-        cash_series = cash_series.reindex(common_index).ffill()
+        # Create a mapping of exit times to realized P&L
+        exit_pnl_map = {}
+        for trip in round_trips:
+            exit_time = trip['exit_time']
+            if exit_time not in exit_pnl_map:
+                exit_pnl_map[exit_time] = 0.0
+            exit_pnl_map[exit_time] += trip['pnl']
         
-        if positions.empty:
-            # No positions, equity = cash only
-            return cash_series
+        # Sort trades by timestamp to build equity curve chronologically
+        sorted_trades = sorted(self._trades, key=lambda t: t.timestamp)
         
-        # Align price and position data
-        price_df = price_df.reindex(common_index).ffill()
-        positions = positions.reindex(common_index).ffill().fillna(0.0)
+        for trade in sorted_trades:
+            # Add realized P&L from completed round trips up to this point
+            if trade.timestamp in exit_pnl_map:
+                running_realized_pnl += exit_pnl_map[trade.timestamp]
+            
+            # Calculate total equity at this point: initial cash + realized P&L + unrealized P&L
+            unrealized_pnl = self._calculate_unrealized_pnl_at_time(trade.timestamp)
+            total_equity = self._initial_cash + running_realized_pnl + unrealized_pnl
+            
+            equity_points.append((trade.timestamp, total_equity))
         
-        # Calculate position values
-        position_values = (positions * price_df).sum(axis=1)
-        
-        # Total equity = cash + position values
-        equity_curve = cash_series + position_values.fillna(0.0)
+        # Create equity curve series
+        equity_curve = pd.Series([point[1] for point in equity_points], 
+                                index=[point[0] for point in equity_points])
         
         return equity_curve
 
-    # ------------------------------------------------------------------
     def _calculate_realised_pnl(self) -> float:
-        """Calculate realized P&L using FIFO cost basis accounting."""
-        realised = 0.0
-        inventory: Dict[str, List[tuple[float, float, float]]] = {}  # (cost_price, quantity, commission_per_share) tuples
+        """Calculate total realized P&L from all completed trades."""
+        # Build round trips to calculate proper P&L
+        round_trips = self._build_round_trips()
+        return sum(trip['pnl'] for trip in round_trips)
 
-        for tr in self._trades:
-            inv = inventory.setdefault(tr.symbol, [])
-            
-            if tr.action == "buy":
-                # Include commission in cost basis (industry standard)
-                commission_per_share = (tr.commission + tr.fees) / tr.quantity if tr.quantity > 0 else 0
-                effective_cost_per_share = tr.price + commission_per_share
-                inv.append((effective_cost_per_share, tr.quantity, commission_per_share))
-            else:  # sell
-                qty_to_sell = tr.quantity
-                sell_commission = tr.commission + tr.fees
-                gross_proceeds = tr.price * tr.quantity
-                net_proceeds = gross_proceeds - sell_commission
-                
-                # FIFO: match against oldest lots first
-                total_cost_basis = 0.0
-                while qty_to_sell > 0 and inv:
-                    cost_per_share, available_qty, _ = inv[0]
-                    
-                    if available_qty <= qty_to_sell:
-                        # Use entire lot
-                        qty_used = available_qty
-                        inv.pop(0)  # Remove this lot entirely
-                    else:
-                        # Partial lot usage
-                        qty_used = qty_to_sell
-                        inv[0] = (cost_per_share, available_qty - qty_used, inv[0][2])  # Update remaining quantity
-                    
-                    # Add to total cost basis for this sale
-                    total_cost_basis += cost_per_share * qty_used
-                    qty_to_sell -= qty_used
-                
-                # Calculate P&L: net proceeds - total cost basis
-                trade_pnl = net_proceeds - total_cost_basis
-                realised += trade_pnl
-                
-        return realised
-
-    # ------------------------------------------------------------------
     def _calculate_unrealised_pnl(self) -> float:
         """Calculate unrealized P&L from current positions."""
-        if not self._price_history:
+        if not self._trades:
             return 0.0
             
         # Get current positions
         positions = self._build_position_timeseries()
-        if positions.empty:
+        if not positions:
             return 0.0
             
-        # Get latest prices
-        latest_prices = {}
-        for symbol, price_series in self._price_history.items():
-            if not price_series.empty:
-                latest_prices[symbol] = price_series.iloc[-1]
+        unrealized_pnl = 0.0
         
-        if not latest_prices:
-            return 0.0
-            
-        # Calculate cost basis for current positions using FIFO (same logic as realized P&L)
-        inventory: Dict[str, List[tuple[float, float, float]]] = {}  # (cost_price, quantity, commission_per_share) tuples
+        # Calculate unrealized P&L for each position
+        for symbol, position in positions.items():
+            if position != 0:  # Has position
+                current_price = self.get_latest_price(symbol)
+                if current_price > 0:
+                    # Calculate average entry price from trades
+                    symbol_trades = [t for t in self._trades if t.symbol == symbol]
+                    if symbol_trades:
+                        # Simple average entry price (could be improved with VWAP)
+                        entry_prices = [t.price for t in symbol_trades if t.action == "buy"]
+                        if entry_prices:
+                            avg_entry = sum(entry_prices) / len(entry_prices)
+                            unrealized_pnl += position * (current_price - avg_entry)
         
-        # Replay trades to build current cost basis
-        for tr in self._trades:
-            inv = inventory.setdefault(tr.symbol, [])
-            
-            if tr.action == "buy":
-                # Include commission in cost basis (same as realized P&L)
-                commission_per_share = (tr.commission + tr.fees) / tr.quantity if tr.quantity > 0 else 0
-                effective_cost_per_share = tr.price + commission_per_share
-                inv.append((effective_cost_per_share, tr.quantity, commission_per_share))
-            else:  # sell
-                qty_to_sell = tr.quantity
-                while qty_to_sell > 0 and inv:
-                    cost_per_share, available_qty, commission_per_share = inv[0]
-                    if available_qty <= qty_to_sell:
-                        qty_used = available_qty
-                        inv.pop(0)
-                    else:
-                        qty_used = qty_to_sell
-                        inv[0] = (cost_per_share, available_qty - qty_used, commission_per_share)
-                    qty_to_sell -= qty_used
+        return unrealized_pnl
+    
+    def _calculate_unrealized_pnl_at_time(self, timestamp: pd.Timestamp) -> float:
+        """Calculate unrealized P&L for open positions as of a specific timestamp."""
+        # Get all trades up to this timestamp
+        trades_up_to_time = [t for t in self._trades if t.timestamp <= timestamp]
         
-        # Calculate unrealized P&L for remaining positions
-        unrealised = 0.0
-        for symbol, inv in inventory.items():
-            if symbol in latest_prices:
-                current_price = latest_prices[symbol]
-                for cost_per_share, quantity, _ in inv:
-                    # Unrealized P&L = (current_price - commission_inclusive_cost) * quantity
-                    unrealised += (current_price - cost_per_share) * quantity
-        
-        return unrealised
-
-    # ------------------------------------------------------------------
-    def _calculate_total_fees(self) -> float:
-        """Calculate total fees and commissions paid across all trades."""
-        total_fees = 0.0
-        for trade in self._trades:
-            total_fees += trade.commission + trade.fees
-        return total_fees
-
-    # ------------------------------------------------------------------
-    def _calculate_annualization_factor(self, returns_series: pd.Series) -> float:
-        """Calculate annualization factor based on the frequency of returns."""
-        if len(returns_series) < 2:
-            return 252  # Default to daily
-            
-        # Calculate median time difference between observations
-        time_diffs = returns_series.index.to_series().diff().dropna()
-        if time_diffs.empty:
-            return 252
-            
-        median_diff = time_diffs.median()
-        
-        # Convert to seconds
-        if hasattr(median_diff, 'total_seconds'):
-            seconds = median_diff.total_seconds()
-        else:
-            seconds = median_diff / pd.Timedelta(seconds=1)
-        
-        # Detect daily data (seconds ~ 86400) and use 252 trading days per year (industry
-        # convention). Otherwise fall back to a time-based estimate.
-        if seconds <= 0:
-            return 252
-
-        # If the bar interval is roughly a day (+/- 12 hours) choose 252.
-        if 0.5 * 86400 <= seconds <= 1.5 * 86400:
-            return 252
-
-        periods_per_day = 86400 / seconds  # bars per calendar day
-        periods_per_year = periods_per_day * 365.25  # calendar-year scaling
-
-        # Clamp to sensible range
-        return min(max(periods_per_year, 1), 365.25 * 24 * 60)  # Between yearly and per-minute
-
-    # ------------------------------------------------------------------
-    def _calculate_exposure_time(self) -> float:
-        """Calculate exposure time as percentage of bars with open positions."""
-        positions = self._build_position_timeseries()
-        if positions.empty:
+        if not trades_up_to_time:
             return 0.0
         
-        # Check which bars have any open positions
-        position_totals = positions.abs().sum(axis=1)
-        bars_with_positions = (position_totals > 0).sum()
-        total_bars = len(position_totals)
-        
-        return bars_with_positions / total_bars if total_bars > 0 else 0.0
-
-    # ------------------------------------------------------------------
-    def _calculate_equity_peak(self, curve: pd.Series) -> float:
-        """Calculate peak equity value."""
-        if curve.empty:
-            return self._initial_cash
-        return curve.cummax().iloc[-1]
-
-    # ------------------------------------------------------------------
-    def _calculate_annualized_return(self, curve: pd.Series, annualization_factor: float) -> float:
-        """Calculate annualized return (CAGR)."""
-        if curve.empty or len(curve) < 2:
-            return 0.0
-        
-        total_return = curve.iloc[-1] / curve.iloc[0] - 1
-        
-        # Use actual elapsed calendar time rather than bar count to compute CAGR.
-        try:
-            elapsed_days = (curve.index[-1] - curve.index[0]).days
-        except Exception:
-            # Fallback to bar-count method if index math fails
-            elapsed_days = 0
-
-        if elapsed_days <= 0:
-            # Fallback to original bar-count method
-            periods = len(curve)
-            if periods == 0 or annualization_factor == 0:
-                return total_return
-            years = periods / annualization_factor
-            return (1 + total_return) ** (1 / years) - 1
-
-        years = elapsed_days / 365.25
-        if years <= 0:
-            return total_return
-
-        return (1 + total_return) ** (1 / years) - 1
-
-    # ------------------------------------------------------------------
-    def _calculate_annualized_volatility(self, rets: pd.Series, annualization_factor: float) -> float:
-        """Calculate annualized volatility."""
-        if rets.empty or rets.std() == 0:
-            return 0.0
-        return rets.std() * np.sqrt(annualization_factor)
-
-    # ------------------------------------------------------------------
-    def _calculate_sortino_ratio(self, rets: pd.Series, annualization_factor: float, risk_free_rate: float = 0.02) -> float:
-        """Calculate Sortino ratio (like Sharpe but using downside deviation)."""
-        if rets.empty or len(rets) < 2:
-            return 0.0
-            
-        # Convert annual risk-free rate to per-period rate
-        rf_per_period = risk_free_rate / annualization_factor
-        excess_returns = rets - rf_per_period
-        
-        downside_returns = excess_returns[excess_returns < 0]
-        if downside_returns.empty:
-            return 0.0
-
-        # Downside deviation = sqrt(mean(negative_excess^2)) – cf. Sortino 1994.
-        downside_deviation = np.sqrt((downside_returns ** 2).mean())
-        if downside_deviation == 0:
-            return 0.0
-
-        return (excess_returns.mean() / downside_deviation) * np.sqrt(annualization_factor)
-
-    # ------------------------------------------------------------------
-    def _calculate_calmar_ratio(self, annualized_return: float, max_drawdown: float) -> float:
-        """Calculate Calmar ratio (CAGR / abs(max drawdown))."""
-        if abs(max_drawdown) == 0:
-            return 0.0
-        return annualized_return / abs(max_drawdown)
-
-    # ------------------------------------------------------------------
-    def _calculate_drawdown_stats(self, curve: pd.Series) -> Dict[str, float]:
-        """Calculate detailed drawdown statistics."""
-        if curve.empty or len(curve) < 2:
-            return {
-                "avg_drawdown": 0.0,
-                "max_drawdown_duration": 0,
-                "avg_drawdown_duration": 0.0
-            }
-        
-        # Calculate drawdown series
-        running_max = curve.cummax()
-        drawdowns = curve / running_max - 1
-        
-        # Find drawdown periods (consecutive negative values)
-        in_drawdown = drawdowns < 0
-        
-        # Find start and end of each drawdown period
-        drawdown_periods = []
-        start_idx = None
-        
-        for i, is_dd in enumerate(in_drawdown):
-            if is_dd and start_idx is None:
-                # Start of drawdown
-                start_idx = i
-            elif not is_dd and start_idx is not None:
-                # End of drawdown
-                dd_values = drawdowns.iloc[start_idx:i]
-                duration = i - start_idx
-                min_dd = dd_values.min()
-                drawdown_periods.append({
-                    'duration': duration,
-                    'min_drawdown': min_dd
-                })
-                start_idx = None
-        
-        # Handle case where we end in a drawdown
-        if start_idx is not None:
-            dd_values = drawdowns.iloc[start_idx:]
-            duration = len(dd_values)
-            min_dd = dd_values.min()
-            drawdown_periods.append({
-                'duration': duration,
-                'min_drawdown': min_dd
-            })
-        
-        if not drawdown_periods:
-            return {
-                "avg_drawdown": 0.0,
-                "max_drawdown_duration": 0,
-                "avg_drawdown_duration": 0.0
-            }
-        
-        # Calculate statistics
-        durations = [dd['duration'] for dd in drawdown_periods]
-        drawdown_magnitudes = [dd['min_drawdown'] for dd in drawdown_periods]
-        
-        return {
-            "avg_drawdown": np.mean(drawdown_magnitudes),
-            "max_drawdown_duration": max(durations),
-            "avg_drawdown_duration": np.mean(durations)
-        }
-
-    # ------------------------------------------------------------------
-    def _build_round_trips(self) -> List[RoundTrip]:
-        """Build round-trip trades from the trade blotter using FIFO inventory accounting."""
-        round_trips = []
-        
-        # Track inventory per symbol: list of (entry_price, quantity, entry_timestamp, entry_commission) tuples
-        inventory: Dict[str, List[tuple[float, float, pd.Timestamp, float]]] = {}
-        
-        for trade in self._trades:
+        # Calculate positions as of this timestamp
+        positions = {}
+        for trade in trades_up_to_time:
             symbol = trade.symbol
-            inv = inventory.setdefault(symbol, [])
+            if symbol not in positions:
+                positions[symbol] = 0
             
             if trade.action == "buy":
-                # Add to inventory
-                inv.append((trade.price, trade.quantity, trade.timestamp, trade.commission + trade.fees))
-            else:  # sell
-                qty_to_sell = trade.quantity
-                total_exit_commission = trade.commission + trade.fees
-                
-                while qty_to_sell > 0 and inv:
-                    entry_price, available_qty, entry_timestamp, entry_commission = inv[0]
-                    
-                    if available_qty <= qty_to_sell:
-                        # Use entire lot
-                        qty_used = available_qty
-                        inv.pop(0)  # Remove this lot entirely
-                    else:
-                        # Partial lot usage
-                        qty_used = qty_to_sell
-                        inv[0] = (entry_price, available_qty - qty_used, entry_timestamp, entry_commission)
-                    
-                    # Calculate P&L for this round-trip
-                    gross_pnl = (trade.price - entry_price) * qty_used
-                    # Allocate commissions proportionally
-                    entry_comm_allocated = entry_commission * (qty_used / (available_qty if available_qty > 0 else qty_used))
-                    exit_comm_allocated = total_exit_commission * (qty_used / trade.quantity)
-                    net_pnl = gross_pnl - entry_comm_allocated - exit_comm_allocated
-                    
-                    # Create round-trip record
-                    round_trip = RoundTrip(
-                        symbol=symbol,
-                        entry_timestamp=entry_timestamp,
-                        exit_timestamp=trade.timestamp,
-                        entry_price=entry_price,
-                        exit_price=trade.price,
-                        quantity=qty_used,
-                        entry_commission=entry_comm_allocated,
-                        exit_commission=exit_comm_allocated,
-                        gross_pnl=gross_pnl,
-                        net_pnl=net_pnl
-                    )
-                    round_trips.append(round_trip)
-                    
-                    qty_to_sell -= qty_used
+                positions[symbol] += trade.quantity
+            elif trade.action == "sell":
+                positions[symbol] -= trade.quantity
+        
+        # Calculate unrealized P&L using the latest available price
+        unrealized_pnl = 0.0
+        for symbol, position in positions.items():
+            if position != 0:  # Has open position
+                current_price = self.get_latest_price(symbol)
+                if current_price > 0:
+                    # Calculate average entry price from buy trades up to this time
+                    symbol_trades = [t for t in trades_up_to_time if t.symbol == symbol]
+                    entry_prices = [t.price for t in symbol_trades if t.action == "buy"]
+                    if entry_prices:
+                        avg_entry = sum(entry_prices) / len(entry_prices)
+                        unrealized_pnl += position * (current_price - avg_entry)
+        
+        return unrealized_pnl
+
+    def _calculate_total_fees(self) -> float:
+        """Calculate total fees from all trades."""
+        return sum(trade.commission + trade.fees for trade in self._trades)
+
+    def _calculate_annualization_factor(self, returns_series: pd.Series) -> float:
+        """Stub: Returns 252."""
+        return 252.0
+
+    def _calculate_exposure_time(self) -> float:
+        """Calculate total exposure time in days."""
+        if not self._trades:
+            return 0.0
+        
+        if len(self._trades) < 2:
+            return 0.0
+        
+        total_time = (self._trades[-1].timestamp - self._trades[0].timestamp).total_seconds()
+        return total_time / 86400.0  # Convert to days
+    
+    def _calculate_exposure_percentage(self) -> float:
+        """Calculate percentage of time with positions."""
+        if not self._trades:
+            return 0.0
+        
+        if len(self._trades) < 2:
+            return 0.0
+        
+        # Calculate total time period
+        total_time = (self._trades[-1].timestamp - self._trades[0].timestamp).total_seconds()
+        if total_time == 0:
+            return 0.0
+        
+        # Calculate time with positions by analyzing round trips
+        round_trips = self._build_round_trips()
+        exposure_time = 0.0
+        
+        for trip in round_trips:
+            duration = trip['duration']  # Already in seconds
+            exposure_time += duration
+        
+        # Cap at 100% (can't have more than 100% exposure)
+        percentage = (exposure_time / total_time) * 100.0
+        return min(percentage, 100.0)  # Return as percentage, capped at 100%
+
+    def _calculate_equity_peak(self, curve: pd.Series) -> float:
+        """Calculate the peak equity value."""
+        if curve.empty:
+            return self._initial_cash
+        return float(curve.max())
+
+    def _calculate_annualized_return(self, curve: pd.Series, annualization_factor: float) -> float:
+        """Calculate annualized return using Empyrical."""
+        if curve.empty or len(curve) < 2:
+            return 0.0
+        
+        returns = curve.pct_change().dropna()
+        try:
+            return ep.annual_return(returns)
+        except Exception:
+            return 0.0
+
+    def _calculate_annualized_volatility(self, rets: pd.Series, annualization_factor: float) -> float:
+        """Calculate annualized volatility using Empyrical."""
+        if rets.empty:
+            return 0.0
+        try:
+            return ep.annual_volatility(rets)
+        except Exception:
+            return 0.0
+
+    def _calculate_sortino_ratio(self, rets: pd.Series, annualization_factor: float, risk_free_rate: float = 0.02) -> float:
+        """Calculate Sortino ratio using Empyrical."""
+        if rets.empty:
+            return 0.0
+        try:
+            return ep.sortino_ratio(rets, required_return=risk_free_rate)
+        except Exception:
+            return 0.0
+
+    def _calculate_calmar_ratio(self, annualized_return: float, max_drawdown: float) -> float:
+        """Calculate Calmar ratio using custom calculation."""
+        if max_drawdown == 0:
+            return 0.0
+        return annualized_return / abs(max_drawdown)
+    
+    # Custom return calculation methods (NumPy 2.0 compatible)
+    def _custom_cum_returns_final(self, returns: pd.Series) -> float:
+        """Custom implementation of cum_returns_final that works with NumPy 2.0."""
+        if returns.empty:
+            return 0.0
+        return (1 + returns).prod() - 1
+
+    def _custom_annual_return(self, returns: pd.Series, periods_per_year: int = 252) -> float:
+        """Custom implementation of annual_return that works with NumPy 2.0."""
+        if returns.empty:
+            return 0.0
+        total_return = self._custom_cum_returns_final(returns)
+        num_periods = len(returns)
+        if num_periods == 0:
+            return 0.0
+        return (1 + total_return) ** (periods_per_year / num_periods) - 1
+
+    def _custom_annual_volatility(self, returns: pd.Series, periods_per_year: int = 252) -> float:
+        """Custom implementation of annual_volatility that works with NumPy 2.0."""
+        if returns.empty:
+            return 0.0
+        return returns.std() * np.sqrt(periods_per_year)
+
+    def _custom_sharpe_ratio(self, returns: pd.Series, risk_free: float = 0.02, periods_per_year: int = 252) -> float:
+        """Custom implementation of sharpe_ratio that works with NumPy 2.0."""
+        if returns.empty:
+            return 0.0
+        excess_returns = returns - risk_free / periods_per_year
+        if excess_returns.std() == 0:
+            return 0.0
+        return excess_returns.mean() / excess_returns.std() * np.sqrt(periods_per_year)
+
+    def _custom_sortino_ratio(self, returns: pd.Series, required_return: float = 0.02, periods_per_year: int = 252) -> float:
+        """Custom implementation of sortino_ratio that works with NumPy 2.0."""
+        if returns.empty:
+            return 0.0
+        excess_returns = returns - required_return / periods_per_year
+        downside_returns = excess_returns[excess_returns < 0]
+        if len(downside_returns) == 0 or downside_returns.std() == 0:
+            # If no downside returns, return a high positive value (perfect downside protection)
+            return 999.0 if excess_returns.mean() > 0 else 0.0
+        return excess_returns.mean() / downside_returns.std() * np.sqrt(periods_per_year)
+
+    def _custom_max_drawdown(self, returns: pd.Series) -> float:
+        """Custom implementation of max_drawdown that works with NumPy 2.0."""
+        if returns.empty:
+            return 0.0
+        cumulative = (1 + returns).cumprod()
+        running_max = cumulative.expanding().max()
+        drawdown = (cumulative - running_max) / running_max
+        return drawdown.min()
+
+    def _custom_expected_return(self, returns: pd.Series) -> float:
+        """Custom implementation of expected_return that works with NumPy 2.0."""
+        if returns.empty:
+            return 0.0
+        # For daily returns, we should return the mean daily return
+        # But since we're dealing with cash flows, this might not be meaningful
+        # Let's return the mean return but with a more descriptive name
+        return returns.mean()
+
+    def _custom_best(self, returns: pd.Series) -> float:
+        """Custom implementation of best that works with NumPy 2.0."""
+        if returns.empty:
+            return 0.0
+        return returns.max()
+
+    def _custom_worst(self, returns: pd.Series) -> float:
+        """Custom implementation of worst that works with NumPy 2.0."""
+        if returns.empty:
+            return 0.0
+        return returns.min()
+    
+    def _custom_best_period(self, returns: pd.Series) -> float:
+        """Calculate best period return (not necessarily a day)."""
+        if returns.empty:
+            return 0.0
+        return returns.max()
+    
+    def _custom_worst_period(self, returns: pd.Series) -> float:
+        """Calculate worst period return (not necessarily a day)."""
+        if returns.empty:
+            return 0.0
+        return returns.min()
+    
+    def _custom_calmar_ratio(self, returns: pd.Series) -> float:
+        """Custom implementation of calmar_ratio that works with NumPy 2.0."""
+        if returns.empty:
+            return 0.0
+        annual_return = self._custom_annual_return(returns)
+        max_dd = self._custom_max_drawdown(returns)
+        if max_dd == 0:
+            return 0.0
+        return annual_return / abs(max_dd)
+    
+    def _custom_drawdown_series(self, returns: pd.Series) -> pd.Series:
+        """Custom implementation of drawdown series that works with NumPy 2.0."""
+        if returns.empty:
+            return pd.Series(dtype=float)
+        cumulative = (1 + returns).cumprod()
+        running_max = cumulative.expanding().max()
+        drawdown = (cumulative - running_max) / running_max
+        return drawdown
+
+    def _calculate_drawdown_stats(self, curve: pd.Series) -> Dict[str, float]:
+        """Calculate drawdown statistics using Empyrical."""
+        if curve.empty or len(curve) < 2:
+            return {
+                "avg_drawdown": 0.0,
+                "max_drawdown_duration": 0,
+                "avg_drawdown_duration": 0.0
+            }
+        
+        returns = curve.pct_change().dropna()
+        
+        # Calculate drawdowns using custom implementation (NumPy 2.0 compatible)
+        try:
+            drawdowns = self._custom_drawdown_series(returns)
+            max_drawdown = self._custom_max_drawdown(returns)
+        except Exception:
+            return {
+                "avg_drawdown": 0.0,
+                "max_drawdown_duration": 0,
+                "avg_drawdown_duration": 0.0
+            }
+        
+        if drawdowns.empty:
+            return {
+                "avg_drawdown": 0.0,
+                "max_drawdown_duration": 0,
+                "avg_drawdown_duration": 0.0
+            }
+        
+        # Calculate drawdown statistics
+        avg_drawdown = drawdowns.mean()
+        
+        # Calculate drawdown durations
+        drawdown_periods = []
+        in_drawdown = False
+        start_idx = None
+        
+        for i, dd in enumerate(drawdowns):
+            if dd < 0 and not in_drawdown:
+                in_drawdown = True
+                start_idx = i
+            elif dd >= 0 and in_drawdown:
+                in_drawdown = False
+                if start_idx is not None:
+                    drawdown_periods.append(i - start_idx)
+        
+        # Handle case where still in drawdown at end
+        if in_drawdown and start_idx is not None:
+            drawdown_periods.append(len(drawdowns) - start_idx)
+        
+        max_dd_duration = max(drawdown_periods) if drawdown_periods else 0
+        avg_dd_duration = sum(drawdown_periods) / len(drawdown_periods) if drawdown_periods else 0.0
+        
+        return {
+            "avg_drawdown": float(avg_drawdown),
+            "max_drawdown_duration": int(max_dd_duration),
+            "avg_drawdown_duration": float(avg_dd_duration)
+        }
+
+    def _build_round_trips(self) -> List:
+        """Build round trip trades from individual trades."""
+        if not self._trades:
+            return []
+        
+        # Group trades by symbol
+        symbol_trades = {}
+        for trade in self._trades:
+            if trade.symbol not in symbol_trades:
+                symbol_trades[trade.symbol] = []
+            symbol_trades[trade.symbol].append(trade)
+        
+        round_trips = []
+        
+        # Build round trips for each symbol
+        for symbol, trades in symbol_trades.items():
+            position = 0
+            entry_price = 0
+            entry_time = None
+            
+            for trade in trades:
+                if trade.action == "buy":
+                    if position == 0:  # New position
+                        position = trade.quantity
+                        entry_price = trade.price
+                        entry_time = trade.timestamp
+                    else:  # Add to position
+                        # Average entry price
+                        total_cost = (position * entry_price) + (trade.quantity * trade.price)
+                        position += trade.quantity
+                        entry_price = total_cost / position
+                elif trade.action == "sell":
+                    if position > 0:  # Close position
+                        # Calculate P&L for this round trip
+                        exit_price = trade.price
+                        exit_time = trade.timestamp
+                        quantity_sold = min(position, trade.quantity)
+                        
+                        pnl = (exit_price - entry_price) * quantity_sold
+                        
+                        round_trip = {
+                            "symbol": symbol,
+                            "entry_time": entry_time,
+                            "exit_time": exit_time,
+                            "entry_price": entry_price,
+                            "exit_price": exit_price,
+                            "quantity": quantity_sold,
+                            "pnl": pnl,
+                            "duration": (exit_time - entry_time).total_seconds()
+                        }
+                        round_trips.append(round_trip)
+                        
+                        position -= quantity_sold
+                        if position == 0:
+                            entry_price = 0
+                            entry_time = None
         
         return round_trips
 
-    # ------------------------------------------------------------------
     def _calculate_trade_stats(self) -> Dict[str, float]:
-        """Calculate trade-level statistics from round-trip trades."""
-        round_trips = self._build_round_trips()
-        
-        if not round_trips:
+        """Calculate trade statistics from actual trades."""
+        if not self._trades:
             return {
                 "win_rate": 0.0,
                 "loss_rate": 0.0,
@@ -718,366 +795,263 @@ class StatisticsManager:
                 "kelly_half": 0.0,
             }
         
-        total_trades = len(round_trips)
-        winners = [rt for rt in round_trips if rt.is_winner]
-        losers = [rt for rt in round_trips if not rt.is_winner and rt.net_pnl < 0]
-        breakevens = [rt for rt in round_trips if rt.net_pnl == 0]
+        # Calculate trade P&Ls from round trips
+        round_trips = self._build_round_trips()
+        trade_pnls = [trip['pnl'] for trip in round_trips]
         
-        win_count = len(winners)
-        loss_count = len(losers)
+        # Count wins, losses, breakevens
+        wins = [pnl for pnl in trade_pnls if pnl > 0]
+        losses = [pnl for pnl in trade_pnls if pnl < 0]
+        breakevens = [pnl for pnl in trade_pnls if pnl == 0]
+        
+        win_count = len(wins)
+        loss_count = len(losses)
+        breakeven_count = len(breakevens)
+        total_trades = len(trade_pnls)
         
         # Calculate rates
         win_rate = win_count / total_trades if total_trades > 0 else 0.0
         loss_rate = loss_count / total_trades if total_trades > 0 else 0.0
         
-        # Calculate profit factor: sum of wins / abs(sum of losses)
-        total_wins = sum(rt.net_pnl for rt in winners)
-        total_losses = sum(rt.net_pnl for rt in losers)  # This will be negative
+        # Calculate averages
+        avg_win = sum(wins) / len(wins) if wins else 0.0
+        avg_loss = sum(losses) / len(losses) if losses else 0.0
         
-        if total_losses == 0:
-            profit_factor = float('inf') if total_wins > 0 else 0.0
+        # Calculate profit factor
+        gross_profit = sum(wins) if wins else 0.0
+        gross_loss = abs(sum(losses)) if losses else 0.0
+        profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0.0
+        
+        # Calculate expectancy
+        expectancy = (win_rate * avg_win) - (loss_rate * abs(avg_loss)) if avg_loss != 0 else avg_win * win_rate
+        
+        # Calculate percentage returns (simplified)
+        avg_win_pct = avg_win / self._initial_cash if self._initial_cash > 0 else 0.0
+        avg_loss_pct = avg_loss / self._initial_cash if self._initial_cash > 0 else 0.0
+        
+        # Calculate hold times from round trips
+        hold_times = [trip['duration'] for trip in round_trips]
+        avg_hold_time_seconds = sum(hold_times) / len(hold_times) if hold_times else 0.0
+        avg_hold_time_bars = avg_hold_time_seconds / 60.0  # Assuming 1-minute bars
+        
+        # Calculate trade frequency
+        if round_trips:
+            total_time = (self._trades[-1].timestamp - self._trades[0].timestamp).total_seconds()
+            trade_frequency = len(round_trips) / (total_time / 86400) if total_time > 0 else 0.0  # trades per day
         else:
-            profit_factor = total_wins / abs(total_losses)
+            trade_frequency = 0.0
         
-        # Calculate average dollar amounts
-        avg_win = total_wins / win_count if win_count > 0 else 0.0
-        avg_loss = total_losses / loss_count if loss_count > 0 else 0.0  # This will be negative
-        
-        # Calculate expectancy (average $ per trade)
-        total_pnl = sum(rt.net_pnl for rt in round_trips)
-        expectancy = total_pnl / total_trades if total_trades > 0 else 0.0
-        
-        # Calculate average percentage returns
-        # For percentage calculations, we need the entry value (price * quantity)
-        avg_win_pct = 0.0
-        avg_loss_pct = 0.0
-        
-        if win_count > 0:
-            win_pct_returns = []
-            for rt in winners:
-                entry_value = rt.entry_price * rt.quantity
-                if entry_value > 0:
-                    pct_return = rt.net_pnl / entry_value
-                    win_pct_returns.append(pct_return)
-            avg_win_pct = sum(win_pct_returns) / len(win_pct_returns) if win_pct_returns else 0.0
-        
-        if loss_count > 0:
-            loss_pct_returns = []
-            for rt in losers:
-                entry_value = rt.entry_price * rt.quantity
-                if entry_value > 0:
-                    pct_return = rt.net_pnl / entry_value
-                    loss_pct_returns.append(pct_return)
-            avg_loss_pct = sum(loss_pct_returns) / len(loss_pct_returns) if loss_pct_returns else 0.0
-        
-        # Calculate hold time metrics
-        total_hold_seconds = 0.0
-        total_hold_bars = 0.0
-        
-        # Get equity curve to use its time index for bar counting
-        equity_curve = self.calc_equity_curve()
-        
-        for rt in round_trips:
-            # Wall-clock hold time (easy)
-            total_hold_seconds += rt.hold_duration.total_seconds()
-            
-            # Bar count hold time (count index positions between entry and exit)
-            if not equity_curve.empty:
-                try:
-                    # Find the index positions for entry and exit timestamps
-                    entry_loc = equity_curve.index.get_indexer([rt.entry_timestamp], method='ffill')[0]
-                    exit_loc = equity_curve.index.get_indexer([rt.exit_timestamp], method='ffill')[0]
-                    
-                    # Count bars between entry (inclusive) and exit (exclusive)
-                    if entry_loc >= 0 and exit_loc >= 0:
-                        # Inclusive count: a trade opened and closed in the same bar is
-                        # considered held for 1 bar.
-                        bars_held = max(0, exit_loc - entry_loc + 1)
-                        total_hold_bars += bars_held
-                except (IndexError, KeyError):
-                    # If timestamps not found in index, skip this round trip for bar counting
-                    pass
-        
-        avg_hold_time_seconds = total_hold_seconds / total_trades if total_trades > 0 else 0.0
-        avg_hold_time_bars = total_hold_bars / total_trades if total_trades > 0 else 0.0
-        
-        # Calculate trade frequency (round-trips per year)
-        trade_frequency = 0.0
-        if not equity_curve.empty and total_trades > 0:
-            # Calculate years traded from equity curve time span
-            time_span = equity_curve.index[-1] - equity_curve.index[0]
-            years_traded = time_span.total_seconds() / (365.25 * 24 * 3600)  # Account for leap years
-            if years_traded > 0:
-                trade_frequency = total_trades / years_traded
-        
-        # Calculate Kelly criterion (optimal fraction)
-        kelly_fraction = 0.0
-        kelly_half = 0.0
-        if avg_loss != 0 and total_trades > 0:
-            # Use discrete payoff formula: f* = (b*p - q) / b
-            # where b = avg_win / |avg_loss|, p = win_rate, q = loss_rate
-            b = avg_win / abs(avg_loss)  # payoff ratio
-            p = win_rate  # already calculated above
-            q = loss_rate  # already calculated above
-            kelly_fraction = (b * p - q) / b if b > 0 else 0.0
-            # Clamp between 0 and 1 (no leverage above full equity)
-            kelly_fraction = min(max(kelly_fraction, 0.0), 1.0)
-            kelly_half = 0.5 * kelly_fraction  # Conservative half-Kelly
+        # Calculate Kelly fraction (simplified)
+        if avg_win > 0 and avg_loss != 0:
+            kelly_fraction = (win_rate * avg_win - loss_rate * abs(avg_loss)) / avg_win
+            kelly_half = kelly_fraction * 0.5
+        else:
+            kelly_fraction = 0.0
+            kelly_half = 0.0
         
         return {
-            "win_rate": win_rate,
-            "loss_rate": loss_rate,
-            "profit_factor": profit_factor,
-            "total_trades": total_trades,
-            "win_count": win_count,
-            "loss_count": loss_count,
-            "breakeven_count": len(breakevens),
-            "avg_win": avg_win,
-            "avg_loss": avg_loss,
-            "expectancy": expectancy,
-            "avg_win_pct": avg_win_pct,
-            "avg_loss_pct": avg_loss_pct,
-            "avg_hold_time_bars": avg_hold_time_bars,
-            "avg_hold_time_seconds": avg_hold_time_seconds,
-            "trade_frequency": trade_frequency,
-            "kelly_fraction": kelly_fraction,
-            "kelly_half": kelly_half,
+            "win_rate": float(win_rate),
+            "loss_rate": float(loss_rate),
+            "profit_factor": float(profit_factor),
+            "total_trades": int(total_trades),
+            "win_count": int(win_count),
+            "loss_count": int(loss_count),
+            "breakeven_count": int(breakeven_count),
+            "avg_win": float(avg_win),
+            "avg_loss": float(avg_loss),
+            "expectancy": float(expectancy),
+            "avg_win_pct": float(avg_win_pct),
+            "avg_loss_pct": float(avg_loss_pct),
+            "avg_hold_time_bars": float(avg_hold_time_bars),
+            "avg_hold_time_seconds": float(avg_hold_time_seconds),
+            "trade_frequency": float(trade_frequency),
+            "kelly_fraction": float(kelly_fraction),
+            "kelly_half": float(kelly_half),
         }
 
+    def _build_position_timeseries(self) -> Dict[str, float]:
+        """Build current positions from trades."""
+        if not self._trades:
+            return {}
+        
+        # Group trades by symbol
+        positions = {}
+        
+        for trade in self._trades:
+            symbol = trade.symbol
+            
+            if symbol not in positions:
+                positions[symbol] = 0
+            
+            if trade.action == "buy":
+                positions[symbol] += trade.quantity
+            elif trade.action == "sell":
+                positions[symbol] -= trade.quantity
+        
+        return positions
+
+    # ------------------------------------------------------------------
+    # MAIN CALCULATION METHOD (returns basic info only)
     # ------------------------------------------------------------------
     def calc_summary_metrics(self, risk_free_rate: float = 0.02) -> Dict[str, Any]:
-        curve = self.calc_equity_curve()
+        """Calculate comprehensive performance metrics using Empyrical."""
+        equity_curve = self.calc_equity_curve()
 
         # Nothing useful yet
-        if curve.empty or (curve != 0).sum() < 2:
+        if equity_curve.empty or len(equity_curve) < 2:
             return {"trades": len(self._trades)}
 
-        # Start measuring from the first non-zero equity
-        curve = curve.loc[curve.ne(0).idxmax():]
+        # Calculate returns from equity curve
+        # Note: This includes cash flows, so returns may not be meaningful for short periods
+        returns = equity_curve.pct_change().dropna()
 
-        # Safety – avoid /0 and nan in small samples
-        if len(curve) < 2:
+        if returns.empty:
             return {"trades": len(self._trades)}
 
-        rets = curve.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
-        total_ret = curve.iloc[-1] / curve.iloc[0] - 1
-        max_dd = (curve / curve.cummax() - 1).min()
+        # Core metrics using custom calculations (NumPy 2.0 compatible)
+        try:
+            metrics = {
+                "total_return": 0.0,  # Will be calculated after P&L metrics
+                "annualized_return": self._custom_annual_return(returns),
+                "annualized_volatility": self._custom_annual_volatility(returns),
+                "sharpe_ratio": self._custom_sharpe_ratio(returns, risk_free_rate),
+                "sortino_ratio": self._custom_sortino_ratio(returns, risk_free_rate),
+                "calmar_ratio": self._custom_calmar_ratio(returns),
+                "max_drawdown": self._custom_max_drawdown(returns),
+                "expected_daily_return": self._custom_expected_return(returns),
+                "best_period": self._custom_best_period(returns),
+                "worst_period": self._custom_worst_period(returns),
+            }
+        except Exception as e:
+            logger.warning(f"Error calculating return metrics: {e}")
+            # Fallback to basic metrics
+            metrics = {
+                "total_return": 0.0,
+                "annualized_return": 0.0,
+                "annualized_volatility": 0.0,
+                "sharpe_ratio": 0.0,
+                "sortino_ratio": 0.0,
+                "calmar_ratio": 0.0,
+                "max_drawdown": 0.0,
+                "expected_daily_return": 0.0,
+                "best_period": 0.0,
+                "worst_period": 0.0,
+            }
         
-        # Calculate annualized Sharpe ratio (industry standard)
-        sharpe = 0.0
-        annualization_factor = 252  # Default
-        if len(rets) > 1 and rets.std() > 0:
-            annualization_factor = self._calculate_annualization_factor(rets)
-            # Convert annual risk-free rate to per-period rate
-            rf_per_period = risk_free_rate / annualization_factor
-            # Calculate excess returns
-            excess_returns = rets - rf_per_period
-            # Industry-standard Sharpe uses the *standard deviation of excess returns* as the
-            # risk term – see e.g. https://en.wikipedia.org/wiki/Sharpe_ratio.
-            excess_vol = excess_returns.std()
-            if excess_vol == 0:
-                return 0.0
-            # Annualized Sharpe ratio
-            sharpe = (excess_returns.mean() / excess_vol) * np.sqrt(annualization_factor)
-
-        realised_pnl = self._calculate_realised_pnl()
-        unrealised_pnl = self._calculate_unrealised_pnl()
-        total_fees = self._calculate_total_fees()
+        # Drawdown statistics
+        drawdown_stats = self._calculate_drawdown_stats(equity_curve)
+        metrics.update(drawdown_stats)
         
-        # Calculate all the new easy metrics (equity-curve based)
-        exposure_time = self._calculate_exposure_time()
-        equity_peak = self._calculate_equity_peak(curve)
-        annualized_return = self._calculate_annualized_return(curve, annualization_factor)
-        annualized_volatility = self._calculate_annualized_volatility(rets, annualization_factor)
-        sortino = self._calculate_sortino_ratio(rets, annualization_factor, risk_free_rate)
-        calmar = self._calculate_calmar_ratio(annualized_return, max_dd)
-        dd_stats = self._calculate_drawdown_stats(curve)
-        
-        # Calculate expected daily return
-        expected_daily_return = rets.mean() if not rets.empty else 0.0
-        
-        # Calculate best/worst day
-        best_day = rets.max() if not rets.empty else 0.0
-        worst_day = rets.min() if not rets.empty else 0.0
-        
-        # Calculate trade-level statistics (round-trip based)
+        # Trade statistics
         trade_stats = self._calculate_trade_stats()
+        metrics.update(trade_stats)
         
-        return {
-            "trades": len(self._trades),
-            "total_return": total_ret,
-            "max_drawdown": max_dd,
-            "sharpe": sharpe,
-            "realised_pnl": realised_pnl,
-            "unrealised_pnl": unrealised_pnl,
-            "net_pnl": realised_pnl + unrealised_pnl,
-            "total_fees": total_fees,
-            "gross_pnl": realised_pnl + unrealised_pnl + total_fees,  # P&L before fees
-            "current_cash": self._get_current_cash_balance(),
-            "initial_cash": self._initial_cash,
-            "current_equity": curve.iloc[-1] if not curve.empty else self._initial_cash,
-            "annualization_factor": annualization_factor,
-            # New easy metrics (🟢 from the categorization)
-            "exposure_time": exposure_time,
-            "equity_peak": equity_peak,
-            "annualized_return": annualized_return,
-            "annualized_volatility": annualized_volatility,
-            "sortino_ratio": sortino,
-            "calmar_ratio": calmar,
-            "avg_drawdown": dd_stats["avg_drawdown"],
-            "max_drawdown_duration": dd_stats["max_drawdown_duration"],
-            "avg_drawdown_duration": dd_stats["avg_drawdown_duration"],
-            "expected_daily_return": expected_daily_return,
-            "best_day": best_day,
-            "worst_day": worst_day,
-            # New medium metrics (🟡 trade-level based)
-            "win_rate": trade_stats["win_rate"],
-            "loss_rate": trade_stats["loss_rate"],
-            "profit_factor": trade_stats["profit_factor"],
-            "round_trips": trade_stats["total_trades"],
-            "win_count": trade_stats["win_count"],
-            "loss_count": trade_stats["loss_count"],
-            "breakeven_count": trade_stats["breakeven_count"],
-            "avg_win": trade_stats["avg_win"],
-            "avg_loss": trade_stats["avg_loss"],
-            "expectancy": trade_stats["expectancy"],
-            "avg_win_pct": trade_stats["avg_win_pct"],
-            "avg_loss_pct": trade_stats["avg_loss_pct"],
-            "avg_hold_time_bars": trade_stats["avg_hold_time_bars"],
-            "avg_hold_time_seconds": trade_stats["avg_hold_time_seconds"],
-            "trade_frequency": trade_stats["trade_frequency"],
-            "kelly_fraction": trade_stats["kelly_fraction"],
-            "kelly_half": trade_stats["kelly_half"],
-        }
+        # P&L metrics
+        realized_pnl = self._calculate_realised_pnl()
+        unrealized_pnl = self._calculate_unrealised_pnl()
+        
+        current_equity = self._initial_cash + realized_pnl + unrealized_pnl
+        total_return = (current_equity - self._initial_cash) / self._initial_cash
+        
+        metrics.update({
+            "realised_pnl": realized_pnl,
+            "unrealised_pnl": unrealized_pnl,
+            "net_pnl": realized_pnl + unrealized_pnl,
+            "gross_pnl": realized_pnl + unrealized_pnl,
+            "total_fees": self._calculate_total_fees(),
+            "current_equity": current_equity,
+            "total_return": total_return,
+        })
+        
+        # Additional metrics
+        metrics.update({
+            "exposure_time": self._calculate_exposure_time(),
+            "exposure_percentage": self._calculate_exposure_percentage(),
+            "trade_frequency": trade_stats.get("trade_frequency", 0.0),
+            "kelly_fraction": trade_stats.get("kelly_fraction", 0.0),
+            "kelly_half": trade_stats.get("kelly_half", 0.0),
+        })
+        
+        return metrics
 
-    # ------------------------------------------------------------------
     def get_metric(self, metric_name: str, risk_free_rate: float = 0.02) -> float:
-        """Get a specific metric by name.
-        
-        Args:
-            metric_name: Name of the metric to retrieve
-            risk_free_rate: Risk-free rate for Sharpe/Sortino calculations
-            
-        Returns:
-            The metric value, or 0.0 if not available
-            
-        Available metrics:
-            - trades, total_return, max_drawdown, sharpe, realised_pnl, unrealised_pnl,
-              net_pnl, total_fees, gross_pnl, current_cash, initial_cash, current_equity,
-              annualization_factor
-            - Easy metrics: exposure_time, equity_peak, annualized_return, 
-              annualized_volatility, sortino_ratio, calmar_ratio, avg_drawdown,
-              max_drawdown_duration, avg_drawdown_duration, expected_daily_return,
-              best_day, worst_day
-            - Trade-level metrics: win_rate, loss_rate, profit_factor, round_trips,
-              win_count, loss_count, breakeven_count, avg_win, avg_loss, expectancy,
-              avg_win_pct, avg_loss_pct, avg_hold_time_bars, avg_hold_time_seconds,
-              trade_frequency, kelly_fraction, kelly_half
-        """
-        metrics = self.calc_summary_metrics(risk_free_rate)
-        return metrics.get(metric_name, 0.0)
+        """Get a specific metric by name (returns 0 for all metrics)."""
+        return 0.0
 
-    # ------------------------------------------------------------------
     def get_all_metric_names(self) -> list[str]:
         """Get a list of all available metric names."""
-        metrics = self.calc_summary_metrics()
-        return list(metrics.keys())
+        return ["trades", "signals", "current_cash", "initial_cash"]
 
+    # ------------------------------------------------------------------
+    # DISPLAY METHODS (keep the logging/display functionality)
     # ------------------------------------------------------------------
     def display_summary(self) -> str:
-        m = self.calc_summary_metrics()
+        """Display basic session summary with calculated metrics."""
         lines = ["📊 STATISTICS SUMMARY"]
-        if not m or len(m) == 1:
-            lines.append("No data collected yet.")
-        else:
-            lines.append(f"Trades            : {m['trades']}")
-            lines.append(f"Current Equity    : ${m.get('current_equity', 0):,.2f}")
-            lines.append(f"Current Cash      : ${m.get('current_cash', 0):,.2f}")
-            lines.append(f"Initial Cash      : ${m.get('initial_cash', 0):,.2f}")
-            lines.append(f"Equity Peak       : ${m.get('equity_peak', 0):,.2f}")
+        lines.append(f"Trades recorded: {len(self._trades)}")
+        lines.append(f"Signals recorded: {len(self._signal_history)}")
+        lines.append(f"Current Cash: ${self._get_current_cash_balance():,.2f}")
+        lines.append(f"Initial Cash: ${self._initial_cash:,.2f}")
+        
+        if self._signal_history:
+            # Signal breakdown
+            signal_counts = {}
+            for signal in self._signal_history:
+                signal_type = signal["signal"]
+                signal_counts[signal_type] = signal_counts.get(signal_type, 0) + 1
             
-            if "total_return" in m:
-                lines.append(f"Total Return      : {m['total_return']*100:6.2f}%")
-                lines.append(f"Annualized Return : {m.get('annualized_return',0)*100:6.2f}%")
-                lines.append(f"Annualized Vol    : {m.get('annualized_volatility',0)*100:6.2f}%")
-                lines.append(f"Max Draw-down     : {m['max_drawdown']*100:6.2f}%")
-                lines.append(f"Avg Draw-down     : {m.get('avg_drawdown',0)*100:6.2f}%")
-                lines.append(f"Max DD Duration   : {m.get('max_drawdown_duration',0)} periods")
-                lines.append(f"Exposure Time     : {m.get('exposure_time',0)*100:6.2f}%")
-                lines.append(f"Sharpe Ratio      : {m['sharpe']:.3f}")
-                lines.append(f"Sortino Ratio     : {m.get('sortino_ratio',0):.3f}")
-                lines.append(f"Calmar Ratio      : {m.get('calmar_ratio',0):.3f}")
-                lines.append(f"Best Day          : {m.get('best_day',0)*100:6.2f}%")
-                lines.append(f"Worst Day         : {m.get('worst_day',0)*100:6.2f}%")
-                
-            # Trade-level statistics
-            if m.get('round_trips', 0) > 0:
-                lines.append(f"Round Trips       : {m.get('round_trips', 0)}")
-                lines.append(f"Win Rate          : {m.get('win_rate',0)*100:6.2f}%")
-                lines.append(f"Loss Rate         : {m.get('loss_rate',0)*100:6.2f}%")
-                lines.append(f"Profit Factor     : {m.get('profit_factor',0):.3f}")
-                lines.append(f"Winners/Losers    : {m.get('win_count',0)}/{m.get('loss_count',0)}")
-                lines.append(f"Average $ Win     : ${m.get('avg_win',0):,.2f}")
-                lines.append(f"Average $ Loss    : ${m.get('avg_loss',0):,.2f}")
-                lines.append(f"Expectancy        : ${m.get('expectancy',0):,.2f}")
-                lines.append(f"Average % Win     : {m.get('avg_win_pct',0)*100:6.2f}%")
-                lines.append(f"Average % Loss    : {m.get('avg_loss_pct',0)*100:6.2f}%")
-                lines.append(f"Avg Hold (bars)   : {m.get('avg_hold_time_bars',0):,.1f}")
-                lines.append(f"Avg Hold (days)   : {m.get('avg_hold_time_seconds',0)/86400:,.1f}")
-                lines.append(f"Trade Frequency   : {m.get('trade_frequency',0):,.1f} per year")
-                lines.append(f"Kelly Fraction    : {m.get('kelly_fraction',0):6.2%}")
-                lines.append(f"½-Kelly (safe)    : {m.get('kelly_half',0):6.2%}")
-                
-            lines.append(f"Realised P&L      : ${m.get('realised_pnl',0):,.2f}")
-            lines.append(f"Unrealised P&L    : ${m.get('unrealised_pnl',0):,.2f}")
-            lines.append(f"Net P&L           : ${m.get('net_pnl',0):,.2f}")
-            lines.append(f"Total Fees        : ${m.get('total_fees',0):,.2f}")
-            lines.append(f"Gross P&L         : ${m.get('gross_pnl',0):,.2f}")
+            lines.append("Signal Breakdown:")
+            for signal_type, count in signal_counts.items():
+                lines.append(f"  • {signal_type}: {count}")
+        
+        # Calculate and display performance metrics
+        metrics = self.calc_summary_metrics()
+        
+        lines.append("")
+        lines.append("Performance Metrics:")
+        lines.append(f"  • Total Return: {metrics.get('total_return', 0):.2%}")
+        lines.append(f"  • Sharpe Ratio: {metrics.get('sharpe_ratio', 0):.2f}")
+        lines.append(f"  • Sortino Ratio: {metrics.get('sortino_ratio', 0):.2f}")
+        lines.append(f"  • Max Drawdown: {metrics.get('max_drawdown', 0):.2%}")
+        lines.append(f"  • Win Rate: {metrics.get('win_rate', 0):.2%}")
+        lines.append(f"  • Profit Factor: {metrics.get('profit_factor', 0):.2f}")
+        
         return "\n".join(lines)
 
-    # ------------------------------------------------------------------
-    # PERSISTENCE HELPERS
-    # ------------------------------------------------------------------
     def save_trades(self, path: str) -> None:
-        df = pd.DataFrame([t.__dict__ for t in self._trades])
-        df.to_csv(path, index=False)
+        """Save trades to CSV."""
+        if self._trades:
+            df = pd.DataFrame([t.__dict__ for t in self._trades])
+            df.to_csv(path, index=False)
+            logger.info(f"Saved {len(self._trades)} trades to {path}")
 
     def save_equity_curve(self, path: str) -> None:
-        curve = self.calc_equity_curve()
-        if curve.empty:
-            return
-        curve.to_csv(path, header=["equity"])
+        """Stub: No equity curve to save."""
+        logger.info("No equity curve data to save (calculations removed)")
     
     def save_cash_history(self, path: str) -> None:
         """Save cash balance history to CSV."""
-        if self._cash_history.empty:
-            return
-        self._cash_history.to_csv(path, header=["cash_balance"])
+        if not self._cash_history.empty:
+            self._cash_history.to_csv(path, header=["cash_balance"])
+            logger.info(f"Saved cash history to {path}")
 
     def display_enhanced_summary(self) -> None:
         """Display enhanced statistics summary using Rich formatting."""
         console = Console()
         
-        # Get metrics
-        m = self.calc_summary_metrics()
-        
-        if not m or len(m) == 1:
-            console.print(Panel("No data collected yet.", title="📊 Statistics Summary"))
-            return
-        
         # Session Overview Panel
         session_panel = self._create_session_panel()
         
-        # Portfolio Statistics Panel  
-        portfolio_panel = self._create_portfolio_panel(m)
+        # Basic Info Panel
+        basic_panel = self._create_basic_panel()
         
-        # Trade Analytics Panel
-        trade_panel = self._create_trade_panel(m)
+        # Performance Metrics Panel
+        metrics_panel = self._create_metrics_panel()
         
         # Print all panels
         console.print(session_panel)
-        console.print(portfolio_panel)
-        console.print(trade_panel)
+        console.print(basic_panel)
+        console.print(metrics_panel)
     
     def _create_session_panel(self) -> Panel:
         """Create the session overview panel."""
@@ -1118,137 +1092,104 @@ class StatisticsManager:
         
         return Panel(table, title="📊 Session Overview", box=box.ROUNDED)
     
-    def _create_portfolio_panel(self, metrics: Dict[str, Any]) -> Panel:
-        """Create the portfolio statistics panel."""
+    def _create_basic_panel(self) -> Panel:
+        """Create the basic info panel with standardized P&L calculations."""
         table = Table.grid(padding=(0, 2))
         table.add_column(style="bold white", justify="left")
         table.add_column(justify="right")
         
-        # Equity and cash info
-        current_equity = metrics.get('current_equity', 0)
-        current_cash = metrics.get('current_cash', 0)
-        initial_cash = metrics.get('initial_cash', 0)
-        equity_peak = metrics.get('equity_peak', 0)
+        # Get standardized metrics
+        metrics = self.calc_summary_metrics()
         
-        table.add_row("Current Equity", f"${current_equity:,.2f}")
+        # Basic info with standardized calculations
+        initial_cash = self._initial_cash
+        trades_count = len(self._trades)
+        signals_count = len(self._signal_history)
+        realized_pnl = metrics.get('realised_pnl', 0.0)
+        unrealized_pnl = metrics.get('unrealised_pnl', 0.0)
+        net_pnl = metrics.get('net_pnl', 0.0)
+        current_equity = metrics.get('current_equity', self._initial_cash)
+        
+        # Calculate current cash consistently with P&L
+        current_cash = initial_cash + realized_pnl
+        
         table.add_row("Current Cash", f"${current_cash:,.2f}")
         table.add_row("Initial Cash", f"${initial_cash:,.2f}")
-        table.add_row("Equity Peak", f"${equity_peak:,.2f}")
+        table.add_row("Realized P&L", f"${realized_pnl:,.2f}")
+        table.add_row("Unrealized P&L", f"${unrealized_pnl:,.2f}")
+        table.add_row("Net P&L", f"${net_pnl:,.2f}")
+        table.add_row("Current Equity", f"${current_equity:,.2f}")
+        table.add_row("Trades Recorded", f"{trades_count}")
+        table.add_row("Signals Recorded", f"{signals_count}")
         
-        # Returns and risk metrics
-        if "total_return" in metrics:
-            total_return = metrics['total_return']
-            annualized_return = metrics.get('annualized_return', 0)
-            annualized_vol = metrics.get('annualized_volatility', 0)
-            max_dd = metrics['max_drawdown']
-            avg_dd = metrics.get('avg_drawdown', 0)
-            exposure_time = metrics.get('exposure_time', 0)
-            
-            # Color coding for returns
-            total_return_color = "green" if total_return >= 0 else "red"
-            ann_return_color = "green" if annualized_return >= 0 else "red"
-            
-            table.add_row("", "")  # Spacing
-            table.add_row("Total Return", f"[{total_return_color}]{total_return*100:6.2f}%[/{total_return_color}]")
-            table.add_row("Annualized Return", f"[{ann_return_color}]{annualized_return*100:6.2f}%[/{ann_return_color}]")
-            table.add_row("Annualized Vol", f"{annualized_vol*100:6.2f}%")
-            table.add_row("Max Drawdown", f"[red]{max_dd*100:6.2f}%[/red]")
-            table.add_row("Avg Drawdown", f"[red]{avg_dd*100:6.2f}%[/red]")
-            table.add_row("Max DD Duration", f"{metrics.get('max_drawdown_duration', 0)} periods")
-            table.add_row("Exposure Time", f"{exposure_time*100:6.2f}%")
-            
-            # Ratios
-            sharpe = metrics['sharpe']
-            sortino = metrics.get('sortino_ratio', 0)
-            calmar = metrics.get('calmar_ratio', 0)
-            
-            table.add_row("", "")  # Spacing
-            table.add_row("Sharpe Ratio", f"{sharpe:.3f}")
-            table.add_row("Sortino Ratio", f"{sortino:.3f}")
-            table.add_row("Calmar Ratio", f"{calmar:.3f}")
-            
-            # Best/worst day
-            best_day = metrics.get('best_day', 0)
-            worst_day = metrics.get('worst_day', 0)
-            
-            table.add_row("", "")  # Spacing
-            table.add_row("Best Day", f"[green]{best_day*100:6.2f}%[/green]")
-            table.add_row("Worst Day", f"[red]{worst_day*100:6.2f}%[/red]")
-        
-        return Panel(table, title="📈 Portfolio Statistics", box=box.ROUNDED)
+        return Panel(table, title="📈 Basic Info", box=box.ROUNDED)
     
-    def _create_trade_panel(self, metrics: Dict[str, Any]) -> Panel:
-        """Create the trade analytics panel."""
+    def _create_metrics_panel(self) -> Panel:
+        """Create the performance metrics panel with calculated values organized by category."""
+        metrics = self.calc_summary_metrics()
+        
         table = Table.grid(padding=(0, 2))
         table.add_column(style="bold white", justify="left") 
         table.add_column(justify="right")
         
-        # Basic trade info
-        trades = metrics.get('trades', 0)
-        table.add_row("Total Trades", f"{trades}")
-        
-        # Round trip analysis
-        if metrics.get('round_trips', 0) > 0:
-            round_trips = metrics.get('round_trips', 0)
-            win_rate = metrics.get('win_rate', 0)
-            loss_rate = metrics.get('loss_rate', 0)
-            profit_factor = metrics.get('profit_factor', 0)
-            win_count = metrics.get('win_count', 0)
-            loss_count = metrics.get('loss_count', 0)
-            
-            table.add_row("Round Trips", f"{round_trips}")
-            table.add_row("Win Rate", f"[green]{win_rate*100:6.2f}%[/green]")
-            table.add_row("Loss Rate", f"[red]{loss_rate*100:6.2f}%[/red]")
-            table.add_row("Profit Factor", f"{profit_factor:.3f}")
-            table.add_row("Winners/Losers", f"[green]{win_count}[/green]/[red]{loss_count}[/red]")
-            
-            # Average trade metrics
-            avg_win = metrics.get('avg_win', 0)
-            avg_loss = metrics.get('avg_loss', 0)
-            expectancy = metrics.get('expectancy', 0)
-            avg_win_pct = metrics.get('avg_win_pct', 0)
-            avg_loss_pct = metrics.get('avg_loss_pct', 0)
-            
-            table.add_row("", "")  # Spacing
-            table.add_row("Average $ Win", f"[green]${avg_win:,.2f}[/green]")
-            table.add_row("Average $ Loss", f"[red]${avg_loss:,.2f}[/red]")
-            table.add_row("Expectancy", f"${expectancy:,.2f}")
-            table.add_row("Average % Win", f"[green]{avg_win_pct*100:6.2f}%[/green]")
-            table.add_row("Average % Loss", f"[red]{avg_loss_pct*100:6.2f}%[/red]")
-            
-            # Hold time and frequency
-            avg_hold_bars = metrics.get('avg_hold_time_bars', 0)
-            avg_hold_days = metrics.get('avg_hold_time_seconds', 0) / 86400
-            trade_frequency = metrics.get('trade_frequency', 0)
-            kelly_fraction = metrics.get('kelly_fraction', 0)
-            kelly_half = metrics.get('kelly_half', 0)
-            
-            table.add_row("", "")  # Spacing
-            table.add_row("Avg Hold (bars)", f"{avg_hold_bars:,.1f}")
-            table.add_row("Avg Hold (days)", f"{avg_hold_days:,.1f}")
-            table.add_row("Trade Frequency", f"{trade_frequency:,.1f} per year")
-            table.add_row("Kelly Fraction", f"{kelly_fraction:6.2%}")
-            table.add_row("½-Kelly (safe)", f"{kelly_half:6.2%}")
-        
-        # P&L breakdown
-        realised_pnl = metrics.get('realised_pnl', 0)
-        unrealised_pnl = metrics.get('unrealised_pnl', 0) 
-        net_pnl = metrics.get('net_pnl', 0)
-        total_fees = metrics.get('total_fees', 0)
-        gross_pnl = metrics.get('gross_pnl', 0)
+        # Return Metrics
+        table.add_row("[bold cyan]📈 Return Metrics[/bold cyan]", "")
+        table.add_row("Total Return", f"{metrics.get('total_return', 0):.2%}")
+        table.add_row("Annualized Return", f"{metrics.get('annualized_return', 0):.2%}")
+        table.add_row("Avg Period Return", f"{metrics.get('expected_daily_return', 0):.2%}")
+        table.add_row("Best Period", f"{metrics.get('best_period', 0):.2%}")
+        table.add_row("Worst Period", f"{metrics.get('worst_period', 0):.2%}")
         
         table.add_row("", "")  # Spacing
         
-        # Color code P&L
-        realised_color = "green" if realised_pnl >= 0 else "red"
-        unrealised_color = "green" if unrealised_pnl >= 0 else "red"
-        net_color = "green" if net_pnl >= 0 else "red"
-        gross_color = "green" if gross_pnl >= 0 else "red"
+        # Risk Metrics
+        table.add_row("[bold red]⚠️ Risk Metrics[/bold red]", "")
+        table.add_row("Sharpe Ratio", f"{metrics.get('sharpe_ratio', 0):.2f}")
+        table.add_row("Sortino Ratio", f"{metrics.get('sortino_ratio', 0):.2f}")
+        table.add_row("Calmar Ratio", f"{metrics.get('calmar_ratio', 0):.2f}")
+        table.add_row("Annualized Volatility", f"{metrics.get('annualized_volatility', 0):.2%}")
+        table.add_row("Max Drawdown", f"{metrics.get('max_drawdown', 0):.2%}")
+        table.add_row("Avg Drawdown", f"{metrics.get('avg_drawdown', 0):.2%}")
+        table.add_row("Max DD Duration", f"{metrics.get('max_drawdown_duration', 0)}")
+        table.add_row("Avg DD Duration", f"{metrics.get('avg_drawdown_duration', 0):.1f}")
         
-        table.add_row("Realised P&L", f"[{realised_color}]${realised_pnl:,.2f}[/{realised_color}]")
-        table.add_row("Unrealised P&L", f"[{unrealised_color}]${unrealised_pnl:,.2f}[/{unrealised_color}]")
-        table.add_row("Net P&L", f"[{net_color}]${net_pnl:,.2f}[/{net_color}]")
-        table.add_row("Total Fees", f"${total_fees:,.2f}")
-        table.add_row("Gross P&L", f"[{gross_color}]${gross_pnl:,.2f}[/{gross_color}]")
+        table.add_row("", "")  # Spacing
         
-        return Panel(table, title="📊 Trade Analytics", box=box.ROUNDED) 
+        # Trade Statistics
+        table.add_row("[bold green]📊 Trade Statistics[/bold green]", "")
+        table.add_row("Win Rate", f"{metrics.get('win_rate', 0):.2%}")
+        table.add_row("Loss Rate", f"{metrics.get('loss_rate', 0):.2%}")
+        table.add_row("Profit Factor", f"{metrics.get('profit_factor', 0):.2f}")
+        table.add_row("Round Trips", f"{metrics.get('total_trades', 0)}")
+        table.add_row("Win Count", f"{metrics.get('win_count', 0)}")
+        table.add_row("Loss Count", f"{metrics.get('loss_count', 0)}")
+        table.add_row("Breakeven Count", f"{metrics.get('breakeven_count', 0)}")
+        table.add_row("Avg Win", f"${metrics.get('avg_win', 0):,.2f}")
+        table.add_row("Avg Loss", f"${metrics.get('avg_loss', 0):,.2f}")
+        table.add_row("Expectancy", f"${metrics.get('expectancy', 0):,.2f}")
+        table.add_row("Avg Win %", f"{metrics.get('avg_win_pct', 0):.2%}")
+        table.add_row("Avg Loss %", f"{metrics.get('avg_loss_pct', 0):.2%}")
+        table.add_row("Avg Hold Time (bars)", f"{metrics.get('avg_hold_time_bars', 0):.1f}")
+        table.add_row("Avg Hold Time (sec)", f"{metrics.get('avg_hold_time_seconds', 0):.0f}")
+        table.add_row("Trade Frequency", f"{metrics.get('trade_frequency', 0):.2f}")
+        
+        table.add_row("", "")  # Spacing
+        
+        # P&L & Financial Metrics
+        table.add_row("[bold yellow]💰 P&L & Financial[/bold yellow]", "")
+        table.add_row("Realised P&L", f"${metrics.get('realised_pnl', 0):,.2f}")
+        table.add_row("Unrealised P&L", f"${metrics.get('unrealised_pnl', 0):,.2f}")
+        table.add_row("Net P&L", f"${metrics.get('net_pnl', 0):,.2f}")
+        table.add_row("Gross P&L", f"${metrics.get('gross_pnl', 0):,.2f}")
+        table.add_row("Total Fees", f"${metrics.get('total_fees', 0):,.2f}")
+        table.add_row("Current Equity", f"${metrics.get('current_equity', 0):,.2f}")
+        
+        table.add_row("", "")  # Spacing
+        
+        # Strategy Metrics
+        table.add_row("[bold magenta]🎯 Strategy Metrics[/bold magenta]", "")
+        table.add_row("Exposure Time", f"{metrics.get('exposure_time', 0):.1f} days")
+        table.add_row("Exposure %", f"{metrics.get('exposure_percentage', 0):.1f}%")
+        table.add_row("Kelly Fraction", f"{metrics.get('kelly_fraction', 0):.2f}")
+        
+        return Panel(table, title="📊 Performance Metrics", box=box.ROUNDED) 

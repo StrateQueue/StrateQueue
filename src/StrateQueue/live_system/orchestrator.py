@@ -33,7 +33,7 @@ class LiveTradingSystem:
                  data_source: str = "demo", granularity: str = "1m", lookback_override: int | None = None,
                  enable_trading: bool = False, multi_strategy_config: str | None = None,
                  broker_type: str | None = None, paper_trading: bool = True, engine_type: str | None = None,
-                 position_sizer=None):
+                 position_sizer=None, allocation: float = 0.0):
         """
         Initialize live trading system
         
@@ -66,8 +66,8 @@ class LiveTradingSystem:
         # Load configuration
         self.data_config, self.trading_config = load_config()
 
-        # Initialize statistics manager with default cash (will be updated from broker if available)
-        self.statistics_manager = StatisticsManager(initial_cash=100000.0)
+        # Initialize statistics manager with default cash and allocation (will be updated from broker if available)
+        self.statistics_manager = StatisticsManager(initial_cash=100000.0, allocation=allocation)
 
         # Initialize strategy components
         self._initialize_strategies(strategy_path, multi_strategy_config)

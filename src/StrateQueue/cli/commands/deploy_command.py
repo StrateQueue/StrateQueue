@@ -317,6 +317,15 @@ class DeployCommand(BaseCommand):
                 logger.info("Created temporary multi-strategy configuration")
                 print("📊 Multi-strategy mode - temporary config created")
 
+                # Get allocation value for statistics (use first allocation for multi-strategy)
+                allocation_value = 0.0
+                if hasattr(args, '_allocations') and args._allocations:
+                    allocation_value = float(args._allocations[0])
+                    # If allocation is <= 1.0, treat as percentage of 100k initial capital
+                    if allocation_value <= 1.0:
+                        allocation_value = allocation_value * 100000.0
+                    # Otherwise, treat as dollar amount (e.g., 25000 = $25,000)
+
                 # Initialize multi-strategy system
                 system = LiveTradingSystem(
                     symbols=symbols,
@@ -326,7 +335,8 @@ class DeployCommand(BaseCommand):
                     multi_strategy_config=temp_config.name,
                     broker_type=args._brokers[0] if args._brokers and args._brokers[0] != 'auto' else None,
                     paper_trading=paper_trading,
-                    lookback_override=args.lookback
+                    lookback_override=args.lookback,
+                    allocation=allocation_value
                 )
 
                 print(f"🚀 Starting multi-strategy system for {args.duration} minutes...")
@@ -382,6 +392,15 @@ class DeployCommand(BaseCommand):
                     from ...core.position_sizer import PercentOfCapitalSizing, PositionSizer
                     position_sizer = PositionSizer(PercentOfCapitalSizing(allocation_value))
 
+            # Get allocation value for statistics
+            allocation_value = 0.0
+            if hasattr(args, '_allocations') and args._allocations:
+                allocation_value = float(args._allocations[0])
+                # If allocation is <= 1.0, treat as percentage of 100k initial capital
+                if allocation_value <= 1.0:
+                    allocation_value = allocation_value * 100000.0
+                # Otherwise, treat as dollar amount (e.g., 25000 = $25,000)
+
             # Initialize single strategy system
             system = LiveTradingSystem(
                 strategy_path=strategy_path,
@@ -393,7 +412,8 @@ class DeployCommand(BaseCommand):
                 paper_trading=paper_trading,
                 lookback_override=args.lookback,
                 engine_type=getattr(args, 'engine', None),
-                position_sizer=position_sizer
+                position_sizer=position_sizer,
+                allocation=allocation_value
             )
 
             print(f"🚀 Starting single strategy system for {args.duration} minutes...")
