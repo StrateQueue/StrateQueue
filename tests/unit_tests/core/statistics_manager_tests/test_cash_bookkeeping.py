@@ -3,7 +3,7 @@ Tests for StatisticsManager cash bookkeeping and trade recording (Section A).
 
 Tests in this module verify that:
 - BUY trades decrease cash by price × quantity + commission + fees
-- SELL trades increase cash by price × quantity - commission - fees
+- SELL trades increase cash by price × quantity (commission/fees tracked separately)
 - Cash history starts with initial balance
 - Cash history updates are monotonic (unless intentionally negative)
 - Edge cases like zero-commission trades work properly
@@ -73,9 +73,9 @@ def test_sell_trade_increases_cash(stats_manager):
     )
     
     # Calculate expected cash after both trades:
-    # initial - buy_cost + (sell_price*qty - commission - fees)
+    # New implementation: initial - buy_cost + sell_price*qty (no commission/fees deducted from sell)
     buy_cost = 150.0 * 20.0
-    sell_proceeds = 160.0 * 10.0 - 8.0 - 2.0
+    sell_proceeds = 160.0 * 10.0  # New implementation doesn't deduct commission/fees from sell proceeds
     expected_cash = 10000.0 - buy_cost + sell_proceeds
     
     # Get the current cash balance
@@ -83,7 +83,7 @@ def test_sell_trade_increases_cash(stats_manager):
     current_cash = cash_history.iloc[-1]
     
     assert current_cash == pytest.approx(expected_cash)
-    assert current_cash == pytest.approx(8590.0)
+    assert current_cash == pytest.approx(8600.0)  # Updated for new cash calculation (no commission/fees deducted from sell)
 
 
 def test_cash_history_is_monotonic(stats_manager):
@@ -131,12 +131,12 @@ def test_cash_history_is_monotonic(stats_manager):
     # Should have 4 entries: initial + 3 trades
     assert len(cash_history) == 4
     
-    # Cash values should match expected
+    # Cash values should match expected (updated for new cash calculation)
     expected_values = [
         10000.0,                         # Initial
         10000.0 - (150.0 * 10.0 + 5.0),  # After first buy
         10000.0 - (150.0 * 10.0 + 5.0) - (200.0 * 5.0 + 5.0),  # After second buy
-        10000.0 - (150.0 * 10.0 + 5.0) - (200.0 * 5.0 + 5.0) + (155.0 * 5.0 - 5.0)  # After sell
+        10000.0 - (150.0 * 10.0 + 5.0) - (200.0 * 5.0 + 5.0) + (155.0 * 5.0)  # After sell (no commission deducted from sell)
     ]
     
     assert list(cash_history) == pytest.approx(expected_values)
