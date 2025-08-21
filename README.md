@@ -134,9 +134,9 @@ stratequeue webui
 
 **🛡️ Safe by Default** — Signals-only mode by default. No accidental trades.
 
-**🔌 Engine Agnostic** — Works with backtesting.py, VectorBT, Backtrader, Zipline-Reloaded, and more coming soon.
+**🔌 Engine Agnostic** — Works with backtesting.py, VectorBT, Backtrader, Zipline-Reloaded, bt, and more coming soon.
 
-**🏦 Multi-Broker** — Unified API across Interactive Brokers, Alpaca, and more coming soon.
+**🏦 Multi-Broker** — Unified API across IBKR, Alpaca, and 250+ more brokers.
 
 **🎯 Portfolio Management** — Deploy single strategies or manage hundreds across multiple accounts
 
