@@ -32,13 +32,13 @@ class TestDataIngestion(BaseDataIngestion):
 
         # Base prices for different symbols (defaults if not provided)
         self.base_prices = base_prices or {
-            "AAPL": random.uniform(0.25, 500),
-            "MSFT": random.uniform(0.25, 500),
-            "GOOGL": random.uniform(0.25, 500),
-            "TSLA": random.uniform(0.25, 500),
-            "NVDA": random.uniform(0.25, 500),
-            "BTC": random.uniform(0.25, 500),
-            "ETH": random.uniform(0.25, 500),
+            "AAPL": 175.0,
+            "MSFT": 350.0,
+            "GOOGL": 2800.0,
+            "TSLA": 250.0,
+            "NVDA": 500.0,
+            "BTC": 45000.0,
+            "ETH": 3000.0,
         }
 
         # Current prices (will fluctuate from base prices)
@@ -46,7 +46,7 @@ class TestDataIngestion(BaseDataIngestion):
 
         # Simulation parameters
         self.update_interval = 1.0  # seconds between updates
-        self.price_volatility = 0.001  # 0.1% volatility (much more realistic)
+        self.price_volatility = 0.02  # 2% volatility
 
         # Real-time simulation tracking
         self.is_connected = False
