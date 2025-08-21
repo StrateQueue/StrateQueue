@@ -6,6 +6,7 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-yellow.svg)](https://github.com/StrateQueue/StrateQueue/blob/main/LICENSE)
 [![GitHub contributors](https://img.shields.io/github/contributors/StrateQueue/StrateQueue)](https://github.com/StrateQueue/StrateQueue/graphs/contributors)
 [![Downloads](https://pepy.tech/badge/stratequeue)](https://pepy.tech/project/stratequeue)
+![GitHub forks](https://img.shields.io/github/forks/StrateQueue/StrateQueue?style=social)
 [![GitHub stars](https://img.shields.io/github/stars/StrateQueue/StrateQueue?refresh=1)](https://github.com/StrateQueue/StrateQueue/stargazers)
 <!---[![codecov](https://codecov.io/gh/stratequeue/stratequeue/branch/main/graph/badge.svg)](https://codecov.io/gh/stratequeue/stratequeue)-->
 
