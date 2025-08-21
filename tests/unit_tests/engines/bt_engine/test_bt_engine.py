@@ -34,7 +34,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[4]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.StrateQueue.engines.bt_engine import BtEngine, BtEngineStrategy
+from src.StrateQueue.engines.bt_engine import BtEngine, BtEngineStrategy, BT_AVAILABLE
 from src.StrateQueue.engines.engine_base import TradingEngine, EngineInfo
 
 
@@ -221,6 +221,7 @@ def test_A6_algos_validation_edge_cases(mock_bt_available):
 # B. Strategy loading and wrapping tests (Requirement 3.2)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skipif(not BT_AVAILABLE, reason="bt library not available")
 def test_B1_create_engine_strategy_wraps_correctly(mock_bt_available, valid_bt_strategy):
     """B1: create_engine_strategy wraps bt.Strategy objects correctly"""
     # Ensure we have consistent imports after any module clearing from integration tests
