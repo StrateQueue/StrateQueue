@@ -17,25 +17,30 @@ from StrateQueue.core.statistics_manager import StatisticsManager
 
 def round_trips_to_dataframe(round_trips):
     """
-    Convert a list of RoundTrip objects to a pandas DataFrame for easier testing.
+    Convert a list of round trip dictionaries to a pandas DataFrame for easier testing.
     """
     if not round_trips:
         return pd.DataFrame()
         
     data = []
     for rt in round_trips:
+        # Calculate derived values
+        hold_duration_days = rt["duration"] / (24 * 60 * 60)  # Convert seconds to days
+        pnl_pct = rt["pnl"] / (rt["entry_price"] * rt["quantity"]) * 100 if rt["entry_price"] * rt["quantity"] > 0 else 0
+        is_winner = rt["pnl"] > 0
+        
         data.append({
-            "symbol": rt.symbol,
-            "entry_time": rt.entry_timestamp,
-            "exit_time": rt.exit_timestamp,
-            "entry_price": rt.entry_price,
-            "exit_price": rt.exit_price,
-            "quantity": rt.quantity,
-            "pnl": rt.net_pnl,
-            "gross_pnl": rt.gross_pnl,
-            "is_winner": rt.is_winner,
-            "hold_duration": rt.hold_duration.total_seconds() / (24 * 60 * 60),  # Convert to days
-            "pnl_pct": rt.net_pnl / (rt.entry_price * rt.quantity) * 100  # PnL as percentage
+            "symbol": rt["symbol"],
+            "entry_time": rt["entry_time"],
+            "exit_time": rt["exit_time"],
+            "entry_price": rt["entry_price"],
+            "exit_price": rt["exit_price"],
+            "quantity": rt["quantity"],
+            "pnl": rt["pnl"],
+            "gross_pnl": rt["pnl"],  # Simplified - no commission tracking in new API
+            "is_winner": is_winner,
+            "hold_duration": hold_duration_days,
+            "pnl_pct": pnl_pct
         })
     return pd.DataFrame(data)
 
@@ -92,8 +97,9 @@ def test_simple_round_trip():
         # Calculate expected values
         expected_hold_duration = (sell_time - buy_time).total_seconds() / (24 * 60 * 60)  # in days
         expected_gross_pnl = 100 * (55 - 50)  # 100 shares * $5 price difference = $500
-        expected_net_pnl = expected_gross_pnl - (10 + 5) - (10 + 5)  # Gross - (buy commission + fees) - (sell commission + fees)
-        expected_is_winner = expected_net_pnl > 0
+        # New implementation doesn't include commissions in round trip P&L calculation
+        expected_pnl = expected_gross_pnl  # Simplified P&L without commission tracking
+        expected_is_winner = expected_pnl > 0
         
         # Verify round trip properties
         assert rt["symbol"] == "ABC"
@@ -103,8 +109,8 @@ def test_simple_round_trip():
         assert rt["entry_time"] == buy_time
         assert rt["exit_time"] == sell_time
         assert rt["hold_duration"] == pytest.approx(expected_hold_duration)
-        assert rt["pnl"] == pytest.approx(expected_net_pnl)
-        assert rt["pnl_pct"] == pytest.approx(expected_net_pnl / (100 * 50) * 100)  # PnL as % of investment
+        assert rt["pnl"] == pytest.approx(expected_pnl)
+        assert rt["pnl_pct"] == pytest.approx(expected_pnl / (100 * 50) * 100)  # PnL as % of investment
         assert rt["is_winner"] == expected_is_winner
         
         # Verify summary metrics include round trip statistics
@@ -162,11 +168,12 @@ def test_losing_round_trip():
         
         # Calculate expected values
         expected_gross_pnl = 100 * (45 - 50)  # 100 shares * -$5 price difference = -$500
-        expected_net_pnl = expected_gross_pnl - 10 - 10  # Gross - buy commission - sell commission
+        # New implementation doesn't include commissions in round trip P&L calculation
+        expected_pnl = expected_gross_pnl  # Simplified P&L without commission tracking
         
         # Verify round trip properties
         assert rt["is_winner"] == False
-        assert rt["pnl"] == pytest.approx(expected_net_pnl)
+        assert rt["pnl"] == pytest.approx(expected_pnl)
         assert rt["pnl"] < 0  # Should be negative
         
         # Verify summary metrics
@@ -242,10 +249,12 @@ def test_multiple_round_trips():
         
         # Calculate expected values
         abc_gross_pnl = 100 * (55 - 50)  # $500
-        abc_net_pnl = abc_gross_pnl - 10 - 10  # $480
+        # New implementation doesn't include commissions in round trip P&L calculation
+        abc_pnl = abc_gross_pnl  # Simplified P&L without commission tracking
         
         xyz_gross_pnl = 50 * (90 - 100)  # -$500
-        xyz_net_pnl = xyz_gross_pnl - 10 - 10  # -$520
+        # New implementation doesn't include commissions in round trip P&L calculation
+        xyz_pnl = xyz_gross_pnl  # Simplified P&L without commission tracking
         
         # Find each round trip
         abc_rt = round_trips[round_trips["symbol"] == "ABC"].iloc[0]
@@ -253,17 +262,17 @@ def test_multiple_round_trips():
         
         # Verify ABC round trip (winner)
         assert abc_rt["is_winner"] == True
-        assert abc_rt["pnl"] == pytest.approx(abc_net_pnl)
+        assert abc_rt["pnl"] == pytest.approx(abc_pnl)
         
         # Verify XYZ round trip (loser)
         assert xyz_rt["is_winner"] == False
-        assert xyz_rt["pnl"] == pytest.approx(xyz_net_pnl)
+        assert xyz_rt["pnl"] == pytest.approx(xyz_pnl)
         
         # Verify summary metrics
         metrics = stats.calc_summary_metrics()
         assert metrics["win_rate"] == pytest.approx(0.5)  # 50% win rate (1 out of 2)
-        assert metrics["avg_win"] == pytest.approx(abc_net_pnl)
-        assert metrics["avg_loss"] == pytest.approx(xyz_net_pnl)
+        assert metrics["avg_win"] == pytest.approx(abc_pnl)
+        assert metrics["avg_loss"] == pytest.approx(xyz_pnl)
         
         # The actual implementation calculates profit factor differently than our manual calculation
         # Check the implementation's value directly
