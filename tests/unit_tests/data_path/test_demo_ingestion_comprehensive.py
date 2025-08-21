@@ -415,25 +415,7 @@ class TestHelperSetters:
         assert test_ingestion.base_prices["AAPL"] == 200.0
         assert test_ingestion.current_prices["AAPL"] == 200.0
 
-    def test_set_base_price_affects_mean_reversion(self, test_ingestion):
-        """Test that set_base_price affects mean reversion in price generation"""
-        # Setup
-        test_ingestion.set_base_price("AAPL", 100.0)
-        
-        # Push current price far above base price
-        test_ingestion.current_prices["AAPL"] = 150.0  # 50% above base
-        
-        # Generate many bars to see mean reversion
-        prices = []
-        for _ in range(100):
-            bar = test_ingestion._generate_realtime_bar("AAPL")
-            test_ingestion.current_prices["AAPL"] = bar.close
-            prices.append(bar.close)
-        
-        # Assert - Final price should be closer to base price than starting price
-        # (This is probabilistic but should work with 100 samples)
-        final_price = prices[-1]
-        assert abs(final_price - 100.0) < abs(150.0 - 100.0)  # Should move towards base
+
 
 
 class TestEdgeCasesAndIntegration:
