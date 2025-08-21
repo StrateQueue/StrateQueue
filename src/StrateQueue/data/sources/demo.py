@@ -32,13 +32,13 @@ class TestDataIngestion(BaseDataIngestion):
 
         # Base prices for different symbols (defaults if not provided)
         self.base_prices = base_prices or {
-            "AAPL": 175.0,
-            "MSFT": 400.0,
-            "GOOGL": 140.0,
-            "TSLA": 250.0,
-            "NVDA": 480.0,
-            "BTC": 45000.0,
-            "ETH": 3000.0,
+            "AAPL": random.uniform(0.25, 500),
+            "MSFT": random.uniform(0.25, 500),
+            "GOOGL": random.uniform(0.25, 500),
+            "TSLA": random.uniform(0.25, 500),
+            "NVDA": random.uniform(0.25, 500),
+            "BTC": random.uniform(0.25, 500),
+            "ETH": random.uniform(0.25, 500),
         }
 
         # Current prices (will fluctuate from base prices)
@@ -46,7 +46,7 @@ class TestDataIngestion(BaseDataIngestion):
 
         # Simulation parameters
         self.update_interval = 1.0  # seconds between updates
-        self.price_volatility = 0.02  # 2% volatility
+        self.price_volatility = 0.001  # 0.1% volatility (much more realistic)
 
         # Real-time simulation tracking
         self.is_connected = False
@@ -103,44 +103,37 @@ class TestDataIngestion(BaseDataIngestion):
             timestamps.append(current_time)
             current_time += timedelta(seconds=interval_seconds)
 
-        # Get base price for symbol
-        base_price = self.base_prices.get(symbol, random.uniform(50, 500))
+        # Get base price for symbol (random between 0.25-500)
+        base_price = self.base_prices.get(symbol, random.uniform(0.25, 500))
 
         # Generate realistic OHLCV data using random walk
         data = []
         current_price = base_price
 
         for timestamp in timestamps:
-            # Random walk with mean reversion
+            # Random walk with 0.1% max deviation between candles
             price_change_pct = random.gauss(0, self.price_volatility)
-
-            # Add some mean reversion
-            if current_price > base_price * 1.1:
-                price_change_pct -= 0.01  # Slight downward bias
-            elif current_price < base_price * 0.9:
-                price_change_pct += 0.01  # Slight upward bias
+            price_change_pct = max(-0.001, min(0.001, price_change_pct))  # Cap at 0.1%
 
             # Calculate new price
             new_price = current_price * (1 + price_change_pct)
 
-            # Generate OHLC around the price movement
+            # Generate OHLC with all values within 0.1% of each other
+            open_price = current_price
+            close_price = new_price
+            
+            # High and low within 0.1% of open/close
             if new_price > current_price:
                 # Upward movement
-                open_price = current_price
-                close_price = new_price
-                high_price = close_price * (1 + random.uniform(0, 0.01))
-                low_price = open_price * (1 - random.uniform(0, 0.005))
+                high_price = close_price * (1 + random.uniform(0, 0.001))  # Max 0.1% above close
+                low_price = open_price * (1 - random.uniform(0, 0.001))   # Max 0.1% below open
             else:
                 # Downward movement
-                open_price = current_price
-                close_price = new_price
-                low_price = close_price * (1 - random.uniform(0, 0.01))
-                high_price = open_price * (1 + random.uniform(0, 0.005))
+                high_price = open_price * (1 + random.uniform(0, 0.001))  # Max 0.1% above open
+                low_price = close_price * (1 - random.uniform(0, 0.001))  # Max 0.1% below close
 
-            # Generate volume (higher volume on bigger price movements)
-            volume_base = random.randint(100000, 1000000)
-            volume_multiplier = 1 + abs(price_change_pct) * 10
-            volume = int(volume_base * volume_multiplier)
+            # Generate volume (random between 2000-20000)
+            volume = random.randint(2000, 20000)
 
             data.append(
                 {
@@ -245,7 +238,7 @@ class TestDataIngestion(BaseDataIngestion):
     def _generate_minimal_historical_data(self, symbol: str):
         """Generate minimal historical data synchronously for a new symbol"""
         # Set up basic parameters
-        base_price = self.base_prices.get(symbol, random.uniform(50, 500))
+        base_price = self.base_prices.get(symbol, random.uniform(0.25, 500))
         self.current_prices[symbol] = base_price
 
         # Generate just a few bars to start with (synchronously)
@@ -262,23 +255,25 @@ class TestDataIngestion(BaseDataIngestion):
         for i in range(minimal_bars):
             timestamp = end_time - timedelta(seconds=(minimal_bars - i) * interval_seconds)
 
-            # Simple price walk
-            price_change_pct = random.gauss(0, 0.01)  # 1% volatility
+            # Simple price walk with 0.1% max deviation
+            price_change_pct = random.gauss(0, 0.001)  # 0.1% volatility
+            price_change_pct = max(-0.001, min(0.001, price_change_pct))  # Cap at 0.1%
             new_price = current_price * (1 + price_change_pct)
 
-            # Generate OHLC
+            # Generate OHLC with all values within 0.1% of each other
+            open_price = current_price
+            close_price = new_price
+            
             if new_price > current_price:
-                open_price = current_price
-                close_price = new_price
-                high_price = close_price * (1 + random.uniform(0, 0.005))
-                low_price = open_price * (1 - random.uniform(0, 0.002))
+                # Upward movement
+                high_price = close_price * (1 + random.uniform(0, 0.001))  # Max 0.1% above close
+                low_price = open_price * (1 - random.uniform(0, 0.001))   # Max 0.1% below open
             else:
-                open_price = current_price
-                close_price = new_price
-                low_price = close_price * (1 - random.uniform(0, 0.005))
-                high_price = open_price * (1 + random.uniform(0, 0.002))
+                # Downward movement
+                high_price = open_price * (1 + random.uniform(0, 0.001))  # Max 0.1% above open
+                low_price = close_price * (1 - random.uniform(0, 0.001))  # Max 0.1% below close
 
-            volume = random.randint(50000, 200000)
+            volume = random.randint(2000, 20000)
 
             data.append(
                 {
@@ -312,46 +307,31 @@ class TestDataIngestion(BaseDataIngestion):
     def _generate_realtime_bar(self, symbol: str) -> MarketData:
         """Generate a single realistic bar for real-time simulation"""
 
-        base_price = self.base_prices.get(symbol, 100.0)
+        base_price = self.base_prices.get(symbol, random.uniform(0.25, 500))
         current_price = self.current_prices.get(symbol, base_price)
 
-        # Random price movement with mean reversion
+        # Random price movement with 0.1% max deviation
         price_change_pct = random.gauss(0, self.price_volatility)
-
-        # Improved mean reversion tendency - stronger and more responsive
-        # Calculate distance from base price as a percentage
-        distance_from_base = (current_price - base_price) / base_price
-        
-        # Apply stronger mean reversion force that scales with distance
-        # The further away from base price, the stronger the reversion force
-        reversion_strength = abs(distance_from_base) * 0.1  # Scale factor
-        
-        if distance_from_base > 0.05:  # More than 5% above base price
-            # Apply downward bias proportional to distance
-            price_change_pct -= min(reversion_strength, 0.02)  # Cap at 2% reversion
-        elif distance_from_base < -0.05:  # More than 5% below base price
-            # Apply upward bias proportional to distance
-            price_change_pct += min(reversion_strength, 0.02)  # Cap at 2% reversion
+        price_change_pct = max(-0.001, min(0.001, price_change_pct))  # Cap at 0.1%
 
         # Calculate new close price
         new_close = current_price * (1 + price_change_pct)
 
-        # Generate OHLC
+        # Generate OHLC with all values within 0.1% of each other
+        open_price = current_price
+        close_price = new_close
+        
         if new_close > current_price:
             # Up bar
-            open_price = current_price
-            close_price = new_close
-            high_price = close_price * (1 + random.uniform(0, 0.005))
-            low_price = open_price * (1 - random.uniform(0, 0.002))
+            high_price = close_price * (1 + random.uniform(0, 0.001))  # Max 0.1% above close
+            low_price = open_price * (1 - random.uniform(0, 0.001))   # Max 0.1% below open
         else:
             # Down bar
-            open_price = current_price
-            close_price = new_close
-            low_price = close_price * (1 - random.uniform(0, 0.005))
-            high_price = open_price * (1 + random.uniform(0, 0.002))
+            high_price = open_price * (1 + random.uniform(0, 0.001))  # Max 0.1% above open
+            low_price = close_price * (1 - random.uniform(0, 0.001))  # Max 0.1% below close
 
-        # Generate volume
-        volume = random.randint(50000, 500000)
+        # Generate volume (random between 2000-20000)
+        volume = random.randint(2000, 20000)
 
         # Use simulated time progression for demo mode (advance by granularity interval)
         self.simulated_time += timedelta(seconds=self.granularity_seconds)
@@ -398,7 +378,7 @@ class TestDataIngestion(BaseDataIngestion):
 
             # Initialize current price if not exists
             if symbol not in self.current_prices:
-                self.current_prices[symbol] = self.base_prices.get(symbol, random.uniform(50, 500))
+                self.current_prices[symbol] = self.base_prices.get(symbol, random.uniform(0.25, 500))
 
     def start_realtime_feed(self):
         """Start the real-time data simulation"""
