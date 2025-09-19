@@ -72,7 +72,7 @@ backtesting = [
 # VectorBT engine support (NumPy 1.x only due to dependency conflicts)
 vectorbt = [
     "numpy>=1.21,<1.24",
-    "numba>=0.56,<0.57",
+    "numba>=0.56,<0.63",
     "vectorbt>=0.26,<0.29",
     "pandas>=2.0,<2.4",
     "scipy>=1.9,<2.0",
@@ -150,7 +150,7 @@ all = [
     "numpy>=1.24,<3",
     "backtesting>=0.3.3",
     "vectorbt>=0.25,<0.29",
-    "numba>=0.56,<0.57",
+    "numba>=0.56,<0.63",
     "zipline-reloaded>=3.0",
     "bt>=0.2.9",
     "scipy>=1.11.0",
