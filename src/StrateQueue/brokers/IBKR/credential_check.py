@@ -46,6 +46,7 @@ def test_ibkr_credentials(host: str = "127.0.0.1", port: int = 7497, client_id: 
         import random
         client_id = random.randint(5000, 9999)
     
+    util.startLoop()
     # Use a separate IB instance for testing
     test_ib = IB()
     
@@ -114,6 +115,7 @@ def get_ibkr_connection_info(host: str = "127.0.0.1", port: int = 7497, client_i
         import random
         client_id = random.randint(6000, 9999)
     
+    util.startLoop()
     test_ib = IB()
     
     try:
