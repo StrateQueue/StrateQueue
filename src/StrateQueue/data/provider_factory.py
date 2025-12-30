@@ -101,6 +101,13 @@ class DataProviderFactory:
         except ImportError as e:
             logger.warning(f"Could not load Yahoo Finance data provider: {e}")
 
+        try:
+            from .sources.qoery import QoeryDataIngestion
+            cls._providers['qoery'] = QoeryDataIngestion
+            logger.debug("Registered Qoery data provider")
+        except ImportError as e:
+            logger.warning(f"Could not load Qoery data provider: {e}")
+
         # New: Alpaca provider (register even if SDK missing so error surfaces at creation time)
         try:
             from .sources.alpaca import AlpacaDataIngestion
@@ -109,7 +116,7 @@ class DataProviderFactory:
                 logger.debug("Registered Alpaca data provider")
             else:
                 logger.debug("Alpaca provider registered but SDK not available; will raise at instantiation")
-        except ImportError as e:
+        except Exception as e:
             logger.warning(f"Could not load Alpaca data provider: {e}")
 
         # Register IBKR data provider
@@ -187,6 +194,15 @@ class DataProviderFactory:
                 else:
                     raise ValueError(f"No config provided and failed to auto-detect from environment: {e}")
 
+        # Fallback: If config exists but has no API key, try to fill from environment
+        if config and not config.api_key:
+            try:
+                env_config = cls._get_provider_config_from_env(provider_type)
+                if env_config.get('api_key'):
+                    config.api_key = env_config.get('api_key')
+            except Exception:
+                pass
+
         # Validate granularity via provider capability first where available
         # Fallback to legacy core wrapper if capability is absent
         cls._initialize_providers()
@@ -254,6 +270,11 @@ class DataProviderFactory:
 
         elif provider_type == "yfinance":
             return provider_class(config.granularity)
+
+        elif provider_type == "qoery":
+            if not config.api_key:
+                raise ValueError("Qoery data provider requires an API key. Set QOERY_API_KEY environment variable.")
+            return provider_class(config.api_key, config.granularity)
 
         # New: Alpaca provider creation
         elif provider_type == "alpaca":
@@ -355,6 +376,11 @@ class DataProviderFactory:
 
         elif provider_type == "coinmarketcap":
             api_key = os.getenv('CMC_API_KEY')
+            if api_key:
+                config['api_key'] = api_key
+
+        elif provider_type == "qoery":
+            api_key = os.getenv('QOERY_API_KEY')
             if api_key:
                 config['api_key'] = api_key
 
@@ -551,6 +577,22 @@ class DataProviderFactory:
                 supported_granularities=["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"]
             )
 
+        elif provider_type == "qoery":
+            return DataProviderInfo(
+                name="Qoery",
+                version="1.0",
+                supported_features={
+                    "historical_data": True,
+                    "real_time_data": True,
+                    "multiple_granularities": True,
+                    "crypto": True
+                },
+                description="Affordable crypto market data API",
+                supported_markets=["crypto"],
+                requires_api_key=True,
+                supported_granularities=["30s", "1m", "5m", "15m", "45m", "1h", "4h", "12h", "1d"]
+            )
+
         elif provider_type == "alpaca":
             return DataProviderInfo(
                 name="Alpaca",
@@ -630,6 +672,10 @@ def detect_provider_type() -> str:
         if os.getenv('CMC_API_KEY'):
             logger.info("Detected CoinMarketCap API key, suggesting coinmarketcap provider")
             return 'coinmarketcap'
+
+        if os.getenv('QOERY_API_KEY'):
+            logger.info("Detected Qoery API key, suggesting qoery provider")
+            return 'qoery'
 
         # Check for Alpaca credentials (support multiple naming conventions)
         alpaca_key = (

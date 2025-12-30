@@ -86,11 +86,12 @@ try:
         get_supported_brokers,
         validate_broker_credentials,
     )
-except ImportError as e:
-    raise ImportError(
-        "Broker dependencies are required but could not be imported. "
-        "Please reinstall the package: pip install stratequeue"
-    ) from e
+except (ImportError, TypeError, Exception) as e:
+    import logging
+    logging.getLogger(__name__).warning(
+        f"Broker dependencies could not be imported: {e}. "
+        "Some functionalities may be limited."
+    )
 
 # CLI is available via console script entry point
 # No need to import here - reduces import dependencies

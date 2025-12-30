@@ -127,8 +127,9 @@ stratequeue webui
 | ├─ Polygon.io | Implemented |
 | ├─ CoinMarketCap | Implemented |
 | ├─ Alpaca | Implemented |
-| └─ Interactive Brokers | Implemented (not tested) |
-| └─ CCXT | Implemented (not tested) |
+| ├─ Interactive Brokers | Implemented (not tested) |
+| ├─ CCXT | Implemented (not tested) |
+| └─ **[Qoery](https://qoery.com)** (Cheapest) | **Use code `STRATEQUEUE25` for 25% off (Basic, Analyst, Lite0)** |
 
 ## Why StrateQueue?
 
